@@ -1,0 +1,25 @@
+{
+  "domainStrategy": "IPOnDemand",
+  "rules": [
+    {
+      "type": "field",
+      "outboundTag": "direct",
+      "ip": ["geoip:private"]
+    },
+    {
+      "type": "field",
+      "outboundTag": "direct",
+      "domain": ["full:localhost", "domain:local"]
+    },
+    {
+      "type": "field",
+      "outboundTag": "direct",
+      "domain": ["geosite:cn"]
+    },
+    {
+      "type": "field",
+      "outboundTag": "direct",
+      "ip": ["geoip:cn"]
+    }
+  ]
+}

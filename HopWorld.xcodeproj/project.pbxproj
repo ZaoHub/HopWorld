@@ -1,0 +1,1279 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		A11021000000000000000003 /* CursorUsageMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11021000000000000000004 /* CursorUsageMonitor.swift */; };
+		A11D0C4A7E6F5D4C3B2A1002 /* DockActivation.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11D0C4A7E6F5D4C3B2A1001 /* DockActivation.swift */; };
+		A11D0C4A7E6F5D4C3B2A1003 /* DockActivation.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11D0C4A7E6F5D4C3B2A1001 /* DockActivation.swift */; };
+		A11D0C4A7E6F5D4C3B2A1005 /* DockActivationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11D0C4A7E6F5D4C3B2A1004 /* DockActivationTests.swift */; };
+		A11021000000000000000001 /* CodexUsageCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11021000000000000000002 /* CodexUsageCard.swift */; };
+		05CE2C098BAFE5FAF239BBF8 /* SubscriptionParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3CF735798B765C73F1687A98 /* SubscriptionParser.swift */; };
+		08B936E312388A393503F761 /* geosite.dat in Resources */ = {isa = PBXBuildFile; fileRef = 111261DB873AEB5AA481BC8D /* geosite.dat */; };
+		0AF1618233E30D77AF67F0BF /* HopWorldTunnel.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = F0701A62C132842701751264 /* HopWorldTunnel.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		0FAF9F04E27FD7B67052D0F5 /* TrojanParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7499D9C3719C212C9947303E /* TrojanParser.swift */; };
+		121514924B731252E6CF6DB6 /* SubscriptionListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B6F965419009A28AE1F45CF /* SubscriptionListView.swift */; };
+		14D1729F7875FAE8BEA3649C /* NodeListFilter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C1F0C8E6105167F4C93407C /* NodeListFilter.swift */; };
+		15CB7EB40FC83AE6A1DD30F4 /* FinalMaskCodec.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD8AF450769D0A9ADB8E8177 /* FinalMaskCodec.swift */; };
+		16F12D8649B0B3B865DA68D5 /* VPNManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = D31D7DF356C037964B67DD0F /* VPNManager.swift */; };
+		18257D3527FA83199B8B1413 /* ClashYAMLParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3C9C5D19125642969A43F36 /* ClashYAMLParser.swift */; };
+		1B5DD0897288988BEC4A57F3 /* AppKitBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = C99413DC474EE344DBDABBE0 /* AppKitBridge.swift */; };
+		1B9D7543C7A87D61DACFC894 /* TunSupervisor.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCF6CB360C48C8EF2210D1DF /* TunSupervisor.swift */; };
+		1DA25727AEEEA5CEEB611113 /* XrayStatsClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA494A20A63237FDAAA17474 /* XrayStatsClient.swift */; };
+		1F5610D3238F906DCEE3CE88 /* VLESSParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9FE1CFC9ADBCEAE5E6E3463B /* VLESSParser.swift */; };
+		26BA14135E1FAFB86DD34C14 /* ApplicationPickerEntry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C92F64F3CEB1239067B52D9 /* ApplicationPickerEntry.swift */; };
+		273B1374E8D1A23737C140BF /* TestCenterView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45CD8580E08690EAC2BF6A59 /* TestCenterView.swift */; };
+		F8E7D6C5B4A39281706F5E4D /* TestProgressFloatingBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8E7D6C5B4A39281706F5E4E /* TestProgressFloatingBar.swift */; };
+		2A3BF4D1A42A88BB0CC6634D /* XrayInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = D045B089FCF2DA97D68ED777 /* XrayInstaller.swift */; };
+		2A9E3014368C3B021D72B707 /* HopWorldApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 296EEE117C03507B2BDE3BFE /* HopWorldApp.swift */; };
+		2CDC5C8ADCB4B6EC88D69410 /* NodeListFilter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C1F0C8E6105167F4C93407C /* NodeListFilter.swift */; };
+		2DD1368115A963389C3AA8C6 /* TunSessionStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = C95FDDFF2B53604EC7D0FB09 /* TunSessionStatus.swift */; };
+		2EA8B87375DDA8EC3935DF86 /* BatchProbeScheduler.swift in Sources */ = {isa = PBXBuildFile; fileRef = E346E488625044465F4CD248 /* BatchProbeScheduler.swift */; };
+		32DAC871C92B56A91219D2C7 /* RunningApplicationPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2CB09210BC2D4453519BC96 /* RunningApplicationPicker.swift */; };
+		32F50E60C651F51B583573E2 /* FinalMaskCodec.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD8AF450769D0A9ADB8E8177 /* FinalMaskCodec.swift */; };
+		35BC52021D476081DBF847EE /* LatencyFormat.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7399457AAA89B9843B6C68D4 /* LatencyFormat.swift */; };
+		36168704AE61718B45C9A89B /* AppProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF6BC742D50C61D6115AACDE /* AppProbe.swift */; };
+		37F9322EFB237735C4AD2FE0 /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16716DDC5CD12C2112D74F12 /* AppState.swift */; };
+		3A67ED7E05C89084470D2E3B /* ApplicationProxy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7ABF264CC271DDB814305E2E /* ApplicationProxy.swift */; };
+		3B3D594DC31DAF21378D83FF /* PersistenceStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 682469F73B2D77FC7726AA61 /* PersistenceStore.swift */; };
+		3B5F89DA9238A8FBFE1AF5D2 /* ConnectionState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CB44A6557EEBBB160A14F55 /* ConnectionState.swift */; };
+		3B879A170493C2E8C5EC5107 /* AppProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF6BC742D50C61D6115AACDE /* AppProbe.swift */; };
+		3D63E2276A37EB669CC4E40A /* ShadowsocksParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 678EB1903969B16496607F28 /* ShadowsocksParser.swift */; };
+		40816C86578D830518515BBF /* SecureLibraryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 489DAC8800F05166EDE63E34 /* SecureLibraryStore.swift */; };
+		F8A7B6C5D4E39281706F5E01 /* LibrarySnapshotMigration.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7F6A5B4C3D29281706F5E02 /* LibrarySnapshotMigration.swift */; };
+		42E6EF7042D0BD9735C1A191 /* VMessParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 647B1355A784B665A5703AE7 /* VMessParser.swift */; };
+		438AA549C229391DA88F2758 /* geosite.dat in Resources */ = {isa = PBXBuildFile; fileRef = 111261DB873AEB5AA481BC8D /* geosite.dat */; };
+		44468ABBA3386249D002B594 /* ShareLinkComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = C18B18CA026CB40EF6DC632A /* ShareLinkComponents.swift */; };
+		44EFFE2099C268F09644171B /* VLESSParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9FE1CFC9ADBCEAE5E6E3463B /* VLESSParser.swift */; };
+		45635D832694D43282ADA8E7 /* SingBoxInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C64D548D7F20E2BD3C91041 /* SingBoxInstaller.swift */; };
+		481B5DAA0145C0DF6C5260A6 /* ApplicationProxyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CCDF4B9147773CEB39350468 /* ApplicationProxyTests.swift */; };
+		4AD9AFF521F5F8BCFCD5D630 /* XrayProcessManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD3F104C17C6D4B7522386BA /* XrayProcessManager.swift */; };
+		50BAB7BF9FC21C3EB853CB40 /* ConnectionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 54CB11FF4464CC93362C1CC2 /* ConnectionManager.swift */; };
+		5303C6E268A02E1E40609789 /* ProcessRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = D455E0ED4E1329DF934FA9BC /* ProcessRunner.swift */; };
+		5396354982F6FFD26C053205 /* Subscription.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4AB961685E3320342EBAE35 /* Subscription.swift */; };
+		555E2CB055D5260A5424237C /* KeychainStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B40DBB39D40A8F2C4D6C656 /* KeychainStore.swift */; };
+		566B7D385B17BA1EB7AB606D /* ShareLinkComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = C18B18CA026CB40EF6DC632A /* ShareLinkComponents.swift */; };
+		5675AE2143E110D84C05A99E /* XrayConfigBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7BD5A83E9E5269C362641C4D /* XrayConfigBuilder.swift */; };
+		5694729C700906C72A884DF9 /* SingBoxInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C64D548D7F20E2BD3C91041 /* SingBoxInstaller.swift */; };
+		57901FAD6F7BA65427D5FBC5 /* ApplicationProxy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7ABF264CC271DDB814305E2E /* ApplicationProxy.swift */; };
+		5A68BCC9DBC374128B229E15 /* DashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED643F6F0B445612B035B277 /* DashboardView.swift */; };
+		5AE595D996B7D99F50AC373B /* ApplicationPickerEntry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C92F64F3CEB1239067B52D9 /* ApplicationPickerEntry.swift */; };
+		5BD842A549199D633A0CEDEB /* LatencyFormat.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7399457AAA89B9843B6C68D4 /* LatencyFormat.swift */; };
+		5D8662B72ED95A80E6D413AC /* XrayInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = D045B089FCF2DA97D68ED777 /* XrayInstaller.swift */; };
+		5FC40636E5B794415400AEB6 /* HopWorldAppGroup.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F9D4BF509121299A3B4F91D /* HopWorldAppGroup.swift */; };
+		5FCE3B586C2F9A8ADED6D2DA /* ProcessRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = D455E0ED4E1329DF934FA9BC /* ProcessRunner.swift */; };
+		633E7A43DDE2121C4EE149A6 /* ApplicationPickerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16B82F349D9EA5B6A6C52D74 /* ApplicationPickerTests.swift */; };
+		63714BBEE8A60217A0E0DA3E /* XrayConfigBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7BD5A83E9E5269C362641C4D /* XrayConfigBuilder.swift */; };
+		645F5729BDE012CFF65D53AB /* KeychainStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B40DBB39D40A8F2C4D6C656 /* KeychainStore.swift */; };
+		66A16C56B0FE722C21A7358E /* ProcessRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = D455E0ED4E1329DF934FA9BC /* ProcessRunner.swift */; };
+		6BDAE2F10CD705994C2793BF /* geoip.dat in Resources */ = {isa = PBXBuildFile; fileRef = C590A3D39F4C58AD25F4581B /* geoip.dat */; };
+		6C6DA6E6E57EE68DB761A23C /* ApplicationProxyModePolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D9A2AA2211CC80CC9A83C56 /* ApplicationProxyModePolicyTests.swift */; };
+		6CA63ACB7E9044C903BBD8F7 /* CountryResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20B548F4A640ADA7AB3A2483 /* CountryResolver.swift */; };
+		6FD4C8279507739A1E990E35 /* SubscriptionParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3CF735798B765C73F1687A98 /* SubscriptionParser.swift */; };
+		7065C51156E7ECE79D6E2244 /* CaptureStatusPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13260E1EEAEE12B1BCC5B15E /* CaptureStatusPresentation.swift */; };
+		709F39EB8ABA8DBAB6B8BE66 /* SubscriptionDateTemplate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74248713B0F01461EBDF59E8 /* SubscriptionDateTemplate.swift */; };
+		73E90112E56FDC42158D7BAD /* Subscription.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4AB961685E3320342EBAE35 /* Subscription.swift */; };
+		76B0748616E4B83F37835521 /* ClashCompatibilityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C77F0CD72907009FBE42AFB /* ClashCompatibilityTests.swift */; };
+		7A7B23142DCB18610345DFEA /* NodeTestManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 917EE14A478A8B460AC2F3DF /* NodeTestManager.swift */; };
+		7B2A28E8A4B521ACF67139F1 /* ConnectionReliabilityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 308EA78A9DC3291C73E4686C /* ConnectionReliabilityTests.swift */; };
+		862E66715CEED32B6F88DDC5 /* CaptureStatusPresentationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DAB411C36F9ED20443476593 /* CaptureStatusPresentationTests.swift */; };
+		867F10E3494F159816BC224B /* AboutView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 901858C9631469C17FB39733 /* AboutView.swift */; };
+		8714306F712936156D721D0F /* ClashYAMLParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3C9C5D19125642969A43F36 /* ClashYAMLParser.swift */; };
+		8761822809E8D63BAA740050 /* NetworkRecoveryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3B400823B53D74EF008238A /* NetworkRecoveryTests.swift */; };
+		8791548B716A05269AF8B375 /* CountryResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20B548F4A640ADA7AB3A2483 /* CountryResolver.swift */; };
+		8BB7F1C1BAC5C08A517896E9 /* NodeDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6BD23DB655316B2696D0DCC9 /* NodeDetailView.swift */; };
+		8CF24EB614711422AEDAC5AF /* SubscriptionMerger.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83524BB199E775DECC452103 /* SubscriptionMerger.swift */; };
+		8D06799C0667028E55985101 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE82CA130645C100E28F1F71 /* ContentView.swift */; };
+		8DA74EA9AFB51A6B9D89DD5A /* NodeTesters.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C6AFC76B9A5CF2A077CBE5C /* NodeTesters.swift */; };
+		8E52947426550812A9137A2A /* VMessParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 647B1355A784B665A5703AE7 /* VMessParser.swift */; };
+		956CEDEC3C6AFCA333F4F999 /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = C731E0FC258D39A115125A41 /* main.swift */; };
+		96DD232C9A34C19D5DFFD4B6 /* XrayProcessManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD3F104C17C6D4B7522386BA /* XrayProcessManager.swift */; };
+		986035A61E5B9FA56E4A52C1 /* ApplicationProxySection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6141161F3B33D738F70B9AD3 /* ApplicationProxySection.swift */; };
+		992C981DE828F786EDDF0516 /* SystemProxyManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5953F56083A63810E4A97582 /* SystemProxyManager.swift */; };
+		998E44B6C321936E64ACA4EE /* ConnectionState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CB44A6557EEBBB160A14F55 /* ConnectionState.swift */; };
+		9D3A2EC75737E41306994B01 /* geoip.dat in Resources */ = {isa = PBXBuildFile; fileRef = C590A3D39F4C58AD25F4581B /* geoip.dat */; };
+		9DD69BACECBF71079A56E542 /* ApplicationProxyConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9046E3E510CE5FA5F66160CC /* ApplicationProxyConfig.swift */; };
+		A15604A0DD079733BADFB8CF /* BatchTestingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1AB2CE6F2D599AC0F3C82441 /* BatchTestingTests.swift */; };
+		A1B9F81AFD2BC6C93D8D5B47 /* ConnectionOperations.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70AFFFB7B9315D641EF28FB8 /* ConnectionOperations.swift */; };
+		A241BCA9581F62501C468318 /* TunSessionStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = C95FDDFF2B53604EC7D0FB09 /* TunSessionStatus.swift */; };
+		A55E55318C5D22F1CE17D208 /* ConnectionOperations.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70AFFFB7B9315D641EF28FB8 /* ConnectionOperations.swift */; };
+		A5919A534899FA9998515DF6 /* CryptoUtil.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E4ADD57F38DC298B5B6B54E /* CryptoUtil.swift */; };
+		AA098C3A4FE0D3F55FB07ADE /* PersistenceStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 682469F73B2D77FC7726AA61 /* PersistenceStore.swift */; };
+		AAC7B66D2DB7D854EA7BE219 /* TunSupervisor.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCF6CB360C48C8EF2210D1DF /* TunSupervisor.swift */; };
+		AC7CC8649F6E295E4F67E76E /* ApplicationProxyManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62B04EA81E44BC5B8C941520 /* ApplicationProxyManager.swift */; };
+		B16678B765EEA9618C3ABC07 /* SubscriptionFetcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7C16542CF4883378AB139AD /* SubscriptionFetcher.swift */; };
+		B246B098E82F88DFE6905944 /* SubscriptionMerger.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83524BB199E775DECC452103 /* SubscriptionMerger.swift */; };
+		B2D2B0AD7B9D0BEF57387212 /* HopWorldTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 790895F8C430310455EE69B3 /* HopWorldTests.swift */; };
+		B35CDB64E217715A812C0A16 /* CaptureStatusPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13260E1EEAEE12B1BCC5B15E /* CaptureStatusPresentation.swift */; };
+		B3DFB13111227597228E138F /* HopWorldAppGroup.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F9D4BF509121299A3B4F91D /* HopWorldAppGroup.swift */; };
+		B5C9DA01C6A31911BBCD1DE8 /* ApplicationProxyPrivilegedTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C544D76A374236A23877156 /* ApplicationProxyPrivilegedTests.swift */; };
+		B72A1641A28889F0379893FC /* ApplicationProxyModePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72F0E021FB9208497E69A816 /* ApplicationProxyModePolicy.swift */; };
+		C25451A6E76BA0956B1B70CA /* LibrarySafetyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B5004D5923ED8F60ECEC1B2 /* LibrarySafetyTests.swift */; };
+		C33A6A7215436B764DC4F7F8 /* NodeTesters.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C6AFC76B9A5CF2A077CBE5C /* NodeTesters.swift */; };
+		C40B879C19C5606588E016A9 /* NetworkRecoveryCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9877D158C27F6AA69A06E4B2 /* NetworkRecoveryCoordinator.swift */; };
+		C804BFEDECC6DC7EAB78CB37 /* ApplicationProxyModePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72F0E021FB9208497E69A816 /* ApplicationProxyModePolicy.swift */; };
+		C996E22DDD109887AFD4D68A /* CryptoUtil.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E4ADD57F38DC298B5B6B54E /* CryptoUtil.swift */; };
+		CB6717AAE4248F6DD2735228 /* ShadowsocksParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 678EB1903969B16496607F28 /* ShadowsocksParser.swift */; };
+		D165F9B77063A4588FA0A8F2 /* TunSessionStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = C95FDDFF2B53604EC7D0FB09 /* TunSessionStatus.swift */; };
+		D543278F409A08577E0D6764 /* LocalTestPorts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F3C6CB7120F354AE803C2F2 /* LocalTestPorts.swift */; };
+		D60DC8047DA00043E3707DCF /* ProxyNode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E620C454D1A17464525607B /* ProxyNode.swift */; };
+		D627E27AF89FA23AFBA2E58F /* BatchProbeScheduler.swift in Sources */ = {isa = PBXBuildFile; fileRef = E346E488625044465F4CD248 /* BatchProbeScheduler.swift */; };
+		D67458215D0468280AB112DE /* SystemProxyManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5953F56083A63810E4A97582 /* SystemProxyManager.swift */; };
+		D6968569221967580A212E83 /* ShareLinkExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 55493D271A74A0FC5916BC7A /* ShareLinkExporter.swift */; };
+		D8D9B93E7DE92CCBD98B0EB9 /* ProxyNode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E620C454D1A17464525607B /* ProxyNode.swift */; };
+		D97138F11DF1A704656DB1EF /* DefaultRouting.json in Resources */ = {isa = PBXBuildFile; fileRef = CC2AD75C0D585EDFAF93C20A /* DefaultRouting.json */; };
+		DA23E21291339D8125B3862F /* NodeTestManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 917EE14A478A8B460AC2F3DF /* NodeTestManager.swift */; };
+		DB540213709902C0FF02F6C8 /* TunSessionStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = C95FDDFF2B53604EC7D0FB09 /* TunSessionStatus.swift */; };
+		DBC259E7B3A3643ABE9099CC /* XrayStatsClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA494A20A63237FDAAA17474 /* XrayStatsClient.swift */; };
+		DCDBECA8AB2C96280E36CC27 /* QRCodeGenerator.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA901141E52CE2A374DD1C96 /* QRCodeGenerator.swift */; };
+		E1E5686752B305BAB0A47E8B /* TrojanParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7499D9C3719C212C9947303E /* TrojanParser.swift */; };
+		E29677D0D378FF93DADBC790 /* ApplicationProxyManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62B04EA81E44BC5B8C941520 /* ApplicationProxyManager.swift */; };
+		E3E314E288CD6CBCE51D6BD4 /* CountryListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64EC2B8BE4873CBBBB00B01D /* CountryListView.swift */; };
+		E3E6FAED86464D512CC99C7D /* LocalTestPorts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F3C6CB7120F354AE803C2F2 /* LocalTestPorts.swift */; };
+		E6F9D1471C4333CF4A674F70 /* ApplicationProxyConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9046E3E510CE5FA5F66160CC /* ApplicationProxyConfig.swift */; };
+		E762DAD0604829471B03305F /* SecureLibraryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 489DAC8800F05166EDE63E34 /* SecureLibraryStore.swift */; };
+		D6E5F4A3B2C19281706F5E03 /* LibrarySnapshotMigration.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7F6A5B4C3D29281706F5E02 /* LibrarySnapshotMigration.swift */; };
+		EAEB163BE8799234325E563B /* PacketTunnelProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFBBDFAE14FF20AF8D10B27D /* PacketTunnelProvider.swift */; };
+		F17A79C8E7D1A9B0D25D75E1 /* SubscriptionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5039B7EF276A34D2FCC607A8 /* SubscriptionManager.swift */; };
+		F1DB0ED5A7ACA2B93D87F163 /* ShareLinkExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 55493D271A74A0FC5916BC7A /* ShareLinkExporter.swift */; };
+		F20831F5498A6989E123C20F /* NetworkRecoveryCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9877D158C27F6AA69A06E4B2 /* NetworkRecoveryCoordinator.swift */; };
+		F2A248475AFFD3AFE2DD1B71 /* ConnectionLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9018CB91489BE65AB1FDAFD8 /* ConnectionLifecycleTests.swift */; };
+		FA75DC8B8DEFFEF98CDF2749 /* SubscriptionDateTemplate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74248713B0F01461EBDF59E8 /* SubscriptionDateTemplate.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		17D38A38582A625DC0ECB64B /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 34F68E6EE595FFE8E8C3D8F6 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 88CD0C7947CDF2D013C45531;
+			remoteInfo = HopWorldTunnel;
+		};
+		4C3DC7C624789353B38AB245 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 34F68E6EE595FFE8E8C3D8F6 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = D0ABF98A8E7B961846E25D47;
+			remoteInfo = HopWorldTunSupervisor;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		527D70DEF4A5554C52E6B028 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				0AF1618233E30D77AF67F0BF /* HopWorldTunnel.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
+/* Begin PBXFileReference section */
+		A11021000000000000000004 /* CursorUsageMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CursorUsageMonitor.swift; sourceTree = "<group>"; };
+		A11D0C4A7E6F5D4C3B2A1001 /* DockActivation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockActivation.swift; sourceTree = "<group>"; };
+		A11D0C4A7E6F5D4C3B2A1004 /* DockActivationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockActivationTests.swift; sourceTree = "<group>"; };
+		A11021000000000000000002 /* CodexUsageCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexUsageCard.swift; sourceTree = "<group>"; };
+		0B6F965419009A28AE1F45CF /* SubscriptionListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubscriptionListView.swift; sourceTree = "<group>"; };
+		111261DB873AEB5AA481BC8D /* geosite.dat */ = {isa = PBXFileReference; path = geosite.dat; sourceTree = "<group>"; };
+		13260E1EEAEE12B1BCC5B15E /* CaptureStatusPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureStatusPresentation.swift; sourceTree = "<group>"; };
+		16716DDC5CD12C2112D74F12 /* AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppState.swift; sourceTree = "<group>"; };
+		16B82F349D9EA5B6A6C52D74 /* ApplicationPickerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApplicationPickerTests.swift; sourceTree = "<group>"; };
+		1AB2CE6F2D599AC0F3C82441 /* BatchTestingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BatchTestingTests.swift; sourceTree = "<group>"; };
+		1B0120C8B03E267B25E2420F /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		1C77F0CD72907009FBE42AFB /* ClashCompatibilityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClashCompatibilityTests.swift; sourceTree = "<group>"; };
+		20B548F4A640ADA7AB3A2483 /* CountryResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CountryResolver.swift; sourceTree = "<group>"; };
+		296EEE117C03507B2BDE3BFE /* HopWorldApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HopWorldApp.swift; sourceTree = "<group>"; };
+		2B5004D5923ED8F60ECEC1B2 /* LibrarySafetyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibrarySafetyTests.swift; sourceTree = "<group>"; };
+		2C64D548D7F20E2BD3C91041 /* SingBoxInstaller.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SingBoxInstaller.swift; sourceTree = "<group>"; };
+		2F9D4BF509121299A3B4F91D /* HopWorldAppGroup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HopWorldAppGroup.swift; sourceTree = "<group>"; };
+		308EA78A9DC3291C73E4686C /* ConnectionReliabilityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionReliabilityTests.swift; sourceTree = "<group>"; };
+		3CF735798B765C73F1687A98 /* SubscriptionParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubscriptionParser.swift; sourceTree = "<group>"; };
+		426821E695C506CF883C93F2 /* HopWorldTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = HopWorldTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		45CD8580E08690EAC2BF6A59 /* TestCenterView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TestCenterView.swift; sourceTree = "<group>"; };
+		F8E7D6C5B4A39281706F5E4E /* TestProgressFloatingBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TestProgressFloatingBar.swift; sourceTree = "<group>"; };
+		489DAC8800F05166EDE63E34 /* SecureLibraryStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SecureLibraryStore.swift; sourceTree = "<group>"; };
+		E7F6A5B4C3D29281706F5E02 /* LibrarySnapshotMigration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibrarySnapshotMigration.swift; sourceTree = "<group>"; };
+		4CB44A6557EEBBB160A14F55 /* ConnectionState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionState.swift; sourceTree = "<group>"; };
+		4E4ADD57F38DC298B5B6B54E /* CryptoUtil.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CryptoUtil.swift; sourceTree = "<group>"; };
+		4F3C6CB7120F354AE803C2F2 /* LocalTestPorts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalTestPorts.swift; sourceTree = "<group>"; };
+		5039B7EF276A34D2FCC607A8 /* SubscriptionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubscriptionManager.swift; sourceTree = "<group>"; };
+		54CB11FF4464CC93362C1CC2 /* ConnectionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionManager.swift; sourceTree = "<group>"; };
+		55493D271A74A0FC5916BC7A /* ShareLinkExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareLinkExporter.swift; sourceTree = "<group>"; };
+		5953F56083A63810E4A97582 /* SystemProxyManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemProxyManager.swift; sourceTree = "<group>"; };
+		5B40DBB39D40A8F2C4D6C656 /* KeychainStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainStore.swift; sourceTree = "<group>"; };
+		5C6AFC76B9A5CF2A077CBE5C /* NodeTesters.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NodeTesters.swift; sourceTree = "<group>"; };
+		5C7AE05F8FDF2D155F665502 /* HopWorld.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = HopWorld.entitlements; sourceTree = "<group>"; };
+		5C92F64F3CEB1239067B52D9 /* ApplicationPickerEntry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApplicationPickerEntry.swift; sourceTree = "<group>"; };
+		6141161F3B33D738F70B9AD3 /* ApplicationProxySection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApplicationProxySection.swift; sourceTree = "<group>"; };
+		62B04EA81E44BC5B8C941520 /* ApplicationProxyManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApplicationProxyManager.swift; sourceTree = "<group>"; };
+		647B1355A784B665A5703AE7 /* VMessParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VMessParser.swift; sourceTree = "<group>"; };
+		64EC2B8BE4873CBBBB00B01D /* CountryListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CountryListView.swift; sourceTree = "<group>"; };
+		678EB1903969B16496607F28 /* ShadowsocksParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShadowsocksParser.swift; sourceTree = "<group>"; };
+		682469F73B2D77FC7726AA61 /* PersistenceStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersistenceStore.swift; sourceTree = "<group>"; };
+		6BD23DB655316B2696D0DCC9 /* NodeDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NodeDetailView.swift; sourceTree = "<group>"; };
+		70AFFFB7B9315D641EF28FB8 /* ConnectionOperations.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionOperations.swift; sourceTree = "<group>"; };
+		72F0E021FB9208497E69A816 /* ApplicationProxyModePolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApplicationProxyModePolicy.swift; sourceTree = "<group>"; };
+		7399457AAA89B9843B6C68D4 /* LatencyFormat.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LatencyFormat.swift; sourceTree = "<group>"; };
+		74248713B0F01461EBDF59E8 /* SubscriptionDateTemplate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubscriptionDateTemplate.swift; sourceTree = "<group>"; };
+		7499D9C3719C212C9947303E /* TrojanParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrojanParser.swift; sourceTree = "<group>"; };
+		790895F8C430310455EE69B3 /* HopWorldTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HopWorldTests.swift; sourceTree = "<group>"; };
+		7ABF264CC271DDB814305E2E /* ApplicationProxy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApplicationProxy.swift; sourceTree = "<group>"; };
+		7BD5A83E9E5269C362641C4D /* XrayConfigBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XrayConfigBuilder.swift; sourceTree = "<group>"; };
+		7D9A2AA2211CC80CC9A83C56 /* ApplicationProxyModePolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApplicationProxyModePolicyTests.swift; sourceTree = "<group>"; };
+		83524BB199E775DECC452103 /* SubscriptionMerger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubscriptionMerger.swift; sourceTree = "<group>"; };
+		8C1F0C8E6105167F4C93407C /* NodeListFilter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NodeListFilter.swift; sourceTree = "<group>"; };
+		8C544D76A374236A23877156 /* ApplicationProxyPrivilegedTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApplicationProxyPrivilegedTests.swift; sourceTree = "<group>"; };
+		901858C9631469C17FB39733 /* AboutView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AboutView.swift; sourceTree = "<group>"; };
+		9018CB91489BE65AB1FDAFD8 /* ConnectionLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionLifecycleTests.swift; sourceTree = "<group>"; };
+		9046E3E510CE5FA5F66160CC /* ApplicationProxyConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApplicationProxyConfig.swift; sourceTree = "<group>"; };
+		917EE14A478A8B460AC2F3DF /* NodeTestManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NodeTestManager.swift; sourceTree = "<group>"; };
+		94719127D4439C6B0B0213EA /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		9877D158C27F6AA69A06E4B2 /* NetworkRecoveryCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkRecoveryCoordinator.swift; sourceTree = "<group>"; };
+		9E620C454D1A17464525607B /* ProxyNode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProxyNode.swift; sourceTree = "<group>"; };
+		9FE1CFC9ADBCEAE5E6E3463B /* VLESSParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VLESSParser.swift; sourceTree = "<group>"; };
+		BFBBDFAE14FF20AF8D10B27D /* PacketTunnelProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PacketTunnelProvider.swift; sourceTree = "<group>"; };
+		C18B18CA026CB40EF6DC632A /* ShareLinkComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareLinkComponents.swift; sourceTree = "<group>"; };
+		C2C9B465A956A39CE4DF0F48 /* HopWorldTunnel.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = HopWorldTunnel.entitlements; sourceTree = "<group>"; };
+		C2CB09210BC2D4453519BC96 /* RunningApplicationPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunningApplicationPicker.swift; sourceTree = "<group>"; };
+		C590A3D39F4C58AD25F4581B /* geoip.dat */ = {isa = PBXFileReference; path = geoip.dat; sourceTree = "<group>"; };
+		C731E0FC258D39A115125A41 /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
+		C7C16542CF4883378AB139AD /* SubscriptionFetcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubscriptionFetcher.swift; sourceTree = "<group>"; };
+		C95FDDFF2B53604EC7D0FB09 /* TunSessionStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TunSessionStatus.swift; sourceTree = "<group>"; };
+		C99413DC474EE344DBDABBE0 /* AppKitBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppKitBridge.swift; sourceTree = "<group>"; };
+		CA901141E52CE2A374DD1C96 /* QRCodeGenerator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QRCodeGenerator.swift; sourceTree = "<group>"; };
+		CADC25DD2563D6B5862FBB61 /* HopWorld.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = HopWorld.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		CC2AD75C0D585EDFAF93C20A /* DefaultRouting.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = DefaultRouting.json; sourceTree = "<group>"; };
+		CCDF4B9147773CEB39350468 /* ApplicationProxyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApplicationProxyTests.swift; sourceTree = "<group>"; };
+		CD8AF450769D0A9ADB8E8177 /* FinalMaskCodec.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FinalMaskCodec.swift; sourceTree = "<group>"; };
+		CE82CA130645C100E28F1F71 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		D045B089FCF2DA97D68ED777 /* XrayInstaller.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XrayInstaller.swift; sourceTree = "<group>"; };
+		D31D7DF356C037964B67DD0F /* VPNManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VPNManager.swift; sourceTree = "<group>"; };
+		D3B400823B53D74EF008238A /* NetworkRecoveryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkRecoveryTests.swift; sourceTree = "<group>"; };
+		D455E0ED4E1329DF934FA9BC /* ProcessRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessRunner.swift; sourceTree = "<group>"; };
+		DA494A20A63237FDAAA17474 /* XrayStatsClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XrayStatsClient.swift; sourceTree = "<group>"; };
+		DAB411C36F9ED20443476593 /* CaptureStatusPresentationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureStatusPresentationTests.swift; sourceTree = "<group>"; };
+		DBCCF93495098C44164308DF /* HopWorldTunSupervisor */ = {isa = PBXFileReference; includeInIndex = 0; path = HopWorldTunSupervisor; sourceTree = BUILT_PRODUCTS_DIR; };
+		DCF6CB360C48C8EF2210D1DF /* TunSupervisor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TunSupervisor.swift; sourceTree = "<group>"; };
+		DD3F104C17C6D4B7522386BA /* XrayProcessManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XrayProcessManager.swift; sourceTree = "<group>"; };
+		DF6BC742D50C61D6115AACDE /* AppProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppProbe.swift; sourceTree = "<group>"; };
+		E346E488625044465F4CD248 /* BatchProbeScheduler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BatchProbeScheduler.swift; sourceTree = "<group>"; };
+		ED643F6F0B445612B035B277 /* DashboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashboardView.swift; sourceTree = "<group>"; };
+		F0701A62C132842701751264 /* HopWorldTunnel.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = HopWorldTunnel.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		F3C9C5D19125642969A43F36 /* ClashYAMLParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClashYAMLParser.swift; sourceTree = "<group>"; };
+		F4AB961685E3320342EBAE35 /* Subscription.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Subscription.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXGroup section */
+		01265225E04FEAF8F5162145 /* System */ = {
+			isa = PBXGroup;
+			children = (
+				54CB11FF4464CC93362C1CC2 /* ConnectionManager.swift */,
+				70AFFFB7B9315D641EF28FB8 /* ConnectionOperations.swift */,
+				9877D158C27F6AA69A06E4B2 /* NetworkRecoveryCoordinator.swift */,
+				5953F56083A63810E4A97582 /* SystemProxyManager.swift */,
+				D31D7DF356C037964B67DD0F /* VPNManager.swift */,
+			);
+			path = System;
+			sourceTree = "<group>";
+		};
+		08F6732F543087551AF88976 /* Services */ = {
+			isa = PBXGroup;
+			children = (
+				C373A779B2F872B1149CD9BA /* ApplicationProxy */,
+				D5CCC99B2138B66330843200 /* Country */,
+				C690EAEEAC5CB302809D67EB /* Persistence */,
+				C91C92A936FFF0869463E60C /* Security */,
+				8A23CB35A50227D8C39AC08A /* Subscription */,
+				01265225E04FEAF8F5162145 /* System */,
+				3CBC9BA25539CBE26F789192 /* Testing */,
+				723D97D7FAAFDF982C1A04D4 /* Xray */,
+			);
+			path = Services;
+			sourceTree = "<group>";
+		};
+		16DF36EA364E0879F389E6D1 /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				5C92F64F3CEB1239067B52D9 /* ApplicationPickerEntry.swift */,
+				7ABF264CC271DDB814305E2E /* ApplicationProxy.swift */,
+				72F0E021FB9208497E69A816 /* ApplicationProxyModePolicy.swift */,
+				13260E1EEAEE12B1BCC5B15E /* CaptureStatusPresentation.swift */,
+				4CB44A6557EEBBB160A14F55 /* ConnectionState.swift */,
+				8C1F0C8E6105167F4C93407C /* NodeListFilter.swift */,
+				9E620C454D1A17464525607B /* ProxyNode.swift */,
+				F4AB961685E3320342EBAE35 /* Subscription.swift */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+		3314792A731F8F6998752D48 /* Parsers */ = {
+			isa = PBXGroup;
+			children = (
+				F3C9C5D19125642969A43F36 /* ClashYAMLParser.swift */,
+				CD8AF450769D0A9ADB8E8177 /* FinalMaskCodec.swift */,
+				678EB1903969B16496607F28 /* ShadowsocksParser.swift */,
+				C18B18CA026CB40EF6DC632A /* ShareLinkComponents.swift */,
+				55493D271A74A0FC5916BC7A /* ShareLinkExporter.swift */,
+				3CF735798B765C73F1687A98 /* SubscriptionParser.swift */,
+				7499D9C3719C212C9947303E /* TrojanParser.swift */,
+				9FE1CFC9ADBCEAE5E6E3463B /* VLESSParser.swift */,
+				647B1355A784B665A5703AE7 /* VMessParser.swift */,
+			);
+			path = Parsers;
+			sourceTree = "<group>";
+		};
+		3CBC9BA25539CBE26F789192 /* Testing */ = {
+			isa = PBXGroup;
+			children = (
+				DF6BC742D50C61D6115AACDE /* AppProbe.swift */,
+				E346E488625044465F4CD248 /* BatchProbeScheduler.swift */,
+				4F3C6CB7120F354AE803C2F2 /* LocalTestPorts.swift */,
+				5C6AFC76B9A5CF2A077CBE5C /* NodeTesters.swift */,
+				917EE14A478A8B460AC2F3DF /* NodeTestManager.swift */,
+			);
+			path = Testing;
+			sourceTree = "<group>";
+		};
+		45E01B062C70AFD0CDF0D0D1 /* HopWorldTunnel */ = {
+			isa = PBXGroup;
+			children = (
+				C2C9B465A956A39CE4DF0F48 /* HopWorldTunnel.entitlements */,
+				1B0120C8B03E267B25E2420F /* Info.plist */,
+				BFBBDFAE14FF20AF8D10B27D /* PacketTunnelProvider.swift */,
+			);
+			path = HopWorldTunnel;
+			sourceTree = "<group>";
+		};
+		517387DC28E9D8EB76F46576 /* Nodes */ = {
+			isa = PBXGroup;
+			children = (
+				6BD23DB655316B2696D0DCC9 /* NodeDetailView.swift */,
+			);
+			path = Nodes;
+			sourceTree = "<group>";
+		};
+		51E6E16130265EA7DC4C1CC0 /* Utilities */ = {
+			isa = PBXGroup;
+			children = (
+				C99413DC474EE344DBDABBE0 /* AppKitBridge.swift */,
+				A11D0C4A7E6F5D4C3B2A1001 /* DockActivation.swift */,
+				4E4ADD57F38DC298B5B6B54E /* CryptoUtil.swift */,
+				7399457AAA89B9843B6C68D4 /* LatencyFormat.swift */,
+				D455E0ED4E1329DF934FA9BC /* ProcessRunner.swift */,
+				CA901141E52CE2A374DD1C96 /* QRCodeGenerator.swift */,
+			);
+			path = Utilities;
+			sourceTree = "<group>";
+		};
+		61E8809621BF04EA18DD3C80 = {
+			isa = PBXGroup;
+			children = (
+				F1822A3E83CB80EE86DBB95D /* HopWorld */,
+				706B6003E0BEB0FAF059848F /* HopWorldShared */,
+				73CDF8D61DA271850F518569 /* HopWorldTests */,
+				45E01B062C70AFD0CDF0D0D1 /* HopWorldTunnel */,
+				992D61A76668B23BCA2B7977 /* HopWorldTunSupervisor */,
+				BFBB4251954D119D23BF8D58 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		706B6003E0BEB0FAF059848F /* HopWorldShared */ = {
+			isa = PBXGroup;
+			children = (
+				2F9D4BF509121299A3B4F91D /* HopWorldAppGroup.swift */,
+				C95FDDFF2B53604EC7D0FB09 /* TunSessionStatus.swift */,
+			);
+			path = HopWorldShared;
+			sourceTree = "<group>";
+		};
+		723D97D7FAAFDF982C1A04D4 /* Xray */ = {
+			isa = PBXGroup;
+			children = (
+				7BD5A83E9E5269C362641C4D /* XrayConfigBuilder.swift */,
+				D045B089FCF2DA97D68ED777 /* XrayInstaller.swift */,
+				DD3F104C17C6D4B7522386BA /* XrayProcessManager.swift */,
+				DA494A20A63237FDAAA17474 /* XrayStatsClient.swift */,
+			);
+			path = Xray;
+			sourceTree = "<group>";
+		};
+		73CDF8D61DA271850F518569 /* HopWorldTests */ = {
+			isa = PBXGroup;
+			children = (
+				16B82F349D9EA5B6A6C52D74 /* ApplicationPickerTests.swift */,
+				7D9A2AA2211CC80CC9A83C56 /* ApplicationProxyModePolicyTests.swift */,
+				8C544D76A374236A23877156 /* ApplicationProxyPrivilegedTests.swift */,
+				CCDF4B9147773CEB39350468 /* ApplicationProxyTests.swift */,
+				1AB2CE6F2D599AC0F3C82441 /* BatchTestingTests.swift */,
+				DAB411C36F9ED20443476593 /* CaptureStatusPresentationTests.swift */,
+				A11D0C4A7E6F5D4C3B2A1004 /* DockActivationTests.swift */,
+				1C77F0CD72907009FBE42AFB /* ClashCompatibilityTests.swift */,
+				9018CB91489BE65AB1FDAFD8 /* ConnectionLifecycleTests.swift */,
+				308EA78A9DC3291C73E4686C /* ConnectionReliabilityTests.swift */,
+				790895F8C430310455EE69B3 /* HopWorldTests.swift */,
+				2B5004D5923ED8F60ECEC1B2 /* LibrarySafetyTests.swift */,
+				D3B400823B53D74EF008238A /* NetworkRecoveryTests.swift */,
+			);
+			path = HopWorldTests;
+			sourceTree = "<group>";
+		};
+		796D6EB16840C1221E8E8BD8 /* App */ = {
+			isa = PBXGroup;
+			children = (
+				16716DDC5CD12C2112D74F12 /* AppState.swift */,
+				296EEE117C03507B2BDE3BFE /* HopWorldApp.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		7AA76E07A8C960F8F3D51A1F /* About */ = {
+			isa = PBXGroup;
+			children = (
+				901858C9631469C17FB39733 /* AboutView.swift */,
+			);
+			path = About;
+			sourceTree = "<group>";
+		};
+		7DAED3BAE6BD05FD2F195450 /* Dashboard */ = {
+			isa = PBXGroup;
+			children = (
+				ED643F6F0B445612B035B277 /* DashboardView.swift */,
+			);
+			path = Dashboard;
+			sourceTree = "<group>";
+		};
+		8A23CB35A50227D8C39AC08A /* Subscription */ = {
+			isa = PBXGroup;
+			children = (
+				74248713B0F01461EBDF59E8 /* SubscriptionDateTemplate.swift */,
+				C7C16542CF4883378AB139AD /* SubscriptionFetcher.swift */,
+				5039B7EF276A34D2FCC607A8 /* SubscriptionManager.swift */,
+				83524BB199E775DECC452103 /* SubscriptionMerger.swift */,
+			);
+			path = Subscription;
+			sourceTree = "<group>";
+		};
+		8C6D31A0F70B44647F7BB530 /* Subscriptions */ = {
+			isa = PBXGroup;
+			children = (
+				0B6F965419009A28AE1F45CF /* SubscriptionListView.swift */,
+			);
+			path = Subscriptions;
+			sourceTree = "<group>";
+		};
+		992D61A76668B23BCA2B7977 /* HopWorldTunSupervisor */ = {
+			isa = PBXGroup;
+			children = (
+				C731E0FC258D39A115125A41 /* main.swift */,
+				DCF6CB360C48C8EF2210D1DF /* TunSupervisor.swift */,
+			);
+			path = HopWorldTunSupervisor;
+			sourceTree = "<group>";
+		};
+		BEC3E5D0A5E9D083009C73C3 /* Countries */ = {
+			isa = PBXGroup;
+			children = (
+				64EC2B8BE4873CBBBB00B01D /* CountryListView.swift */,
+			);
+			path = Countries;
+			sourceTree = "<group>";
+		};
+		BFBB4251954D119D23BF8D58 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				CADC25DD2563D6B5862FBB61 /* HopWorld.app */,
+				426821E695C506CF883C93F2 /* HopWorldTests.xctest */,
+				F0701A62C132842701751264 /* HopWorldTunnel.appex */,
+				DBCCF93495098C44164308DF /* HopWorldTunSupervisor */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		C02ECC9C311F8DD9A6071C7F /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				CE82CA130645C100E28F1F71 /* ContentView.swift */,
+				7AA76E07A8C960F8F3D51A1F /* About */,
+				BEC3E5D0A5E9D083009C73C3 /* Countries */,
+				7DAED3BAE6BD05FD2F195450 /* Dashboard */,
+				517387DC28E9D8EB76F46576 /* Nodes */,
+				8C6D31A0F70B44647F7BB530 /* Subscriptions */,
+				C9DD5023373003A4941061A8 /* Testing */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
+		C373A779B2F872B1149CD9BA /* ApplicationProxy */ = {
+			isa = PBXGroup;
+			children = (
+				9046E3E510CE5FA5F66160CC /* ApplicationProxyConfig.swift */,
+				62B04EA81E44BC5B8C941520 /* ApplicationProxyManager.swift */,
+				2C64D548D7F20E2BD3C91041 /* SingBoxInstaller.swift */,
+			);
+			path = ApplicationProxy;
+			sourceTree = "<group>";
+		};
+		C690EAEEAC5CB302809D67EB /* Persistence */ = {
+			isa = PBXGroup;
+			children = (
+				E7F6A5B4C3D29281706F5E02 /* LibrarySnapshotMigration.swift */,
+				682469F73B2D77FC7726AA61 /* PersistenceStore.swift */,
+				489DAC8800F05166EDE63E34 /* SecureLibraryStore.swift */,
+			);
+			path = Persistence;
+			sourceTree = "<group>";
+		};
+		C91C92A936FFF0869463E60C /* Security */ = {
+			isa = PBXGroup;
+			children = (
+				5B40DBB39D40A8F2C4D6C656 /* KeychainStore.swift */,
+			);
+			path = Security;
+			sourceTree = "<group>";
+		};
+		C9DD5023373003A4941061A8 /* Testing */ = {
+			isa = PBXGroup;
+			children = (
+				6141161F3B33D738F70B9AD3 /* ApplicationProxySection.swift */,
+				C2CB09210BC2D4453519BC96 /* RunningApplicationPicker.swift */,
+				45CD8580E08690EAC2BF6A59 /* TestCenterView.swift */,
+				F8E7D6C5B4A39281706F5E4E /* TestProgressFloatingBar.swift */,
+				A11021000000000000000002 /* CodexUsageCard.swift */,
+				A11021000000000000000004 /* CursorUsageMonitor.swift */,
+			);
+			path = Testing;
+			sourceTree = "<group>";
+		};
+		D5CCC99B2138B66330843200 /* Country */ = {
+			isa = PBXGroup;
+			children = (
+				20B548F4A640ADA7AB3A2483 /* CountryResolver.swift */,
+			);
+			path = Country;
+			sourceTree = "<group>";
+		};
+		E0FB6C58D7BB785B3651BA30 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				CC2AD75C0D585EDFAF93C20A /* DefaultRouting.json */,
+				C590A3D39F4C58AD25F4581B /* geoip.dat */,
+				111261DB873AEB5AA481BC8D /* geosite.dat */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+		F1822A3E83CB80EE86DBB95D /* HopWorld */ = {
+			isa = PBXGroup;
+			children = (
+				5C7AE05F8FDF2D155F665502 /* HopWorld.entitlements */,
+				94719127D4439C6B0B0213EA /* Info.plist */,
+				796D6EB16840C1221E8E8BD8 /* App */,
+				16DF36EA364E0879F389E6D1 /* Models */,
+				3314792A731F8F6998752D48 /* Parsers */,
+				E0FB6C58D7BB785B3651BA30 /* Resources */,
+				08F6732F543087551AF88976 /* Services */,
+				51E6E16130265EA7DC4C1CC0 /* Utilities */,
+				C02ECC9C311F8DD9A6071C7F /* Views */,
+			);
+			path = HopWorld;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		5C8CE142DE13517A794FD835 /* HopWorldTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 48A691A06A938D713A4747C8 /* Build configuration list for PBXNativeTarget "HopWorldTests" */;
+			buildPhases = (
+				55C1E5AB6E3737177EFC6313 /* Sources */,
+				2D490E5058988F4639222CC2 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = HopWorldTests;
+			packageProductDependencies = (
+			);
+			productName = HopWorldTests;
+			productReference = 426821E695C506CF883C93F2 /* HopWorldTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		88CD0C7947CDF2D013C45531 /* HopWorldTunnel */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 2D629D3287645BB346C0874C /* Build configuration list for PBXNativeTarget "HopWorldTunnel" */;
+			buildPhases = (
+				083786B8B40AEE344E6A1B1E /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = HopWorldTunnel;
+			packageProductDependencies = (
+			);
+			productName = HopWorldTunnel;
+			productReference = F0701A62C132842701751264 /* HopWorldTunnel.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
+		ADAB07073A4A6C53C180EB54 /* HopWorld */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = BDD2C667D7EBC5F938F07C74 /* Build configuration list for PBXNativeTarget "HopWorld" */;
+			buildPhases = (
+				A1562992CE19CBF4341A5BEF /* Sources */,
+				EFE6C0E16942F72A12CDAEAF /* Resources */,
+				527D70DEF4A5554C52E6B028 /* Embed Foundation Extensions */,
+				EC19FC8A61FD494BDEF6FA75 /* Embed TUN supervisor */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				588A3D6A25B689CE61E64A44 /* PBXTargetDependency */,
+				650E84B52F34207E956FEEED /* PBXTargetDependency */,
+			);
+			name = HopWorld;
+			packageProductDependencies = (
+			);
+			productName = HopWorld;
+			productReference = CADC25DD2563D6B5862FBB61 /* HopWorld.app */;
+			productType = "com.apple.product-type.application";
+		};
+		D0ABF98A8E7B961846E25D47 /* HopWorldTunSupervisor */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = C3194E6CF40E163D3256E208 /* Build configuration list for PBXNativeTarget "HopWorldTunSupervisor" */;
+			buildPhases = (
+				5A4D3F627AFD447A4A628499 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = HopWorldTunSupervisor;
+			packageProductDependencies = (
+			);
+			productName = HopWorldTunSupervisor;
+			productReference = DBCCF93495098C44164308DF /* HopWorldTunSupervisor */;
+			productType = "com.apple.product-type.tool";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		34F68E6EE595FFE8E8C3D8F6 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastSwiftUpdateCheck = 2710;
+				LastUpgradeCheck = 2710;
+				TargetAttributes = {
+					5C8CE142DE13517A794FD835 = {
+						DevelopmentTeam = "";
+						ProvisioningStyle = Manual;
+					};
+					88CD0C7947CDF2D013C45531 = {
+						DevelopmentTeam = "";
+						ProvisioningStyle = Manual;
+					};
+					ADAB07073A4A6C53C180EB54 = {
+						DevelopmentTeam = "";
+						ProvisioningStyle = Manual;
+					};
+					D0ABF98A8E7B961846E25D47 = {
+						DevelopmentTeam = "";
+						ProvisioningStyle = Manual;
+					};
+				};
+			};
+			buildConfigurationList = B4B6AD19FBEA7CF04360D293 /* Build configuration list for PBXProject "HopWorld" */;
+			compatibilityVersion = "Xcode 16.0";
+			developmentRegion = "zh-Hans";
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				"zh-Hans",
+			);
+			mainGroup = 61E8809621BF04EA18DD3C80;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = BFBB4251954D119D23BF8D58 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				ADAB07073A4A6C53C180EB54 /* HopWorld */,
+				88CD0C7947CDF2D013C45531 /* HopWorldTunnel */,
+				D0ABF98A8E7B961846E25D47 /* HopWorldTunSupervisor */,
+				5C8CE142DE13517A794FD835 /* HopWorldTests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		2D490E5058988F4639222CC2 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				6BDAE2F10CD705994C2793BF /* geoip.dat in Resources */,
+				08B936E312388A393503F761 /* geosite.dat in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		EFE6C0E16942F72A12CDAEAF /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				D97138F11DF1A704656DB1EF /* DefaultRouting.json in Resources */,
+				9D3A2EC75737E41306994B01 /* geoip.dat in Resources */,
+				438AA549C229391DA88F2758 /* geosite.dat in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		EC19FC8A61FD494BDEF6FA75 /* Embed TUN supervisor */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(BUILT_PRODUCTS_DIR)/HopWorldTunSupervisor",
+			);
+			name = "Embed TUN supervisor";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/HopWorldTunSupervisor",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "/bin/mkdir -p \"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\n/bin/cp \"${BUILT_PRODUCTS_DIR}/HopWorldTunSupervisor\" \"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/HopWorldTunSupervisor\"\n";
+		};
+/* End PBXShellScriptBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		083786B8B40AEE344E6A1B1E /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B3DFB13111227597228E138F /* HopWorldAppGroup.swift in Sources */,
+				EAEB163BE8799234325E563B /* PacketTunnelProvider.swift in Sources */,
+				D165F9B77063A4588FA0A8F2 /* TunSessionStatus.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		55C1E5AB6E3737177EFC6313 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				3B879A170493C2E8C5EC5107 /* AppProbe.swift in Sources */,
+				5AE595D996B7D99F50AC373B /* ApplicationPickerEntry.swift in Sources */,
+				633E7A43DDE2121C4EE149A6 /* ApplicationPickerTests.swift in Sources */,
+				57901FAD6F7BA65427D5FBC5 /* ApplicationProxy.swift in Sources */,
+				9DD69BACECBF71079A56E542 /* ApplicationProxyConfig.swift in Sources */,
+				E29677D0D378FF93DADBC790 /* ApplicationProxyManager.swift in Sources */,
+				C804BFEDECC6DC7EAB78CB37 /* ApplicationProxyModePolicy.swift in Sources */,
+				6C6DA6E6E57EE68DB761A23C /* ApplicationProxyModePolicyTests.swift in Sources */,
+				B5C9DA01C6A31911BBCD1DE8 /* ApplicationProxyPrivilegedTests.swift in Sources */,
+				481B5DAA0145C0DF6C5260A6 /* ApplicationProxyTests.swift in Sources */,
+				2EA8B87375DDA8EC3935DF86 /* BatchProbeScheduler.swift in Sources */,
+				A15604A0DD079733BADFB8CF /* BatchTestingTests.swift in Sources */,
+				B35CDB64E217715A812C0A16 /* CaptureStatusPresentation.swift in Sources */,
+				862E66715CEED32B6F88DDC5 /* CaptureStatusPresentationTests.swift in Sources */,
+				A11D0C4A7E6F5D4C3B2A1003 /* DockActivation.swift in Sources */,
+				A11D0C4A7E6F5D4C3B2A1005 /* DockActivationTests.swift in Sources */,
+				76B0748616E4B83F37835521 /* ClashCompatibilityTests.swift in Sources */,
+				18257D3527FA83199B8B1413 /* ClashYAMLParser.swift in Sources */,
+				F2A248475AFFD3AFE2DD1B71 /* ConnectionLifecycleTests.swift in Sources */,
+				A55E55318C5D22F1CE17D208 /* ConnectionOperations.swift in Sources */,
+				7B2A28E8A4B521ACF67139F1 /* ConnectionReliabilityTests.swift in Sources */,
+				998E44B6C321936E64ACA4EE /* ConnectionState.swift in Sources */,
+				8791548B716A05269AF8B375 /* CountryResolver.swift in Sources */,
+				A5919A534899FA9998515DF6 /* CryptoUtil.swift in Sources */,
+				32F50E60C651F51B583573E2 /* FinalMaskCodec.swift in Sources */,
+				B2D2B0AD7B9D0BEF57387212 /* HopWorldTests.swift in Sources */,
+				645F5729BDE012CFF65D53AB /* KeychainStore.swift in Sources */,
+				35BC52021D476081DBF847EE /* LatencyFormat.swift in Sources */,
+				C25451A6E76BA0956B1B70CA /* LibrarySafetyTests.swift in Sources */,
+				D543278F409A08577E0D6764 /* LocalTestPorts.swift in Sources */,
+				C40B879C19C5606588E016A9 /* NetworkRecoveryCoordinator.swift in Sources */,
+				8761822809E8D63BAA740050 /* NetworkRecoveryTests.swift in Sources */,
+				2CDC5C8ADCB4B6EC88D69410 /* NodeListFilter.swift in Sources */,
+				7A7B23142DCB18610345DFEA /* NodeTestManager.swift in Sources */,
+				8DA74EA9AFB51A6B9D89DD5A /* NodeTesters.swift in Sources */,
+				3B3D594DC31DAF21378D83FF /* PersistenceStore.swift in Sources */,
+				5FCE3B586C2F9A8ADED6D2DA /* ProcessRunner.swift in Sources */,
+				D8D9B93E7DE92CCBD98B0EB9 /* ProxyNode.swift in Sources */,
+				40816C86578D830518515BBF /* SecureLibraryStore.swift in Sources */,
+				F8A7B6C5D4E39281706F5E01 /* LibrarySnapshotMigration.swift in Sources */,
+				3D63E2276A37EB669CC4E40A /* ShadowsocksParser.swift in Sources */,
+				44468ABBA3386249D002B594 /* ShareLinkComponents.swift in Sources */,
+				F1DB0ED5A7ACA2B93D87F163 /* ShareLinkExporter.swift in Sources */,
+				45635D832694D43282ADA8E7 /* SingBoxInstaller.swift in Sources */,
+				5396354982F6FFD26C053205 /* Subscription.swift in Sources */,
+				709F39EB8ABA8DBAB6B8BE66 /* SubscriptionDateTemplate.swift in Sources */,
+				B246B098E82F88DFE6905944 /* SubscriptionMerger.swift in Sources */,
+				6FD4C8279507739A1E990E35 /* SubscriptionParser.swift in Sources */,
+				D67458215D0468280AB112DE /* SystemProxyManager.swift in Sources */,
+				E1E5686752B305BAB0A47E8B /* TrojanParser.swift in Sources */,
+				2DD1368115A963389C3AA8C6 /* TunSessionStatus.swift in Sources */,
+				1B9D7543C7A87D61DACFC894 /* TunSupervisor.swift in Sources */,
+				1F5610D3238F906DCEE3CE88 /* VLESSParser.swift in Sources */,
+				8E52947426550812A9137A2A /* VMessParser.swift in Sources */,
+				5675AE2143E110D84C05A99E /* XrayConfigBuilder.swift in Sources */,
+				5D8662B72ED95A80E6D413AC /* XrayInstaller.swift in Sources */,
+				4AD9AFF521F5F8BCFCD5D630 /* XrayProcessManager.swift in Sources */,
+				DBC259E7B3A3643ABE9099CC /* XrayStatsClient.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		5A4D3F627AFD447A4A628499 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				66A16C56B0FE722C21A7358E /* ProcessRunner.swift in Sources */,
+				DB540213709902C0FF02F6C8 /* TunSessionStatus.swift in Sources */,
+				AAC7B66D2DB7D854EA7BE219 /* TunSupervisor.swift in Sources */,
+				956CEDEC3C6AFCA333F4F999 /* main.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A1562992CE19CBF4341A5BEF /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				867F10E3494F159816BC224B /* AboutView.swift in Sources */,
+				1B5DD0897288988BEC4A57F3 /* AppKitBridge.swift in Sources */,
+				A11D0C4A7E6F5D4C3B2A1002 /* DockActivation.swift in Sources */,
+				36168704AE61718B45C9A89B /* AppProbe.swift in Sources */,
+				37F9322EFB237735C4AD2FE0 /* AppState.swift in Sources */,
+				26BA14135E1FAFB86DD34C14 /* ApplicationPickerEntry.swift in Sources */,
+				3A67ED7E05C89084470D2E3B /* ApplicationProxy.swift in Sources */,
+				E6F9D1471C4333CF4A674F70 /* ApplicationProxyConfig.swift in Sources */,
+				AC7CC8649F6E295E4F67E76E /* ApplicationProxyManager.swift in Sources */,
+				B72A1641A28889F0379893FC /* ApplicationProxyModePolicy.swift in Sources */,
+				986035A61E5B9FA56E4A52C1 /* ApplicationProxySection.swift in Sources */,
+				D627E27AF89FA23AFBA2E58F /* BatchProbeScheduler.swift in Sources */,
+				7065C51156E7ECE79D6E2244 /* CaptureStatusPresentation.swift in Sources */,
+				8714306F712936156D721D0F /* ClashYAMLParser.swift in Sources */,
+				50BAB7BF9FC21C3EB853CB40 /* ConnectionManager.swift in Sources */,
+				A1B9F81AFD2BC6C93D8D5B47 /* ConnectionOperations.swift in Sources */,
+				3B5F89DA9238A8FBFE1AF5D2 /* ConnectionState.swift in Sources */,
+				8D06799C0667028E55985101 /* ContentView.swift in Sources */,
+				E3E314E288CD6CBCE51D6BD4 /* CountryListView.swift in Sources */,
+				6CA63ACB7E9044C903BBD8F7 /* CountryResolver.swift in Sources */,
+				C996E22DDD109887AFD4D68A /* CryptoUtil.swift in Sources */,
+				5A68BCC9DBC374128B229E15 /* DashboardView.swift in Sources */,
+				15CB7EB40FC83AE6A1DD30F4 /* FinalMaskCodec.swift in Sources */,
+				2A9E3014368C3B021D72B707 /* HopWorldApp.swift in Sources */,
+				5FC40636E5B794415400AEB6 /* HopWorldAppGroup.swift in Sources */,
+				555E2CB055D5260A5424237C /* KeychainStore.swift in Sources */,
+				5BD842A549199D633A0CEDEB /* LatencyFormat.swift in Sources */,
+				E3E6FAED86464D512CC99C7D /* LocalTestPorts.swift in Sources */,
+				F20831F5498A6989E123C20F /* NetworkRecoveryCoordinator.swift in Sources */,
+				8BB7F1C1BAC5C08A517896E9 /* NodeDetailView.swift in Sources */,
+				14D1729F7875FAE8BEA3649C /* NodeListFilter.swift in Sources */,
+				DA23E21291339D8125B3862F /* NodeTestManager.swift in Sources */,
+				C33A6A7215436B764DC4F7F8 /* NodeTesters.swift in Sources */,
+				AA098C3A4FE0D3F55FB07ADE /* PersistenceStore.swift in Sources */,
+				5303C6E268A02E1E40609789 /* ProcessRunner.swift in Sources */,
+				D60DC8047DA00043E3707DCF /* ProxyNode.swift in Sources */,
+				DCDBECA8AB2C96280E36CC27 /* QRCodeGenerator.swift in Sources */,
+				32DAC871C92B56A91219D2C7 /* RunningApplicationPicker.swift in Sources */,
+				E762DAD0604829471B03305F /* SecureLibraryStore.swift in Sources */,
+				D6E5F4A3B2C19281706F5E03 /* LibrarySnapshotMigration.swift in Sources */,
+				CB6717AAE4248F6DD2735228 /* ShadowsocksParser.swift in Sources */,
+				566B7D385B17BA1EB7AB606D /* ShareLinkComponents.swift in Sources */,
+				D6968569221967580A212E83 /* ShareLinkExporter.swift in Sources */,
+				5694729C700906C72A884DF9 /* SingBoxInstaller.swift in Sources */,
+				73E90112E56FDC42158D7BAD /* Subscription.swift in Sources */,
+				FA75DC8B8DEFFEF98CDF2749 /* SubscriptionDateTemplate.swift in Sources */,
+				B16678B765EEA9618C3ABC07 /* SubscriptionFetcher.swift in Sources */,
+				121514924B731252E6CF6DB6 /* SubscriptionListView.swift in Sources */,
+				F17A79C8E7D1A9B0D25D75E1 /* SubscriptionManager.swift in Sources */,
+				8CF24EB614711422AEDAC5AF /* SubscriptionMerger.swift in Sources */,
+				05CE2C098BAFE5FAF239BBF8 /* SubscriptionParser.swift in Sources */,
+				992C981DE828F786EDDF0516 /* SystemProxyManager.swift in Sources */,
+				273B1374E8D1A23737C140BF /* TestCenterView.swift in Sources */,
+				F8E7D6C5B4A39281706F5E4D /* TestProgressFloatingBar.swift in Sources */,
+				A11021000000000000000001 /* CodexUsageCard.swift in Sources */,
+				A11021000000000000000003 /* CursorUsageMonitor.swift in Sources */,
+				0FAF9F04E27FD7B67052D0F5 /* TrojanParser.swift in Sources */,
+				A241BCA9581F62501C468318 /* TunSessionStatus.swift in Sources */,
+				44EFFE2099C268F09644171B /* VLESSParser.swift in Sources */,
+				42E6EF7042D0BD9735C1A191 /* VMessParser.swift in Sources */,
+				16F12D8649B0B3B865DA68D5 /* VPNManager.swift in Sources */,
+				63714BBEE8A60217A0E0DA3E /* XrayConfigBuilder.swift in Sources */,
+				2A3BF4D1A42A88BB0CC6634D /* XrayInstaller.swift in Sources */,
+				96DD232C9A34C19D5DFFD4B6 /* XrayProcessManager.swift in Sources */,
+				1DA25727AEEEA5CEEB611113 /* XrayStatsClient.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		588A3D6A25B689CE61E64A44 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 88CD0C7947CDF2D013C45531 /* HopWorldTunnel */;
+			targetProxy = 17D38A38582A625DC0ECB64B /* PBXContainerItemProxy */;
+		};
+		650E84B52F34207E956FEEED /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = D0ABF98A8E7B961846E25D47 /* HopWorldTunSupervisor */;
+			targetProxy = 4C3DC7C624789353B38AB245 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		1C1B2941E78F281034D6B4BE /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				COMBINE_HIDPI_IMAGES = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				CODE_SIGNING_ALLOWED = YES;
+				CODE_SIGNING_REQUIRED = YES;
+				OTHER_CODE_SIGN_FLAGS = "--identifier com.hopworld.tun-supervisor --options runtime";
+				PRODUCT_BUNDLE_IDENTIFIER = "com.hopworld.tun-supervisor";
+				PRODUCT_NAME = HopWorldTunSupervisor;
+				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
+			};
+			name = Release;
+		};
+		209C6184602C47274FDBB03A /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.hopworld.tests;
+				PRODUCT_MODULE_NAME = HopWorldTests;
+				PRODUCT_NAME = HopWorldTests;
+				SDKROOT = macosx;
+				SWIFT_STRICT_CONCURRENCY = minimal;
+			};
+			name = Debug;
+		};
+		262881292AEB005208DCBBB4 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = HopWorld/HopWorld.entitlements;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = HopWorld/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = "@executable_path/../Frameworks";
+				MARKETING_VERSION = 1.0.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.hopworld.app;
+				PRODUCT_MODULE_NAME = HopWorld;
+				PRODUCT_NAME = HopWorld;
+				SDKROOT = macosx;
+				SWIFT_STRICT_CONCURRENCY = minimal;
+			};
+			name = Debug;
+		};
+		39CDEDB41F217530B04D224A /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				COMBINE_HIDPI_IMAGES = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				CODE_SIGNING_ALLOWED = YES;
+				CODE_SIGNING_REQUIRED = YES;
+				OTHER_CODE_SIGN_FLAGS = "--identifier com.hopworld.tun-supervisor --options runtime";
+				PRODUCT_BUNDLE_IDENTIFIER = "com.hopworld.tun-supervisor";
+				PRODUCT_NAME = HopWorldTunSupervisor;
+				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
+			};
+			name = Debug;
+		};
+		51B33431E7304FA64F388A11 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = HopWorld/HopWorld.entitlements;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = HopWorld/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = "@executable_path/../Frameworks";
+				MARKETING_VERSION = 1.0.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.hopworld.app;
+				PRODUCT_MODULE_NAME = HopWorld;
+				PRODUCT_NAME = HopWorld;
+				SDKROOT = macosx;
+				SWIFT_STRICT_CONCURRENCY = minimal;
+			};
+			name = Release;
+		};
+		5CAFDED931CC7DE30ED3CF8D /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.hopworld.tests;
+				PRODUCT_MODULE_NAME = HopWorldTests;
+				PRODUCT_NAME = HopWorldTests;
+				SDKROOT = macosx;
+				SWIFT_STRICT_CONCURRENCY = minimal;
+			};
+			name = Release;
+		};
+		600667C8FD400ECB3ED3705A /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_LOCALIZABILITY_NONLOCALIZED = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGNING_REQUIRED = NO;
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Manual;
+				COPY_PHASE_STRIP = NO;
+				DEAD_CODE_STRIPPING = YES;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.9;
+			};
+			name = Debug;
+		};
+		746B7BF142E162D26EA25F01 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_LOCALIZABILITY_NONLOCALIZED = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGNING_REQUIRED = NO;
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Manual;
+				COPY_PHASE_STRIP = NO;
+				DEAD_CODE_STRIPPING = YES;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = "";
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.9;
+			};
+			name = Release;
+		};
+		BA6714090372108E52E43123 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = HopWorldTunnel/HopWorldTunnel.entitlements;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = HopWorldTunnel/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = "@executable_path/../../../../Frameworks";
+				MARKETING_VERSION = 1.0.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.hopworld.app.PacketTunnel;
+				PRODUCT_MODULE_NAME = HopWorldTunnel;
+				PRODUCT_NAME = HopWorldTunnel;
+				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
+				SWIFT_STRICT_CONCURRENCY = minimal;
+			};
+			name = Release;
+		};
+		DF8786E163A3FE1F8620E4DD /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = HopWorldTunnel/HopWorldTunnel.entitlements;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = HopWorldTunnel/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = "@executable_path/../../../../Frameworks";
+				MARKETING_VERSION = 1.0.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.hopworld.app.PacketTunnel;
+				PRODUCT_MODULE_NAME = HopWorldTunnel;
+				PRODUCT_NAME = HopWorldTunnel;
+				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
+				SWIFT_STRICT_CONCURRENCY = minimal;
+			};
+			name = Debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		2D629D3287645BB346C0874C /* Build configuration list for PBXNativeTarget "HopWorldTunnel" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				DF8786E163A3FE1F8620E4DD /* Debug */,
+				BA6714090372108E52E43123 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		48A691A06A938D713A4747C8 /* Build configuration list for PBXNativeTarget "HopWorldTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				209C6184602C47274FDBB03A /* Debug */,
+				5CAFDED931CC7DE30ED3CF8D /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		B4B6AD19FBEA7CF04360D293 /* Build configuration list for PBXProject "HopWorld" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				600667C8FD400ECB3ED3705A /* Debug */,
+				746B7BF142E162D26EA25F01 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		BDD2C667D7EBC5F938F07C74 /* Build configuration list for PBXNativeTarget "HopWorld" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				262881292AEB005208DCBBB4 /* Debug */,
+				51B33431E7304FA64F388A11 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		C3194E6CF40E163D3256E208 /* Build configuration list for PBXNativeTarget "HopWorldTunSupervisor" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				39CDEDB41F217530B04D224A /* Debug */,
+				1C1B2941E78F281034D6B4BE /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 34F68E6EE595FFE8E8C3D8F6 /* Project object */;
+}

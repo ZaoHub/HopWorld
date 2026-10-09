@@ -1,0 +1,68 @@
+import XCTest
+
+final class ClashCompatibilityTests: XCTestCase {
+    func testIndentlessListNestedWebSocketHostAndComments() throws {
+        let text = """
+        proxies:
+        - name: 'Japan: #1'
+          type: vmess
+          server: example.com
+          port: 443 # standard TLS
+          uuid: 11111111-1111-4111-8111-111111111111
+          network: ws
+          tls: true
+          ws-opts:
+            path: '/socket?a=1#fragment'
+            headers:
+              Host: cdn.example.com
+          alpn:
+            - h2
+            - http/1.1
+        proxy-groups:
+          - name: ignored
+        """
+        let node = try XCTUnwrap(ClashYAMLParser.parse(text).validNodes.first)
+        XCTAssertEqual(node.name, "Japan: #1")
+        XCTAssertEqual(node.host, "cdn.example.com")
+        XCTAssertEqual(node.path, "/socket?a=1#fragment")
+        XCTAssertEqual(node.alpn, "h2,http/1.1")
+        XCTAssertEqual(node.security, .tls)
+    }
+
+    func testNestedInlineMapsAndQuotedCommas() throws {
+        let text = #"""
+        proxies:
+          - {name: "Node, 1", type: vless, server: example.com, port: 443, uuid: 11111111-1111-4111-8111-111111111111, network: grpc, grpc-opts: {grpc-service-name: "svc,one"}, reality-opts: {public-key: "public-key", short-id: "00ab"}, alpn: [h2, http/1.1]}
+        """#
+        let node = try XCTUnwrap(ClashYAMLParser.parse(text).validNodes.first)
+        XCTAssertEqual(node.name, "Node, 1")
+        XCTAssertEqual(node.serviceName, "svc,one")
+        XCTAssertEqual(node.publicKey, "public-key")
+        XCTAssertEqual(node.shortID, "00ab")
+        XCTAssertEqual(node.security, .reality)
+        XCTAssertEqual(node.alpn, "h2,http/1.1")
+    }
+
+    func testInlineProxyArrayEscapesAndCaseInsensitiveHost() throws {
+        let text = #"""
+        proxies: [{name: "Node \"A\"", type: trojan, server: example.com, port: 443, password: 'a,b:#it''s', network: ws, ws-opts: {path: "/ws", headers: {hOsT: "edge.example.com"}}}]
+        """#
+        let node = try XCTUnwrap(ClashYAMLParser.parse(text).validNodes.first)
+        XCTAssertEqual(node.name, "Node \"A\"")
+        XCTAssertEqual(node.password, "a,b:#it's")
+        XCTAssertEqual(node.host, "edge.example.com")
+    }
+
+    func testUnknownTransportMissingCredentialsAndInvalidPortsAreNotValidNodes() throws {
+        for fields in ["network: unsupported, password: p", "network: tcp", "password: p, port: 99999"] {
+            let text = "proxies: [{name: n, type: trojan, server: example.com, port: 443, \(fields)}]"
+            XCTAssertThrowsError(try ClashYAMLParser.parse(text))
+        }
+    }
+
+    func testAliasesAndMalformedNestedMapsFailInsteadOfLosingParameters() throws {
+        for text in ["proxies:\n  - *node", "proxies:\n  - {name: n, type: trojan, server: example.com, port: 443, password: p, ws-opts: {path: /ws}"] {
+            XCTAssertThrowsError(try ClashYAMLParser.parse(text))
+        }
+    }
+}

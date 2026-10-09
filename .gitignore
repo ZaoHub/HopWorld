@@ -1,0 +1,34 @@
+# 跃界 / HopWorld
+.DS_Store
+DerivedData/
+build/
+*.xcuserstate
+xcuserdata/
+*.moved-aside
+*.xccheckout
+*.xcscmblueprint
+HopWorld/Resources/xray
+HopWorld/Resources/geoip.dat
+HopWorld/Resources/geosite.dat
+
+# Local artifacts and editor state
+dist/
+.logs/
+.vscode/
+*.log
+*.dmg
+*.xcarchive/
+*.dSYM/
+
+# Credentials and local application data
+.env
+.env.*
+!.env.example
+*.p12
+*.p8
+*.mobileprovision
+*.keychain-db
+library*.enc
+nodes.json
+subscriptions.json
+subscription-logs.json

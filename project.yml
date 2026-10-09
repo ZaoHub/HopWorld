@@ -1,0 +1,201 @@
+name: HopWorld
+options:
+  bundleIdPrefix: com.hopworld
+  deploymentTarget:
+    macOS: "14.0"
+  createIntermediateGroups: true
+  developmentLanguage: zh-Hans
+  xcodeVersion: "27.1"
+
+attributes:
+  LastUpgradeCheck: "2710"
+  LastSwiftUpdateCheck: "2710"
+
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+    MACOSX_DEPLOYMENT_TARGET: "14.0"
+    ENABLE_HARDENED_RUNTIME: YES
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+    DEAD_CODE_STRIPPING: YES
+    STRING_CATALOG_GENERATE_SYMBOLS: YES
+    LOCALIZATION_PREFERS_STRING_CATALOGS: YES
+    ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS: YES
+    CLANG_CXX_LANGUAGE_STANDARD: gnu++20
+    GCC_C_LANGUAGE_STANDARD: gnu17
+    CLANG_ANALYZER_LOCALIZABILITY_NONLOCALIZED: YES
+    CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER: YES
+    ENABLE_STRICT_OBJC_MSGSEND: YES
+    GCC_NO_COMMON_BLOCKS: YES
+    COPY_PHASE_STRIP: NO
+    # Local / CI: ad-hoc sign. For System VPN, set a Development Team in Xcode
+    # and enable Network Extension + App Groups capabilities.
+    CODE_SIGN_IDENTITY: "-"
+    CODE_SIGNING_REQUIRED: NO
+    CODE_SIGN_STYLE: Manual
+    DEVELOPMENT_TEAM: ""
+
+targets:
+  HopWorld:
+    type: application
+    platform: macOS
+    sources:
+      - path: HopWorld
+        excludes:
+          - Resources/xray
+          - Resources/*.dat
+          - "**/.gitkeep"
+          - Assets.xcassets
+      - path: HopWorldShared
+      - path: HopWorld/Resources/geoip.dat
+        buildPhase: resources
+      - path: HopWorld/Resources/geosite.dat
+        buildPhase: resources
+    resources:
+      - path: HopWorld/Resources
+        optional: true
+        excludes:
+          - .gitkeep
+          - xray
+      - path: HopWorld/Assets.xcassets
+        type: folder
+    dependencies:
+      - target: HopWorldTunnel
+        embed: true
+      - target: HopWorldTunSupervisor
+        embed: false
+    postBuildScripts:
+      - name: Embed TUN supervisor
+        script: |
+          /bin/mkdir -p "${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}"
+          /bin/cp "${BUILT_PRODUCTS_DIR}/HopWorldTunSupervisor" "${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/HopWorldTunSupervisor"
+        inputFiles:
+          - "$(BUILT_PRODUCTS_DIR)/HopWorldTunSupervisor"
+        outputFiles:
+          - "$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/HopWorldTunSupervisor"
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.hopworld.app
+        PRODUCT_NAME: HopWorld
+        PRODUCT_MODULE_NAME: HopWorld
+        INFOPLIST_FILE: HopWorld/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        LD_RUNPATH_SEARCH_PATHS: "@executable_path/../Frameworks"
+        CODE_SIGN_ENTITLEMENTS: HopWorld/HopWorld.entitlements
+        COMBINE_HIDPI_IMAGES: YES
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        MARKETING_VERSION: "1.0.0"
+        CURRENT_PROJECT_VERSION: "1"
+        SWIFT_STRICT_CONCURRENCY: minimal
+    info:
+      path: HopWorld/Info.plist
+      properties:
+        CFBundleName: 跃界
+        CFBundleDisplayName: 跃界
+        CFBundleShortVersionString: "1.0.0"
+        CFBundleVersion: "1"
+        LSMinimumSystemVersion: "14.0"
+        LSUIElement: false
+        NSHighResolutionCapable: true
+        NSPrincipalClass: NSApplication
+        NSHumanReadableCopyright: "Copyright © 2026 HopWorld"
+
+  HopWorldTunnel:
+    type: app-extension
+    platform: macOS
+    sources:
+      - path: HopWorldTunnel
+      - path: HopWorldShared
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.hopworld.app.PacketTunnel
+        PRODUCT_NAME: HopWorldTunnel
+        PRODUCT_MODULE_NAME: HopWorldTunnel
+        INFOPLIST_FILE: HopWorldTunnel/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        CODE_SIGN_ENTITLEMENTS: HopWorldTunnel/HopWorldTunnel.entitlements
+        LD_RUNPATH_SEARCH_PATHS: "@executable_path/../../../../Frameworks"
+        SKIP_INSTALL: YES
+        MARKETING_VERSION: "1.0.0"
+        CURRENT_PROJECT_VERSION: "1"
+        SWIFT_STRICT_CONCURRENCY: minimal
+    info:
+      path: HopWorldTunnel/Info.plist
+      properties:
+        CFBundleDisplayName: 跃界 VPN
+        CFBundleShortVersionString: "1.0.0"
+        CFBundleVersion: "1"
+        LSMinimumSystemVersion: "14.0"
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.networkextension.packet-tunnel
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).PacketTunnelProvider
+
+  HopWorldTunSupervisor:
+    type: tool
+    platform: macOS
+    sources:
+      - path: HopWorldTunSupervisor
+      - path: HopWorldShared/TunSessionStatus.swift
+      - path: HopWorld/Utilities/ProcessRunner.swift
+    settings:
+      base:
+        PRODUCT_NAME: HopWorldTunSupervisor
+        PRODUCT_BUNDLE_IDENTIFIER: com.hopworld.tun-supervisor
+        CODE_SIGNING_ALLOWED: YES
+        CODE_SIGNING_REQUIRED: YES
+        OTHER_CODE_SIGN_FLAGS: "--identifier com.hopworld.tun-supervisor --options runtime"
+        SKIP_INSTALL: YES
+
+  HopWorldTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: HopWorld/Resources/geoip.dat
+        buildPhase: resources
+      - path: HopWorld/Resources/geosite.dat
+        buildPhase: resources
+      - path: HopWorldTests
+      - path: HopWorldShared/TunSessionStatus.swift
+      - path: HopWorldTunSupervisor/TunSupervisor.swift
+      - path: HopWorld/Services/ApplicationProxy
+      - path: HopWorld/Services/Persistence
+      - path: HopWorld/Models
+      - path: HopWorld/Parsers
+      - path: HopWorld/Utilities/CryptoUtil.swift
+      - path: HopWorld/Utilities/DockActivation.swift
+      - path: HopWorld/Utilities/LatencyFormat.swift
+      - path: HopWorld/Utilities/ProcessRunner.swift
+      - path: HopWorld/Services/Xray
+      - path: HopWorld/Services/Security/KeychainStore.swift
+      - path: HopWorld/Services/Testing/AppProbe.swift
+      - path: HopWorld/Services/Testing/NodeTesters.swift
+      - path: HopWorld/Services/Testing/NodeTestManager.swift
+      - path: HopWorld/Services/Testing/BatchProbeScheduler.swift
+      - path: HopWorld/Services/Testing/LocalTestPorts.swift
+      - path: HopWorld/Services/System/NetworkRecoveryCoordinator.swift
+      - path: HopWorld/Services/System/ConnectionOperations.swift
+      - path: HopWorld/Services/System/SystemProxyManager.swift
+      - path: HopWorld/Services/Subscription/SubscriptionDateTemplate.swift
+      - path: HopWorld/Services/Subscription/SubscriptionMerger.swift
+      - path: HopWorld/Services/Country/CountryResolver.swift
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.hopworld.tests
+        PRODUCT_NAME: HopWorldTests
+        PRODUCT_MODULE_NAME: HopWorldTests
+        GENERATE_INFOPLIST_FILE: YES
+        SWIFT_STRICT_CONCURRENCY: minimal
+
+schemes:
+  HopWorld:
+    build:
+      targets:
+        HopWorld: all
+        HopWorldTunnel: all
+        HopWorldTests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - HopWorldTests

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Enable in Xcode → Signing & Capabilities (requires Apple Developer Team):
+	     • Network Extensions → Packet Tunnel
+	     • App Groups → group.com.hopworld.app
+	     Until then, System Proxy mode works; System VPN start will error with a clear message. -->
+</dict>
+</plist>
