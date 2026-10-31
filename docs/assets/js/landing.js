@@ -10,7 +10,8 @@
   window.addEventListener("scroll", onScroll, { passive: true });
 
   const heroImg = document.querySelector(".hero-media img");
-  if (heroImg && !reduce) {
+  const canParallax = heroImg && !reduce && window.matchMedia("(min-width: 641px)").matches;
+  if (canParallax) {
     window.addEventListener(
       "scroll",
       () => {
