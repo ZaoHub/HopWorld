@@ -133,8 +133,57 @@ final class LibrarySafetyTests: XCTestCase {
             includeCredentials: true
         )
         let imported = try LibraryBackup.importBackup(from: exported, passphrase: "test-passphrase")
-        XCTAssertEqual(imported.nodes.count, snapshot.nodes.count)
-        XCTAssertEqual(imported.subscriptions.first?.name, snapshot.subscriptions.first?.name)
+        XCTAssertEqual(imported.snapshot.nodes.count, snapshot.nodes.count)
+        XCTAssertEqual(imported.snapshot.subscriptions.first?.name, snapshot.subscriptions.first?.name)
+        XCTAssertNil(imported.settings)
+    }
+
+    func testPortableBackupSelectiveSubscriptionsAndSettings() throws {
+        let first = Subscription(name: "Keep", originalURL: "https://example.com/a")
+        let second = Subscription(name: "Skip", originalURL: "https://example.com/b")
+        let keepNode = ProxyNode(name: "Keep", protocolType: .trojan, server: "a.example.com", port: 443,
+                                 password: "secret", subscriptionID: first.id)
+        let skipNode = ProxyNode(name: "Skip", protocolType: .trojan, server: "b.example.com", port: 443,
+                                 password: "secret", subscriptionID: second.id)
+        let manual = ProxyNode(name: "Manual", protocolType: .trojan, server: "m.example.com", port: 443,
+                               password: "secret", subscriptionID: nil)
+        let snapshot = LibrarySnapshot(
+            nodes: [keepNode, skipNode, manual],
+            subscriptions: [first, second],
+            updateLogs: [
+                SubscriptionUpdateLog(subscriptionID: first.id, requestedURL: first.originalURL, success: true),
+                SubscriptionUpdateLog(subscriptionID: second.id, requestedURL: second.originalURL, success: true)
+            ]
+        )
+        var settings = AppSettings()
+        settings.testConcurrency = 7
+        settings.socksPort = 18080
+
+        let exported = try LibraryBackup.export(
+            snapshot: snapshot,
+            passphrase: "test-passphrase",
+            includeCredentials: true,
+            subscriptionIDs: [first.id],
+            includeManualNodes: false,
+            settings: settings
+        )
+        let imported = try LibraryBackup.importBackup(from: exported, passphrase: "test-passphrase")
+        XCTAssertEqual(imported.snapshot.subscriptions.map(\.name), ["Keep"])
+        XCTAssertEqual(imported.snapshot.nodes.map(\.name), ["Keep"])
+        XCTAssertEqual(imported.snapshot.updateLogs.map(\.subscriptionID), [first.id])
+        XCTAssertEqual(imported.settings?.testConcurrency, 7)
+        XCTAssertEqual(imported.settings?.socksPort, 18080)
+
+        XCTAssertThrowsError(try LibraryBackup.export(
+            snapshot: snapshot,
+            passphrase: "test-passphrase",
+            includeCredentials: false,
+            subscriptionIDs: [],
+            includeManualNodes: false,
+            settings: nil
+        )) { error in
+            XCTAssertEqual(error as? LibraryBackupError, .emptyExport)
+        }
     }
 
     func testGeneratedCoreConfigurationIsOwnerOnly() throws {

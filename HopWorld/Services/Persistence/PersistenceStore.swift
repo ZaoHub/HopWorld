@@ -239,7 +239,7 @@ struct PersistenceStore: Sendable {
 
 // MARK: - Portable backup (passphrase, not Keychain)
 
-enum LibraryBackupError: LocalizedError {
+enum LibraryBackupError: LocalizedError, Equatable {
     case invalidFile
     case wrongPassphrase
     case emptyExport
@@ -249,23 +249,54 @@ enum LibraryBackupError: LocalizedError {
         switch self {
         case .invalidFile: return "不是有效的跃界备份文件"
         case .wrongPassphrase: return "备份密码不正确"
-        case .emptyExport: return "没有可导出的节点或订阅"
+        case .emptyExport: return "请至少选择一个订阅组、手动节点或应用配置"
         case .requiresReplaceConfirmation: return "当前已有节点数据，请确认覆盖后再导入"
         }
     }
 }
 
+/// Decrypted portable backup. Older files omit `settings`.
+struct LibraryBackupContents: Sendable {
+    var snapshot: LibrarySnapshot
+    var settings: AppSettings?
+}
+
 enum LibraryBackup {
     private static let magic = Data("HOPWBACKUP1".utf8)
 
-    static func export(snapshot: LibrarySnapshot, passphrase: String, includeCredentials: Bool) throws -> Data {
-        guard !snapshot.nodes.isEmpty || !snapshot.subscriptions.isEmpty else {
+    /// Portable document: same library fields as `LibrarySnapshot`, plus optional app settings.
+    private struct Document: Codable {
+        var nodes: [ProxyNode] = []
+        var subscriptions: [Subscription] = []
+        var updateLogs: [SubscriptionUpdateLog] = []
+        var settings: AppSettings?
+    }
+
+    /// - Parameters:
+    ///   - subscriptionIDs: `nil` = all subscriptions; otherwise only listed IDs.
+    ///   - includeManualNodes: nodes with no `subscriptionID`.
+    ///   - settings: when non-nil, written into the backup file.
+    static func export(
+        snapshot: LibrarySnapshot,
+        passphrase: String,
+        includeCredentials: Bool,
+        subscriptionIDs: Set<UUID>? = nil,
+        includeManualNodes: Bool = true,
+        settings: AppSettings? = nil
+    ) throws -> Data {
+        let filtered = filter(snapshot: snapshot, subscriptionIDs: subscriptionIDs, includeManualNodes: includeManualNodes)
+        guard !filtered.nodes.isEmpty || !filtered.subscriptions.isEmpty || settings != nil else {
             throw LibraryBackupError.emptyExport
         }
-        var payload = snapshot
+        var document = Document(
+            nodes: filtered.nodes,
+            subscriptions: filtered.subscriptions,
+            updateLogs: filtered.updateLogs,
+            settings: settings
+        )
         if !includeCredentials {
-            payload.nodes = payload.nodes.map(redactForExport)
-            payload.subscriptions = payload.subscriptions.map { subscription in
+            document.nodes = document.nodes.map(redactForExport)
+            document.subscriptions = document.subscriptions.map { subscription in
                 var copy = subscription
                 copy.shareLinksText = nil
                 return copy
@@ -274,7 +305,7 @@ enum LibraryBackup {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = [.sortedKeys]
-        let json = try encoder.encode(payload)
+        let json = try encoder.encode(document)
         let key = try deriveKey(passphrase: passphrase)
         guard let sealed = try AES.GCM.seal(json, using: key).combined else {
             throw LibraryBackupError.invalidFile
@@ -282,7 +313,7 @@ enum LibraryBackup {
         return magic + sealed
     }
 
-    static func importBackup(from data: Data, passphrase: String) throws -> LibrarySnapshot {
+    static func importBackup(from data: Data, passphrase: String) throws -> LibraryBackupContents {
         guard data.count > magic.count, data.prefix(magic.count) == magic else {
             throw LibraryBackupError.invalidFile
         }
@@ -297,7 +328,37 @@ enum LibraryBackup {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         let patched = try LibrarySnapshotMigration.patchEncryptedLibraryJSON(json)
-        return try decoder.decode(LibrarySnapshot.self, from: patched)
+        let document = try decoder.decode(Document.self, from: patched)
+        return LibraryBackupContents(
+            snapshot: LibrarySnapshot(
+                nodes: document.nodes,
+                subscriptions: document.subscriptions,
+                updateLogs: document.updateLogs
+            ),
+            settings: document.settings
+        )
+    }
+
+    static func filter(
+        snapshot: LibrarySnapshot,
+        subscriptionIDs: Set<UUID>?,
+        includeManualNodes: Bool
+    ) -> LibrarySnapshot {
+        let subscriptions: [Subscription]
+        if let subscriptionIDs {
+            subscriptions = snapshot.subscriptions.filter { subscriptionIDs.contains($0.id) }
+        } else {
+            subscriptions = snapshot.subscriptions
+        }
+        let selectedIDs = Set(subscriptions.map(\.id))
+        let nodes = snapshot.nodes.filter { node in
+            if let id = node.subscriptionID {
+                return subscriptionIDs == nil ? true : selectedIDs.contains(id)
+            }
+            return includeManualNodes
+        }
+        let updateLogs = snapshot.updateLogs.filter { selectedIDs.contains($0.subscriptionID) }
+        return LibrarySnapshot(nodes: nodes, subscriptions: subscriptions, updateLogs: updateLogs)
     }
 
     private static func redactForExport(_ node: ProxyNode) -> ProxyNode {

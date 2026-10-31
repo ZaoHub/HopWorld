@@ -2511,8 +2511,11 @@ private struct NodeNameAdFilterSettings: View {
 }
 
 struct SettingsView: View {
-    private enum BackupOperation {
+    private enum BackupOperation: String, Identifiable {
         case export, restore
+        var id: String { rawValue }
+        var title: String { self == .export ? "导出备份" : "从备份恢复" }
+        var confirmTitle: String { self == .export ? "导出…" : "选择文件…" }
     }
 
     private struct CountryListConflict {
@@ -2541,7 +2544,11 @@ struct SettingsView: View {
     @State private var backupOperation: BackupOperation?
     @FocusState private var backupPasswordFocused: Bool
     @State private var includeCredentialsInBackup = false
+    @State private var includeSettingsInBackup = true
+    @State private var includeManualNodesInBackup = true
+    @State private var selectedBackupSubscriptionIDs: Set<UUID> = []
     @State private var backupFeedback: String?
+    @State private var backupDialogFeedback: String?
     @State private var pendingImportData: Data?
     @State private var pendingImportPassphrase = ""
     @State private var showReplaceImportConfirm = false
@@ -3097,6 +3104,9 @@ struct SettingsView: View {
             .background(.regularMaterial)
         }
         .onDisappear(perform: cancelBackupOperation)
+        .sheet(item: $backupOperation, onDismiss: dismissBackupSheet) { operation in
+            backupDialog(for: operation)
+        }
         .alert("国家名单冲突", isPresented: Binding(
             get: { countryListConflict != nil },
             set: { if !$0 { countryListConflict = nil } }
@@ -3120,8 +3130,8 @@ struct SettingsView: View {
             Button("取消", role: .cancel) {
                 cancelBackupOperation()
             }
-        }         message: {
-            Text("将用备份替换本机全部节点与订阅（连接状态不受影响，建议先断开）。")
+        } message: {
+            Text("将用备份替换本机全部节点与订阅；若备份含应用配置也会一并覆盖（连接状态不受影响，建议先断开）。")
         }
     }
 
@@ -3306,6 +3316,17 @@ struct SettingsView: View {
         .padding(.bottom, 2)
     }
 
+    private var manualBackupNodeCount: Int {
+        appState.nodes.filter { $0.subscriptionID == nil && !$0.pendingRemoval }.count
+    }
+
+    private var canConfirmBackupExport: Bool {
+        backupPassphrase.trimmingCharacters(in: .whitespacesAndNewlines).count >= 6
+            && (includeSettingsInBackup
+                || !selectedBackupSubscriptionIDs.isEmpty
+                || (includeManualNodesInBackup && manualBackupNodeCount > 0))
+    }
+
     private var backupSettings: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
@@ -3315,31 +3336,7 @@ struct SettingsView: View {
             .buttonStyle(.bordered)
             .disabled(backupOperation != nil)
 
-            if let operation = backupOperation {
-                HStack(spacing: 8) {
-                    SecureField(operation == .export ? "设置备份密码（至少 6 位）" : "输入备份密码", text: $backupPassphrase)
-                        .textFieldStyle(.roundedBorder)
-                        .onChange(of: backupPassphrase) { _ in
-                            if backupOperation != nil { backupFeedback = nil }
-                        }
-                        .focused($backupPasswordFocused)
-                        .onAppear { backupPasswordFocused = true }
-                        .onSubmit(confirmBackupOperation)
-                    Button(operation == .export ? "确定导出" : "确定恢复", action: confirmBackupOperation)
-                        .buttonStyle(.borderedProminent)
-                        .disabled(backupPassphrase.trimmingCharacters(in: .whitespacesAndNewlines).count < 6)
-                    Button("取消", action: cancelBackupOperation)
-                        .buttonStyle(.bordered)
-                }
-                .controlSize(.small)
-                if operation == .export {
-                    Toggle("包含节点凭证（文件含敏感信息）", isOn: $includeCredentialsInBackup)
-                        .toggleStyle(.checkbox)
-                        .font(.caption)
-                }
-            }
-
-            Text("备份使用您设置的密码加密，可在其他 Mac 恢复；恢复时需要同一密码。")
+            Text("以弹窗选择订阅组与配置，导出加密的 .hopbackup 专用文件；恢复时需同一密码。")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -3352,20 +3349,148 @@ struct SettingsView: View {
         }
     }
 
+    private func backupDialog(for operation: BackupOperation) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text(operation.title)
+                .font(.title2.bold())
+            Text(operation == .export
+                 ? "选择要导出的订阅组，并可一并导出应用配置。文件使用下方密码加密。"
+                 : "输入导出时设置的密码，再选择 .hopbackup 文件恢复。")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            SecureField(operation == .export ? "设置备份密码（至少 6 位）" : "输入备份密码", text: $backupPassphrase)
+                .textFieldStyle(.roundedBorder)
+                .onChange(of: backupPassphrase) { _ in backupDialogFeedback = nil }
+                .focused($backupPasswordFocused)
+                .onSubmit(confirmBackupOperation)
+
+            if operation == .export {
+                backupExportOptions
+            }
+
+            if let backupDialogFeedback {
+                Text(backupDialogFeedback)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer(minLength: 0)
+
+            HStack {
+                Spacer()
+                Button("取消", action: cancelBackupOperation)
+                    .keyboardShortcut(.cancelAction)
+                Button(operation.confirmTitle, action: confirmBackupOperation)
+                    .buttonStyle(.borderedProminent)
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(operation == .export
+                              ? !canConfirmBackupExport
+                              : backupPassphrase.trimmingCharacters(in: .whitespacesAndNewlines).count < 6)
+            }
+        }
+        .padding(24)
+        .frame(width: 480, height: operation == .export ? 560 : 240)
+        .onAppear { backupPasswordFocused = true }
+    }
+
+    private var backupExportOptions: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Toggle("包含节点凭证（文件含敏感信息）", isOn: $includeCredentialsInBackup)
+                .toggleStyle(.checkbox)
+            Toggle("一并导出应用配置（设置页参数）", isOn: $includeSettingsInBackup)
+                .toggleStyle(.checkbox)
+
+            HStack(spacing: 8) {
+                Text("导出订阅组")
+                    .font(.headline)
+                Spacer(minLength: 0)
+                Button("全选") {
+                    selectedBackupSubscriptionIDs = Set(appState.subscriptions.map(\.id))
+                }
+                .buttonStyle(.borderless)
+                .disabled(selectedBackupSubscriptionIDs.count == appState.subscriptions.count)
+                Button("全不选") { selectedBackupSubscriptionIDs = [] }
+                    .buttonStyle(.borderless)
+                    .disabled(selectedBackupSubscriptionIDs.isEmpty)
+            }
+
+            if appState.subscriptions.isEmpty {
+                Text("暂无订阅组")
+                    .foregroundStyle(.secondary)
+            } else {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 6) {
+                        ForEach(appState.subscriptions) { subscription in
+                            Toggle(isOn: Binding(
+                                get: { selectedBackupSubscriptionIDs.contains(subscription.id) },
+                                set: { selected in
+                                    if selected {
+                                        selectedBackupSubscriptionIDs.insert(subscription.id)
+                                    } else {
+                                        selectedBackupSubscriptionIDs.remove(subscription.id)
+                                    }
+                                }
+                            )) {
+                                HStack(spacing: 6) {
+                                    Text(subscription.name)
+                                    Text("\(appState.nodes.filter { $0.subscriptionID == subscription.id && !$0.pendingRemoval }.count) 节点")
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                            .toggleStyle(.checkbox)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .frame(maxHeight: 220)
+                .padding(8)
+                .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 8))
+            }
+
+            if manualBackupNodeCount > 0 {
+                Toggle("包含手动导入节点（\(manualBackupNodeCount)）", isOn: $includeManualNodesInBackup)
+                    .toggleStyle(.checkbox)
+            }
+        }
+    }
+
     private func beginBackupOperation(_ operation: BackupOperation) {
-        cancelBackupOperation()
+        resetBackupForm(clearFeedback: true)
+        if operation == .export {
+            selectedBackupSubscriptionIDs = Set(appState.subscriptions.map(\.id))
+            includeManualNodesInBackup = manualBackupNodeCount > 0
+            includeSettingsInBackup = true
+        }
         backupOperation = operation
+    }
+
+    private func dismissBackupSheet() {
+        // Sheet swipe/esc already nil'd the item; only clear form fields.
+        if backupOperation == nil {
+            resetBackupForm(clearFeedback: false)
+        }
     }
 
     private func cancelBackupOperation() {
         backupOperation = nil
-        backupPassphrase = ""
-        includeCredentialsInBackup = false
-        backupPasswordFocused = false
+        resetBackupForm(clearFeedback: true)
         pendingImportData = nil
         pendingImportPassphrase = ""
         showReplaceImportConfirm = false
-        backupFeedback = nil
+    }
+
+    private func resetBackupForm(clearFeedback: Bool) {
+        backupPassphrase = ""
+        includeCredentialsInBackup = false
+        includeSettingsInBackup = true
+        includeManualNodesInBackup = true
+        selectedBackupSubscriptionIDs = []
+        backupPasswordFocused = false
+        backupDialogFeedback = nil
+        if clearFeedback { backupFeedback = nil }
     }
 
     private func confirmBackupOperation() {
@@ -3379,31 +3504,44 @@ struct SettingsView: View {
     private func exportLibraryBackup() {
         let phrase = backupPassphrase.trimmingCharacters(in: .whitespacesAndNewlines)
         guard phrase.count >= 6 else {
-            backupFeedback = "请设置至少 6 位的备份密码"
+            backupDialogFeedback = "请设置至少 6 位的备份密码"
+            return
+        }
+        guard canConfirmBackupExport else {
+            backupDialogFeedback = "请至少选择一个订阅组、手动节点或应用配置"
             return
         }
         do {
+            let exportingAllSubscriptions = selectedBackupSubscriptionIDs.count == appState.subscriptions.count
             let data = try appState.exportLibraryBackup(
                 passphrase: phrase,
-                includeCredentials: includeCredentialsInBackup
+                includeCredentials: includeCredentialsInBackup,
+                subscriptionIDs: exportingAllSubscriptions ? nil : selectedBackupSubscriptionIDs,
+                includeManualNodes: includeManualNodesInBackup,
+                includeSettings: includeSettingsInBackup
             )
             let panel = NSSavePanel()
             panel.title = "导出跃界备份"
-            panel.nameFieldStringValue = "HopWorld-backup.hopbackup"
+            let stamp = DateFormatter.localizedString(from: Date(), dateStyle: .short, timeStyle: .none)
+                .replacingOccurrences(of: "/", with: "-")
+            panel.nameFieldStringValue = exportingAllSubscriptions && includeSettingsInBackup
+                ? "HopWorld-backup.hopbackup"
+                : "HopWorld-backup-\(stamp).hopbackup"
             panel.allowedContentTypes = [.data]
             guard panel.runModal() == .OK, let url = panel.url else { return }
             try data.write(to: url, options: .atomic)
+            let name = url.lastPathComponent
             cancelBackupOperation()
-            backupFeedback = "已导出至 \(url.lastPathComponent)"
+            backupFeedback = "已导出至 \(name)"
         } catch {
-            backupFeedback = "导出失败：\(error.localizedDescription)"
+            backupDialogFeedback = "导出失败：\(error.localizedDescription)"
         }
     }
 
     private func pickLibraryBackup() {
         let phrase = backupPassphrase.trimmingCharacters(in: .whitespacesAndNewlines)
         guard phrase.count >= 6 else {
-            backupFeedback = "请先填写与导出时相同的备份密码"
+            backupDialogFeedback = "请先填写与导出时相同的备份密码"
             return
         }
         let panel = NSOpenPanel()
@@ -3419,9 +3557,10 @@ struct SettingsView: View {
             cancelBackupOperation()
             backupFeedback = "备份已恢复"
         } catch LibraryBackupError.requiresReplaceConfirmation {
+            // Keep the sheet open until the user confirms or cancels replace.
             showReplaceImportConfirm = true
         } catch {
-            backupFeedback = "导入失败：\(error.localizedDescription)"
+            backupDialogFeedback = "导入失败：\(error.localizedDescription)"
             pendingImportData = nil
             pendingImportPassphrase = ""
         }
@@ -3438,7 +3577,8 @@ struct SettingsView: View {
             cancelBackupOperation()
             backupFeedback = "备份已恢复"
         } catch {
-            backupFeedback = "导入失败：\(error.localizedDescription)"
+            backupDialogFeedback = "导入失败：\(error.localizedDescription)"
+            backupFeedback = backupDialogFeedback
         }
         pendingImportData = nil
         pendingImportPassphrase = ""

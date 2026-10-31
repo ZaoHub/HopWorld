@@ -319,7 +319,7 @@ struct SubscriptionListView: View {
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
-            Text("也可在 设置 → 数据备份 从 .hopbackup 恢复")
+            Text("也可在 设置 → 数据备份 从 .hopbackup 恢复（可含指定订阅组与应用配置）")
                 .font(.caption)
                 .foregroundStyle(.tertiary)
         }

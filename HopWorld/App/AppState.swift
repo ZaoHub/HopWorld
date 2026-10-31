@@ -1211,28 +1211,53 @@ final class AppState: ObservableObject {
         statusBanner = "更改未保存：本地数据尚未读取成功，请点顶部「重新读取」"
     }
 
-    func exportLibraryBackup(passphrase: String, includeCredentials: Bool) throws -> Data {
+    func exportLibraryBackup(
+        passphrase: String,
+        includeCredentials: Bool,
+        subscriptionIDs: Set<UUID>? = nil,
+        includeManualNodes: Bool = true,
+        includeSettings: Bool = false
+    ) throws -> Data {
         let snapshot = LibrarySnapshot(nodes: nodes, subscriptions: subscriptions, updateLogs: updateLogs)
-        return try LibraryBackup.export(snapshot: snapshot, passphrase: passphrase, includeCredentials: includeCredentials)
+        return try LibraryBackup.export(
+            snapshot: snapshot,
+            passphrase: passphrase,
+            includeCredentials: includeCredentials,
+            subscriptionIDs: subscriptionIDs,
+            includeManualNodes: includeManualNodes,
+            settings: includeSettings ? settings : nil
+        )
     }
 
     func importLibraryBackup(from data: Data, passphrase: String, replaceExisting: Bool) throws {
         let imported = try LibraryBackup.importBackup(from: data, passphrase: passphrase)
-        guard replaceExisting || nodes.isEmpty else {
-            throw LibraryBackupError.requiresReplaceConfirmation
+        let library = imported.snapshot
+        let hasLibrary = !library.nodes.isEmpty || !library.subscriptions.isEmpty
+        if hasLibrary {
+            guard replaceExisting || nodes.isEmpty else {
+                throw LibraryBackupError.requiresReplaceConfirmation
+            }
+            nodes = library.nodes
+            subscriptions = library.subscriptions
+            updateLogs = library.updateLogs
+            for index in nodes.indices {
+                KeychainStore.storeNodeCredentials(&nodes[index])
+            }
+            countryGroups = CountryResolver.group(nodes.filter { !$0.pendingRemoval })
+            libraryAvailable = true
+            persistenceError = nil
+            if imported.settings == nil {
+                persist()
+            }
+            startScheduler()
         }
-        nodes = imported.nodes
-        subscriptions = imported.subscriptions
-        updateLogs = imported.updateLogs
-        for index in nodes.indices {
-            KeychainStore.storeNodeCredentials(&nodes[index])
+        if let restored = imported.settings {
+            updateSettings { $0 = restored }
         }
-        countryGroups = CountryResolver.group(nodes.filter { !$0.pendingRemoval })
-        libraryAvailable = true
-        persistenceError = nil
-        persist()
-        startScheduler()
-        statusBanner = "已从备份恢复 \(nodes.count) 个节点、\(subscriptions.count) 个订阅"
+        var parts: [String] = []
+        if hasLibrary { parts.append("\(nodes.count) 个节点、\(subscriptions.count) 个订阅") }
+        if imported.settings != nil { parts.append("应用配置") }
+        statusBanner = parts.isEmpty ? "备份已恢复" : "已从备份恢复 \(parts.joined(separator: "，"))"
     }
 
     func load() {

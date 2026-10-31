@@ -86,9 +86,9 @@ final class RemoteProtocolTests: XCTestCase {
         XCTAssertEqual(merged.allowInsecure, true)
         let snapshot = LibrarySnapshot(nodes: [incoming])
         let redacted = try LibraryBackup.export(snapshot: snapshot, passphrase: "fixture", includeCredentials: false)
-        XCTAssertNil(try LibraryBackup.importBackup(from: redacted, passphrase: "fixture").nodes.first?.password)
+        XCTAssertNil(try LibraryBackup.importBackup(from: redacted, passphrase: "fixture").snapshot.nodes.first?.password)
         let full = try LibraryBackup.export(snapshot: snapshot, passphrase: "fixture", includeCredentials: true)
-        XCTAssertEqual(try LibraryBackup.importBackup(from: full, passphrase: "fixture").nodes.first, incoming)
+        XCTAssertEqual(try LibraryBackup.importBackup(from: full, passphrase: "fixture").snapshot.nodes.first, incoming)
         var stored = incoming
         stored.password = nil
         stored.credentialKey = "fixture-key"
@@ -212,13 +212,13 @@ final class RemoteProtocolTests: XCTestCase {
         let subscription = Subscription(name: "WG", originalURL: "share-links://fixture", shareLinksText: secretLink)
         let snapshot = LibrarySnapshot(nodes: [wg], subscriptions: [subscription])
         let encoded = try LibraryBackup.export(snapshot: snapshot, passphrase: "fixture", includeCredentials: false)
-        let restored = try LibraryBackup.importBackup(from: encoded, passphrase: "fixture")
+        let restored = try LibraryBackup.importBackup(from: encoded, passphrase: "fixture").snapshot
         XCTAssertNil(restored.nodes[0].wireGuardOptions?.privateKey)
         XCTAssertNil(restored.nodes[0].wireGuardOptions?.preSharedKey)
         XCTAssertEqual(restored.nodes[0].wireGuardOptions?.peerPublicKey, wg.wireGuardOptions?.peerPublicKey)
         XCTAssertNil(restored.subscriptions[0].shareLinksText)
         let full = try LibraryBackup.export(snapshot: snapshot, passphrase: "fixture", includeCredentials: true)
-        XCTAssertEqual(try LibraryBackup.importBackup(from: full, passphrase: "fixture").nodes.first, wg)
+        XCTAssertEqual(try LibraryBackup.importBackup(from: full, passphrase: "fixture").snapshot.nodes.first, wg)
         var old = try NodeLinkParser.parse("http://old:password@example.com:8080#Stable")
         old.lastTestStatus = .fast
         old.lastLatency = 100
