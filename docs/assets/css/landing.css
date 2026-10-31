@@ -43,6 +43,83 @@ body {
   min-width: 0;
 }
 
+body.is-intro {
+  overflow: hidden;
+}
+
+body.is-intro .site-header,
+body.is-intro main,
+body.is-intro .site-footer {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.intro {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background:
+    radial-gradient(ellipse 70% 55% at 50% 40%, rgba(22, 50, 79, 0.55), transparent 65%),
+    radial-gradient(ellipse 50% 40% at 15% 80%, rgba(227, 155, 74, 0.12), transparent 55%),
+    radial-gradient(ellipse 45% 35% at 85% 20%, rgba(61, 184, 168, 0.14), transparent 50%),
+    #050b14;
+  transition: opacity 0.7s var(--ease), visibility 0.7s;
+}
+
+.intro.is-done {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.intro-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.intro-ui {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(1.25rem + env(safe-area-inset-bottom, 0px));
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0 calc(1rem + env(safe-area-inset-right, 0px)) 0 calc(1rem + env(safe-area-inset-left, 0px));
+  pointer-events: none;
+}
+
+.intro-caption {
+  margin: 0;
+  font-size: 0.82rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(242, 238, 230, 0.55);
+}
+
+.intro-skip {
+  pointer-events: auto;
+  appearance: none;
+  border: 1px solid rgba(242, 238, 230, 0.22);
+  background: rgba(7, 17, 31, 0.45);
+  color: var(--muted);
+  border-radius: 999px;
+  padding: 0.45rem 0.95rem;
+  font-size: 0.82rem;
+  backdrop-filter: blur(8px);
+  transition: color 0.2s ease, border-color 0.2s ease, background 0.2s ease;
+}
+
+.intro-skip:hover {
+  color: var(--text);
+  border-color: rgba(227, 155, 74, 0.55);
+  background: rgba(7, 17, 31, 0.7);
+}
+
 img {
   max-width: 100%;
   display: block;
@@ -657,5 +734,9 @@ button,
   .btn:hover,
   .shot-thumb:hover {
     transform: none;
+  }
+
+  .intro {
+    transition: none;
   }
 }
