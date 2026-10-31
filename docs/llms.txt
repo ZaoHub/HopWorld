@@ -41,3 +41,9 @@ VLESS、VMess、Trojan、Shadowsocks、Hysteria2、MASQUE、TUIC、AnyTLS、Wire
 - [协议维护指南](https://github.com/ZaoHub/HopWorld/blob/main/docs/已支持协议与维护指南.md)：协议边界与扩展流程
 - [常见问题](https://zaohub.github.io/HopWorld/#faq)：定位、协议、系统要求与开源许可
 - [Sitemap](https://zaohub.github.io/HopWorld/sitemap.xml)：页面索引
+- [robots.txt](https://zaohub.github.io/HopWorld/robots.txt)：搜索与 AI 爬虫放行策略
+- [ai.txt](https://zaohub.github.io/HopWorld/ai.txt)：国内 AI / 搜索采集说明（豆包、DeepSeek、Kimi、通义、文心、智谱等）
+
+## China AI / search crawlers welcome
+
+Bytespider, DoubaoBot, DeepSeekBot, KimiBot, MoonshotBot, ZhipuBot, ChatGLM-Spider, TongyiBot, QwenBot, ERNIEBot, YiyanBot, Baiduspider, TencentBot, YuanbaoBot, Hunyuan, SparkBot, YisouSpider, Quark-Spider, Sogou, 360Spider, PetalBot, MetasoBot, TiangongBot, BaichuanBot, MiniMaxBot, StepBot, PanguBot — all explicitly Allowed in robots.txt. See ai.txt for Chinese-language crawl guidance.
