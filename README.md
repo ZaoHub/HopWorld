@@ -36,15 +36,14 @@ Codex 用量卡片底部的统计按钮可查看 5 小时（每 30 分钟）和�
 
 ## 从源码构建
 
-在仓库根目录执行。先获取 Xray 和规则资源，再生成工程（工程引用了 `geoip.dat` 和 `geosite.dat`）：
+在仓库根目录执行：
 
 ```bash
-bash Scripts/fetch_xray.sh
 xcodegen generate
 open HopWorld.xcodeproj
 ```
 
-在 Xcode 中常规本地运行即可使用**系统代理**。
+在 Xcode 中常规本地运行即可使用**系统代理**。源码仓库不包含代理内核与规则数据；首次连接、测速或打开「关于 → 管理更新」时，应用会在线下载并安装到本机（见下文）。若希望把内核打进工程资源（例如离线构建），可先运行 `bash Scripts/fetch_xray.sh`（工程可引用 `geoip.dat` / `geosite.dat`）。
 
 命令行本地构建：
 
@@ -52,33 +51,36 @@ open HopWorld.xcodeproj
 xcodebuild -project HopWorld.xcodeproj -scheme HopWorld -configuration Debug -derivedDataPath build build
 ```
 
-源码仓库不包含代理内核、规则数据或安装包。下载脚本按当前 Mac 架构获取 Xray；分发安装包时须另外核对所含内核架构、第三方许可证、应用签名和公证状态。
+分发安装包时须另外核对所含内核架构、第三方许可证、应用签名和公证状态。
 
 若日后启用系统 VPN：为 **HopWorld** 与 **HopWorldTunnel** 选择同一 Development Team，勾选 Network Extensions → Packet Tunnel、App Groups → `group.com.hopworld.app`，并在设置中重新打开「连接方式」选项。
 
-## 安装 Xray-core
+## 安装 Xray / 组件更新
 
-首版依赖外部 `xray` 可执行文件：
+日常使用**不必**手动跑脚本或 Homebrew。打开应用后：
+
+1. 进入 **关于 → 组件更新 → 管理更新**
+2. 在 Xray 卡片中检查并安装（可选手动选版本；稳定版可走自动更新）
+3. 下载失败时，在同一弹窗切换**下载线路**（GitHub 直连或镜像）后重试
+
+首次**连接节点**或**测速**时，若本机尚无可用核心，也会自动下载默认稳定版并安装到 `~/Library/Application Support/HopWorld/`（`current/xray` 等托管路径）。安装后下次连接或测试生效；已在跑的连接不受影响。
+
+同一弹窗还可管理 **sing-box** 与 **GeoFiles**：
+
+- sing-box 保留 `1.14.2` 基线，可更新至已适配的 `1.14.4`。两个版本均按架构固定官方 SHA-256；安装候选版本前检查全量/分应用 TUN 及 VLESS、TUIC、AnyTLS、Hysteria2、旧 Shadowsocks 桥接配置。更新版通过后才切换，后续未适配的上游版本只提示。
+- GeoFiles 独立取自 [Loyalsoldier/v2ray-rules-dat](https://github.com/Loyalsoldier/v2ray-rules-dat)，从同一发布下载 `geoip.dat` / `geosite.dat` 并校验各自官方摘要，用本地 Xray 检查规则后成套切换。独立规则优先于 Xray 随附规则，后续更新 Xray 不覆盖独立规则。
+- 每天首次启动检查一次；自动更新默认开启，Xray 仅自动安装官方稳定版，预发布版需手动选择。所有组件共用下载线路设置；候选校验失败时保留原版本。
+
+### 可选：命令行预置（开发 / 离线）
+
+仅在需要预先放入工程资源或本机路径时使用：
 
 ```bash
 chmod +x Scripts/fetch_xray.sh
 ./Scripts/fetch_xray.sh
 ```
 
-脚本会下载官方 release，并安装到：
-
-- `HopWorld/Resources/xray`
-- `~/Library/Application Support/HopWorld/xray`
-
-也可通过 Homebrew：`brew install xray`
-
-## 组件更新
-
-在「关于 → 组件更新 → 管理更新」打开统一弹窗，分别管理 Xray、sing-box 和 GeoFiles，查看当前/上游版本、手动检查或安装更新，以及开关各组件的自动更新。每天首次启动检查一次；自动更新默认开启，Xray 仅自动安装稳定版，预发布版仍需手动选择。
-
-- sing-box 保留 `1.14.2` 基线，可更新至已适配的 `1.14.4`。两个版本均按架构固定官方 SHA-256；安装候选版本前检查全量/分应用 TUN 及 VLESS、TUIC、AnyTLS、Hysteria2、旧 Shadowsocks 桥接配置。更新版通过后才切换，后续未适配的上游版本只提示。
-- GeoFiles 独立取自 [Loyalsoldier/v2ray-rules-dat](https://github.com/Loyalsoldier/v2ray-rules-dat)，从同一发布下载 `geoip.dat` / `geosite.dat` 并校验各自官方摘要，用本地 Xray 检查规则后成套切换。独立规则优先于 Xray 随附规则，后续更新 Xray 不覆盖独立规则。
-- 所有组件共用 Xray 更新详情里的下载线路设置。候选文件验证失败时保留原有版本；已运行连接继续使用原来的进程，新版本在下次连接或测试时使用。没有单独安装 GeoFiles 时，仍使用 Xray 随附规则。
+脚本按当前 Mac 架构拉取官方 release，可写入 `HopWorld/Resources/xray` 等路径。也可自行安装 Homebrew 的 `xray`；应用仍优先使用「管理更新」托管的版本。
 
 ## 使用流程
 
@@ -109,7 +111,7 @@ chmod +x Scripts/fetch_xray.sh
 
 点击「保存并应用」保存配置；规则代理已连接时会重连当前节点。全局/直连模式忽略自定义规则。输入不合法时会提示且不保存；旧设置会自动补齐新增字段。
 
-规则库随 App 打包，运行时明确指定资源目录。缺失数据时安装器会重新获取官方发行包；规则库暂随安装/升级更新，没有独立定时更新。系统代理只能接管遵循系统代理设置的应用。
+规则可随 Xray 安装附带，也可在「关于 → 管理更新」中独立更新 GeoFiles；运行时明确指定资源目录。系统代理只能接管遵循系统代理设置的应用。
 
 `DefaultRouting.json` 是参考配置；实际连接配置由 `XrayConfigBuilder` 和 `RoutingRules` 生成。
 
