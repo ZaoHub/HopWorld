@@ -31,6 +31,7 @@
     /* storage unavailable */
   }
   const ctx = canvas && canvas.getContext("2d");
+  const canBlur = !!ctx && "filter" in ctx;
   if (!ctx || mode === "0" || (mode !== "1" && (reduce || seen))) {
     finish();
     return;
@@ -71,7 +72,7 @@
   const TAU = Math.PI * 2;
 
   const HOPS = ROUTE.length - 1;
-  const T = { intro: 650, hop: 470, travel: 0.8, pause: 220, form: 1500, hold: 950 };
+  const T = { intro: 650, hop: 470, travel: 0.8, pause: 220, form: 1500, hold: 1500 };
   const tHopsEnd = T.intro + HOPS * T.hop;
   const tForm = tHopsEnd + T.pause;
   const tHold = tForm + T.form;
@@ -92,6 +93,8 @@
   let dpr = 1;
   let map = { x: 0, y: 0, w: 0, h: 0 };
   let mapLayer = null;
+  let glyphLayer = null;
+  let glyphCtx = null;
   let nodes = [];
   let arcs = [];
   let glyph = { fs: 0, cx: 0, cy: 0, pts: [] };
@@ -225,6 +228,10 @@
     nodes = ROUTE.map((r) => ({ ...r, ...project(r.lon, r.lat) }));
     buildArcs();
     renderMap();
+    glyphLayer = document.createElement("canvas");
+    glyphLayer.width = canvas.width;
+    glyphLayer.height = canvas.height;
+    glyphCtx = glyphLayer.getContext("2d");
     glyph = sampleGlyph();
     if (particles.length) assignTargets();
   };
@@ -250,7 +257,7 @@
   const arrivalAt = (k) => (k === 0 ? T.intro * 0.45 : T.intro + (k - 1) * T.hop + T.travel * T.hop);
 
   const makeParticles = () => {
-    const cap = W * H < 600000 ? 700 : 1500;
+    const cap = W * H < 600000 ? 1000 : 1500;
     const count = glyph.pts.length ? Math.min(cap, glyph.pts.length) : 500;
     particles = Array.from({ length: count }, () => {
       const lag = Math.random() ** 1.7 * MAX_LAG;
@@ -420,6 +427,9 @@
   ];
 
   const drawParticles = (t, s) => {
+    const fadeOut = 1 - brandMix(t);
+    if (fadeOut <= 0) return;
+    ctx.globalAlpha = fadeOut;
     ctx.globalCompositeOperation = "lighter";
     const moving = t < tHold;
 
@@ -458,27 +468,144 @@
       ctx.fill();
     }
     ctx.globalCompositeOperation = "source-over";
+    ctx.globalAlpha = 1;
   };
 
-  const drawBrand = (t) => {
-    const a = easeOut(clamp01((t - tHold + 250) / 550));
-    if (a <= 0) return;
-    const { fs, cx, cy } = glyph;
-    ctx.save();
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.font = `800 ${fs}px ${GLYPH_FONT}`;
-    ctx.shadowColor = `rgba(227, 155, 74, ${0.45 * a})`;
-    ctx.shadowBlur = 40;
-    ctx.fillStyle = `rgba(242, 238, 230, ${0.14 * a})`;
-    ctx.fillText("跃界", cx, cy);
-    ctx.restore();
+  // Brand gradient for the assembled glyph: amber → gold → warm white.
+  const BRAND_STOPS = [
+    [0, [232, 138, 52]],
+    [0.5, [250, 192, 98]],
+    [1, [255, 226, 158]],
+  ];
+  const brandAt = (u) => {
+    for (let i = 1; i < BRAND_STOPS.length; i += 1) {
+      const [u1, c1] = BRAND_STOPS[i];
+      const [u0, c0] = BRAND_STOPS[i - 1];
+      if (u <= u1) {
+        const k = (u - u0) / (u1 - u0);
+        return c0.map((v, j) => v + (c1[j] - v) * k);
+      }
+    }
+    return BRAND_STOPS[BRAND_STOPS.length - 1][1];
+  };
 
-    ctx.textAlign = "center";
+  const brandGradient = (c, sweep) => {
+    const { fs, cx, cy } = glyph;
+    const g = c.createLinearGradient(cx - fs * 1.05, cy - fs * 0.55, cx + fs * 1.05, cy + fs * 0.55);
+    for (let i = 0; i <= 16; i += 1) {
+      const u = i / 16;
+      const k = Math.max(0, 1 - Math.abs(u - sweep) / 0.12);
+      const [r, gg, b] = brandAt(u).map((v) => Math.round(v + (255 - v) * k * 0.9));
+      g.addColorStop(u, `rgb(${r}, ${gg}, ${b})`);
+    }
+    return g;
+  };
+
+  const brandMix = (t) => (t < tForm ? 0 : easeInOut(clamp01((t - tForm - T.form * 0.45) / (T.form * 0.6))));
+  const glyphSweep = (t) => -0.25 + 1.5 * clamp01((t - tHold - 120) / 950);
+
+  const drawGlyphLayer = (t) => {
+    const m = brandMix(t);
+    if (m <= 0) return;
+    const g = glyphCtx;
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    g.clearRect(0, 0, glyphLayer.width, glyphLayer.height);
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.globalCompositeOperation = "source-over";
+    g.beginPath();
+    particles.forEach((p) => {
+      const r = p.size * (p.scale || 1) * 1.3;
+      g.moveTo(p.x + r, p.y);
+      g.arc(p.x, p.y, r, 0, TAU);
+    });
+    g.fillStyle = "#fff";
+    g.fill();
+    g.globalCompositeOperation = "source-in";
+    g.fillStyle = brandGradient(g, glyphSweep(t));
+    g.fillRect(0, 0, W, H);
+    g.globalCompositeOperation = "source-over";
+
+    const bloom = easeOut(clamp01((t - tHold + 300) / 600));
+    if (bloom > 0 && canBlur) {
+      ctx.save();
+      ctx.globalCompositeOperation = "lighter";
+      ctx.filter = `blur(${Math.round(glyph.fs * 0.06)}px)`;
+      ctx.globalAlpha = 0.55 * bloom * m;
+      ctx.drawImage(glyphLayer, 0, 0, W, H);
+      ctx.restore();
+    }
+    ctx.globalAlpha = m;
+    ctx.drawImage(glyphLayer, 0, 0, W, H);
+    ctx.globalAlpha = 1;
+  };
+
+  const WORD = "HOPWORLD";
+  const SCRAMBLE = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789#$%&";
+
+  const drawWordmark = (t) => {
+    const start = tHold - 120;
+    if (t < start) return;
+    const { fs, cx, cy } = glyph;
+    const size = Math.max(13, Math.round(fs * 0.12));
+    const track = size * 0.62;
+    const y = cy + fs * 0.82;
+    ctx.save();
+    ctx.font = `700 ${size}px "Manrope", "Syne", "Helvetica Neue", sans-serif`;
+    ctx.textAlign = "left";
     ctx.textBaseline = "middle";
-    ctx.font = `600 ${Math.max(12, Math.round(fs * 0.11))}px "Manrope", sans-serif`;
-    ctx.fillStyle = `rgba(227, 155, 74, ${0.9 * a})`;
-    ctx.fillText("H O P W O R L D", cx, cy + fs * 0.78 + (1 - a) * 8);
+    const chars = [...WORD];
+    const widths = chars.map((ch) => ctx.measureText(ch).width);
+    const total = widths.reduce((a, b) => a + b, 0) + track * (chars.length - 1);
+    const sweep = -0.3 + 1.6 * clamp01((t - tHold - 650) / 750);
+    let x = cx - total / 2;
+
+    chars.forEach((ch, i) => {
+      const t0 = start + i * 75;
+      const a = easeOut(clamp01((t - t0) / 320));
+      if (a > 0) {
+        const settled = t > t0 + 300;
+        const shown = settled ? ch : SCRAMBLE[(Math.floor(t / 40) + i * 7) % SCRAMBLE.length];
+        const k = Math.max(0, 1 - Math.abs(i / (chars.length - 1) - sweep) / 0.22);
+        if (settled) {
+          const [r, g, b] = brandAt(0.35 + 0.4 * (i / (chars.length - 1))).map((v) => Math.round(v + (255 - v) * k));
+          ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${a})`;
+          ctx.shadowColor = `rgba(246, 190, 112, ${0.55 + 0.4 * k})`;
+          ctx.shadowBlur = 10 + k * 18;
+        } else {
+          ctx.fillStyle = `rgba(61, 184, 168, ${0.85 * a})`;
+          ctx.shadowColor = "rgba(61, 184, 168, 0.6)";
+          ctx.shadowBlur = 8;
+        }
+        const cw = ctx.measureText(shown).width;
+        ctx.fillText(shown, x + (widths[i] - cw) / 2, y + (1 - a) * 12);
+      }
+      x += widths[i] + track;
+    });
+
+    const lineP = easeOut(clamp01((t - start - chars.length * 75) / 650));
+    if (lineP > 0) {
+      const gap = size * 1.1;
+      const len = Math.min(W * 0.14, fs * 0.75) * lineP;
+      ctx.shadowBlur = 0;
+      ctx.lineWidth = 1;
+      [-1, 1].forEach((dir) => {
+        const x0 = cx + dir * (total / 2 + gap);
+        const x1 = x0 + dir * len;
+        const lg = ctx.createLinearGradient(x0, y, x1, y);
+        lg.addColorStop(0, `rgba(246, 190, 112, ${0.85 * lineP})`);
+        lg.addColorStop(1, "rgba(246, 190, 112, 0)");
+        ctx.strokeStyle = lg;
+        ctx.beginPath();
+        ctx.moveTo(x0, y);
+        ctx.lineTo(x1, y);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(x0, y, 1.8 * lineP, 0, TAU);
+        ctx.fillStyle = `rgba(255, 238, 210, ${lineP})`;
+        ctx.fill();
+      });
+    }
+    ctx.restore();
   };
 
   const frame = (now) => {
@@ -491,7 +618,8 @@
     updateParticles(t);
     const current = drawMapAndRoutes(t, s);
     drawParticles(t, s);
-    drawBrand(t);
+    drawGlyphLayer(t);
+    drawWordmark(t);
 
     if (t < tHopsEnd + 120) {
       const k = Math.max(0, current);
