@@ -10,14 +10,22 @@
   <meta property="og:image" content="./assets/screenshots/promo.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=Noto+Sans+SC:wght@700;900&family=Syne:wght@600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="./assets/css/landing.css?v=20261031e">
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=Syne:wght@600;700;800&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
+  <link rel="stylesheet" href="./assets/css/landing.css?v=20261101a">
+  <noscript>
+    <style>
+      .intro { display: none; }
+      body.is-intro { overflow: auto; }
+      body.is-intro .site-header, body.is-intro main, body.is-intro .site-footer { opacity: 1; pointer-events: auto; }
+      .reveal { opacity: 1; transform: none; }
+    </style>
+  </noscript>
 </head>
 <body class="is-intro">
   <div id="intro" class="intro" aria-hidden="false" role="dialog" aria-label="跃界开场动画">
     <canvas class="intro-canvas" data-intro-canvas></canvas>
     <div class="intro-ui">
-      <p class="intro-caption" data-intro-caption>正在跃迁…</p>
+      <p class="intro-caption" data-intro-caption aria-live="polite">起跳…</p>
       <button class="intro-skip" type="button" data-intro-skip>跳过</button>
     </div>
   </div>
@@ -173,6 +181,7 @@
     </div>
   </footer>
 
-  <script src="./assets/js/landing.js?v=20261031e" defer></script>
+  <script src="./assets/js/intro.js?v=20261101a" defer></script>
+  <script src="./assets/js/landing.js?v=20261101a" defer></script>
 </body>
 </html>
