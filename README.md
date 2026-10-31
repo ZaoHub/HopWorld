@@ -63,13 +63,13 @@ xcodebuild -project HopWorld.xcodeproj -scheme HopWorld -configuration Debug -de
 2. 在 Xray 卡片中检查并安装（可选手动选版本；稳定版可走自动更新）
 3. 下载失败时，在同一弹窗切换**下载线路**（GitHub 直连或镜像）后重试
 
-首次**连接节点**或**测速**时，若本机尚无可用核心，也会自动下载默认稳定版并安装到 `~/Library/Application Support/HopWorld/`（`current/xray` 等托管路径）。安装后下次连接或测试生效；已在跑的连接不受影响。
+首次**连接节点**或**测速**时，若本机尚无可用核心，也会自动下载默认稳定版并安装到 `~/Library/Application Support/HopWorld/`（优先 `current/xray` 托管路径）。安装后下次连接或测试生效；已在跑的连接不受影响。
 
 同一弹窗还可管理 **sing-box** 与 **GeoFiles**：
 
 - sing-box 保留 `1.14.2` 基线，可更新至已适配的 `1.14.4`。两个版本均按架构固定官方 SHA-256；安装候选版本前检查全量/分应用 TUN 及 VLESS、TUIC、AnyTLS、Hysteria2、旧 Shadowsocks 桥接配置。更新版通过后才切换，后续未适配的上游版本只提示。
 - GeoFiles 独立取自 [Loyalsoldier/v2ray-rules-dat](https://github.com/Loyalsoldier/v2ray-rules-dat)，从同一发布下载 `geoip.dat` / `geosite.dat` 并校验各自官方摘要，用本地 Xray 检查规则后成套切换。独立规则优先于 Xray 随附规则，后续更新 Xray 不覆盖独立规则。
-- 每天首次启动检查一次；自动更新默认开启，Xray 仅自动安装官方稳定版，预发布版需手动选择。所有组件共用下载线路设置；候选校验失败时保留原版本。
+- 启动时会触发自动检查。Xray：同一自然日若已检查过，自动流程会跳过联网刷新，但在开启自动更新时仍可安装已缓存的官方稳定版。sing-box / GeoFiles：关闭自动更新时同日跳过联网检查；开启自动更新时每次启动都会刷新。自动更新默认开启；Xray 仅自动安装官方稳定版，预发布版需手动选择。所有组件共用下载线路设置；候选校验失败时保留原版本。
 
 ### 可选：命令行预置（开发 / 离线）
 
@@ -80,16 +80,17 @@ chmod +x Scripts/fetch_xray.sh
 ./Scripts/fetch_xray.sh
 ```
 
-脚本按当前 Mac 架构拉取官方 release，可写入 `HopWorld/Resources/xray` 等路径。也可自行安装 Homebrew 的 `xray`；应用仍优先使用「管理更新」托管的版本。
+脚本按当前 Mac 架构拉取官方 release，写入 `HopWorld/Resources/xray` 与 `~/Library/Application Support/HopWorld/xray`（与「管理更新」的 `current/xray` 布局不同）。也可安装 Homebrew 的 `xray`：存在托管版时优先托管；否则在本机可执行候选中选择版本较新者。
 
 ## 使用流程
 
 1. 打开 App → **订阅** → 添加订阅地址或导入分享链接
 2. 若识别为日期型 URL，确认使用自动日期模板
 3. 进入 **测试** 或等待更新后自动测速
-4. 在 **概览 / 国家 / 菜单栏** 连接节点（当前为系统 HTTP/HTTPS/SOCKS 代理）
+4. 在 **路由** 选择接管方式：规则代理下的系统代理（默认）、全局 TUN，或规则代理下的「仅指定应用」TUN；再在 **概览 / 国家 / 菜单栏** 连接节点
+5. （可选）在测试设置中开启节点元数据中文城市显示；首次会从 GeoNames 生成离线库到本机 Application Support，之后优先离线匹配
 
-默认本地端口：
+默认本地端口（系统代理入口，可在设置中修改）：
 
 - SOCKS：`127.0.0.1:10808`
 - HTTP：`127.0.0.1:10809`
@@ -132,7 +133,7 @@ chmod +x Scripts/fetch_xray.sh
 - 局域网及无法识别所属进程的普通连接直连；分应用模式不接管系统 DNS，53 端口优先直连，避免节点异常影响未选中应用的本地解析。此功能是应用分流，不是防泄漏隔离/断网保护。应用原有长连接可能需重建或重启应用后才被捕获。
 - 其他应用虽然不经过代理节点，公网流量仍可能经过本机 TUN 转发。因此不能承诺零性能开销或零丢包。其他 VPN/TUN 和系统 HTTP/SOCKS/PAC/WPAD 代理应先关闭；检测到冲突会拒绝启用，不擅自改写第三方配置。
 - 首次下载核心需要访问 GitHub。固定发行版本及归档 SHA-256；校验失败不提权。管理员启动前将核心、配置与监护程序复制到 root 独占临时目录，再次核验摘要。应用无法向 root 进程发送任意命令；控制文件拒绝符号链接、硬链接及不安全权限。
-- 断开会撤销心跳租约，监护程序终止自己启动的核心，等待 utun 释放后才确认停止。App 异常退出后，心跳最长 10 秒到期，终止宽限 3 秒；机器休眠/系统失去调度时不能保证此墙钟时间。取消授权不会降级成系统全局代理。
+- 断开会撤销心跳租约，监护程序终止自己启动的核心，等待 utun 释放后才确认停止。App 异常退出后，心跳租约默认约 10 秒失效，连同清理后界面通常提示约 13 秒内恢复本地网络（不含休眠时间）；机器休眠/系统失去调度时不能保证此墙钟时间。取消授权不会降级成系统全局代理。
 - 点击「恢复系统代理模式」切回规则模式的系统代理。应用代理异常退出不自动恢复为全局代理。
 
 实现依据：[sing-box TUN](https://sing-box.sagernet.org/configuration/inbound/tun/)、[进程路径规则](https://sing-box.sagernet.org/configuration/route/rule/)。核心由 [SagerNet/sing-box](https://github.com/SagerNet/sing-box) 提供，遵循其 GPL-3.0 许可证；下载归档包含 LICENSE，未修改核心。
@@ -187,11 +188,12 @@ HTTPS 与专项结果按测速有效期过滤，过期结果不参与参考分�
 每个请求的内部缓冲上限统一为 512 KiB，以缓解 ARM64 小缓冲在突发 UDP 流量下的丢弃风险（并发请求多时会增加内存需求）。依据 [Xray 本地策略说明](https://xtls.github.io/config/policy.html)。TCP 节点使用 30 秒空闲后开始、15 秒间隔的保活；本地连接空闲上限为 3600 秒。保留系统拥塞控制。上述措施不能保证公网、Wi-Fi 或节点侧零丢包，也不代表已经测得公网速度提升。
 
 - VLESS / VMess / Trojan / Shadowsocks / Hysteria2 / MASQUE / TUIC / AnyTLS / WireGuard / SOCKS5 / HTTP 解析
-- 原生 Shadowsocks `rc4-md5` 节点通过现有 sing-box 桥接测试及连接；该旧加密方式不提供完整性保护，建议订阅提供方迁移至现代加密方式。额外传输、TLS/REALITY 或 FinalMask 不在此桥接支持范围内。
+- 原生 Shadowsocks 旧加密（`rc4-md5`、`aes-128-cfb`、`aes-192-cfb`、`aes-256-cfb`）经 sing-box 桥接测试及连接；这些方式不提供现代 AEAD 完整性保护，建议订阅提供方迁移至现代加密。桥接仅允许 `transport=tcp`、`security=none`；额外传输、TLS/REALITY 或 FinalMask 不在此桥接支持范围内。
 - Base64 订阅 / 文本分享链接 / Clash YAML（轻量解析）
 - 日期模板识别与 `{yyyy}/{MM}/{yyyyMMdd}` 解析
 - 日期回退、覆盖 / 合并 / 智能合并
-- 国家识别与分组、节点快速测试
+- 国家识别与分组、节点快速测试；可选中文城市显示（GeoNames 离线库，按需下载）
+- Xray / sing-box / GeoFiles 应用内安装与更新
 - Xray 配置生成与进程管理
 - 系统代理备份 / 恢复 / 崩溃恢复
 - 系统 VPN（Packet Tunnel 预留，设置页暂隐藏）
@@ -226,7 +228,7 @@ AnyTLS 使用既有 sing-box 桥接，支持分享链接、Base64 订阅、Clash
 ## 后续
 
 - LaunchAgent 后台更新
-- 完整带宽测速 / UDP / IPv6
+- 完整带宽测速；UDP / WebSocket 专项快检已提供，长时与双栈（IPv4/IPv6）公网验收仍可加强
 - 系统 VPN 设置入口（需开发者账号）与完整 packetFlow ↔ Xray TUN
 
 ## 测试
