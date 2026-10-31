@@ -28,7 +28,7 @@ Codex 用量卡片底部的统计按钮可查看 5 小时（每 30 分钟）和�
 
 ## 环境
 
-- macOS 14+
+- macOS 13.0+
 - Xcode 15+
 - [XcodeGen](https://github.com/yonaskolb/XcodeGen)
 
