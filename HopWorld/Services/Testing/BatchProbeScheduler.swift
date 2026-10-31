@@ -8,7 +8,7 @@ enum BatchProbeScheduler {
         _ inputs: [Input],
         concurrency: Int,
         operation: @escaping @Sendable (Input) async -> Output?,
-        onResult: (Output) -> Void
+        onResult: @MainActor (Output) -> Void
     ) async {
         guard !Task.isCancelled else { return }
         await withTaskGroup(of: Output?.self) { group in

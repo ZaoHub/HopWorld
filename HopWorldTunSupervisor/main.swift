@@ -6,6 +6,11 @@ import Foundation
 // job, arbitrary shell, or install that survives the app.
 func runSupervisor() -> Int32 {
   guard geteuid() == 0 else { return 64 }
+  do { try TunProcessIsolation.detachFromLauncher() }
+  catch {
+    FileHandle.standardError.write(Data((error.localizedDescription + "\n").utf8))
+    return 77
+  }
   if CommandLine.arguments.count == 3, CommandLine.arguments[1] == "--serve" {
     guard let owner = uid_t(CommandLine.arguments[2]), owner != 0 else { return 64 }
     return runResident(owner: owner)
@@ -26,16 +31,18 @@ func runResident(owner: uid_t) -> Int32 {
   }
   defer { close(lockFD) }
   let server = TunHelperServer()
-  signal(SIGTERM, SIG_IGN)
-  signal(SIGINT, SIG_IGN)
-  let sources = [SIGTERM, SIGINT].map { number -> DispatchSourceSignal in
-    let source = DispatchSource.makeSignalSource(signal: number, queue: .global())
-    source.setEventHandler { server.requestStop() }
-    source.resume()
-    return source
+  let signals: DispatchSourceRead
+  do {
+    signals = try TunTerminationSignals.install { event in
+      server.requestStop(signal: event.number, senderPID: event.senderPID > 0 ? event.senderPID : nil,
+                         senderUID: event.senderPID > 0 ? event.senderUID : nil, senderName: event.senderName)
+    }
+  } catch {
+    FileHandle.standardError.write(Data((error.localizedDescription + "\n").utf8))
+    return 77
   }
+  defer { signals.cancel() }
   let code = server.serve(owner: owner)
-  for source in sources { source.cancel() }
   return code
 }
 
@@ -53,19 +60,15 @@ func runOneShot(owner: uid_t) -> Int32 {
     }
     defer { close(lockFD) }
     let supervisor = TunSupervisor()
-    signal(SIGTERM, SIG_IGN)
-    signal(SIGINT, SIG_IGN)
-    let sources = [SIGTERM, SIGINT].map { number -> DispatchSourceSignal in
-      let source = DispatchSource.makeSignalSource(signal: number, queue: .global())
-      source.setEventHandler { supervisor.requestStop() }
-      source.resume()
-      return source
+    let signals = try TunTerminationSignals.install { event in
+      supervisor.requestStop(signal: event.number, senderPID: event.senderPID > 0 ? event.senderPID : nil,
+                             senderUID: event.senderPID > 0 ? event.senderUID : nil, senderName: event.senderName)
     }
+    defer { signals.cancel() }
     let result = try supervisor.run(
       executable: runtime.appendingPathComponent("sing-box"),
       arguments: ["run", "-c", runtime.appendingPathComponent("config.json").path],
       lease: lease, status: control)
-    for source in sources { source.cancel() }
     return result.state == "failed" ? 1 : 0
   } catch {
     status?.publish(.init(state: "failed", message: "TUN 监护程序启动失败：\(error.localizedDescription)"))

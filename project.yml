@@ -2,7 +2,7 @@ name: HopWorld
 options:
   bundleIdPrefix: com.hopworld
   deploymentTarget:
-    macOS: "14.0"
+    macOS: "13.0"
   createIntermediateGroups: true
   developmentLanguage: zh-Hans
   xcodeVersion: "27.1"
@@ -14,7 +14,7 @@ attributes:
 settings:
   base:
     SWIFT_VERSION: "5.9"
-    MACOSX_DEPLOYMENT_TARGET: "14.0"
+    MACOSX_DEPLOYMENT_TARGET: "13.0"
     ENABLE_HARDENED_RUNTIME: YES
     ENABLE_USER_SCRIPT_SANDBOXING: YES
     DEAD_CODE_STRIPPING: YES
@@ -44,8 +44,12 @@ targets:
         excludes:
           - Resources/xray
           - Resources/*.dat
+          - Resources/ChineseCities.json
+          - Resources/AppIcon.icns
           - "**/.gitkeep"
           - Assets.xcassets
+      - path: HopWorld/Assets.xcassets
+        buildPhase: resources
       - path: HopWorldShared
       - path: HopWorld/Resources/geoip.dat
         buildPhase: resources
@@ -57,8 +61,7 @@ targets:
         excludes:
           - .gitkeep
           - xray
-      - path: HopWorld/Assets.xcassets
-        type: folder
+          - ChineseCities.json
     dependencies:
       - target: HopWorldTunnel
         embed: true
@@ -92,11 +95,14 @@ targets:
       properties:
         CFBundleName: 跃界
         CFBundleDisplayName: 跃界
+        CFBundleIconFile: AppIcon
+        CFBundleIconName: AppIcon
         CFBundleShortVersionString: "1.0.0"
         CFBundleVersion: "1"
-        LSMinimumSystemVersion: "14.0"
+        LSMinimumSystemVersion: "13.0"
         LSUIElement: false
         NSHighResolutionCapable: true
+        NSAppleEventsUsageDescription: 在你启用 Codex 通知后，跃界通过“信息”向所选收件人发送重置提醒。
         NSPrincipalClass: NSApplication
         NSHumanReadableCopyright: "Copyright © 2026 HopWorld"
 
@@ -125,7 +131,7 @@ targets:
         CFBundleDisplayName: 跃界 VPN
         CFBundleShortVersionString: "1.0.0"
         CFBundleVersion: "1"
-        LSMinimumSystemVersion: "14.0"
+        LSMinimumSystemVersion: "13.0"
         NSExtension:
           NSExtensionPointIdentifier: com.apple.networkextension.packet-tunnel
           NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).PacketTunnelProvider
@@ -150,6 +156,8 @@ targets:
     type: bundle.unit-test
     platform: macOS
     sources:
+      - path: HopWorld/Resources/GeoNames-LICENSE.txt
+        buildPhase: resources
       - path: HopWorld/Resources/geoip.dat
         buildPhase: resources
       - path: HopWorld/Resources/geosite.dat
@@ -169,6 +177,10 @@ targets:
       - path: HopWorld/Services/Security/KeychainStore.swift
       - path: HopWorld/Services/Testing/AppProbe.swift
       - path: HopWorld/Services/Testing/NodeTesters.swift
+      - path: HopWorld/Services/Testing/ProxyQualityProbes.swift
+      - path: HopWorld/Services/Testing/CodexHealthMonitor.swift
+      - path: HopWorld/Services/Testing/CodexRuntimeHealthReader.swift
+      - path: HopWorld/Services/Testing/CodexInterfaceHealthReader.swift
       - path: HopWorld/Services/Testing/NodeTestManager.swift
       - path: HopWorld/Services/Testing/BatchProbeScheduler.swift
       - path: HopWorld/Services/Testing/LocalTestPorts.swift
@@ -176,6 +188,8 @@ targets:
       - path: HopWorld/Services/System/ConnectionOperations.swift
       - path: HopWorld/Services/System/SystemProxyManager.swift
       - path: HopWorld/Services/Subscription/SubscriptionDateTemplate.swift
+      - path: HopWorld/Services/Subscription/SubscriptionFetcher.swift
+      - path: HopWorld/Services/Subscription/SubscriptionManager.swift
       - path: HopWorld/Services/Subscription/SubscriptionMerger.swift
       - path: HopWorld/Services/Country/CountryResolver.swift
     settings:

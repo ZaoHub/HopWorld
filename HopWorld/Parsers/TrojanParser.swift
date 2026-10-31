@@ -37,6 +37,7 @@ enum TrojanParser {
         case "ws": return .ws
         case "grpc": return .grpc
         case "httpupgrade": return .httpupgrade
+        case "h2", "http": return .h2
         case "xhttp": return .xhttp
         default: return .tcp
         }

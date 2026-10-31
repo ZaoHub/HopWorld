@@ -55,6 +55,31 @@ final class DockActivationTests: XCTestCase {
         XCTAssertEqual(plan.deminiaturize, [1])
     }
 
+    func testHiddenHealthWindowIsNotOpenedOnActivation() {
+        let windows = [
+            traits(title: "跃界", isVisible: true, isMain: true, area: 800_000),
+            traits(title: "网络健康中心", area: 900 * 640),
+        ]
+
+        XCTAssertEqual(DockActivationPolicy.plan(for: windows).orderFront, [0])
+    }
+
+    func testClosedHealthWindowDoesNotBecomeFallbackWindow() {
+        let plan = DockActivationPolicy.plan(for: [traits(title: "网络健康中心", area: 900 * 640)])
+
+        XCTAssertTrue(plan.orderFront.isEmpty)
+        XCTAssertTrue(plan.deminiaturize.isEmpty)
+    }
+
+    func testExplicitlyOpenedHealthWindowStillReceivesFocus() {
+        let windows = [
+            traits(title: "跃界", isVisible: true, isMain: true, area: 800_000),
+            traits(title: "网络健康中心", isVisible: true, isKey: true, area: 900 * 640),
+        ]
+
+        XCTAssertEqual(DockActivationPolicy.plan(for: windows).orderFront, [0, 1])
+    }
+
     func testNoForegroundWindowMeansTheMainWindowMustBeReopened() {
         let windows = [
             traits(title: "", isKey: true, isStatusBarWindow: true),

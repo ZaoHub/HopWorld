@@ -80,6 +80,7 @@ enum ProcessRunner {
             return try await withCheckedThrowingContinuation { continuation in
                 DispatchQueue.global(qos: .utility).async {
                     let process = Process()
+                    process.standardInput = FileHandle.nullDevice
                     process.executableURL = executable
                     process.arguments = arguments
                     process.environment = environment

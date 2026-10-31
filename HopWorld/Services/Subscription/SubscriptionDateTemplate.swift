@@ -61,7 +61,8 @@ enum SubscriptionDateTemplateDetector {
               let monthRange = Range(match.range(at: 2), in: urlString),
               let dayRange = Range(match.range(at: 3), in: urlString)
         else {
-            return detectSeparatedFormats(from: urlString)
+            let splitDate = detectYearMonthDirectory(from: urlString)
+            return splitDate.detected ? splitDate : detectSeparatedFormats(from: urlString)
         }
 
         let year = String(urlString[yearRange])
@@ -94,6 +95,30 @@ enum SubscriptionDateTemplateDetector {
             detected: template != urlString,
             matchedDateText: matched
         )
+    }
+
+    private static func detectYearMonthDirectory(from urlString: String) -> DateTemplateDetection {
+        let unchanged = DateTemplateDetection(originalURL: urlString, template: urlString, detected: false, matchedDateText: nil)
+        let pathEnd = urlString.firstIndex(where: { $0 == "?" || $0 == "#" }) ?? urlString.endIndex
+        // The filename month must match the directory month; never rewrite query tokens.
+        let pattern = #"/(20\d{2})(0[1-9]|1[0-2])/\2(0[1-9]|[12]\d|3[01])(?=[^\d/?#][^/?#]*$)"#
+        guard let regex = try? NSRegularExpression(pattern: pattern),
+              let match = regex.firstMatch(in: urlString, range: NSRange(urlString.startIndex..<pathEnd, in: urlString)),
+              let fullRange = Range(match.range, in: urlString),
+              let yearRange = Range(match.range(at: 1), in: urlString),
+              let monthRange = Range(match.range(at: 2), in: urlString),
+              let dayRange = Range(match.range(at: 3), in: urlString),
+              let year = Int(urlString[yearRange]), let month = Int(urlString[monthRange]), let day = Int(urlString[dayRange])
+        else { return unchanged }
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        guard let date = calendar.date(from: DateComponents(year: year, month: month, day: day)),
+              calendar.component(.month, from: date) == month,
+              calendar.component(.day, from: date) == day else { return unchanged }
+        var template = urlString
+        template.replaceSubrange(fullRange, with: "/{yyyy}{MM}/{MM}{dd}")
+        return DateTemplateDetection(originalURL: urlString, template: template, detected: true,
+                                     matchedDateText: String(format: "%04d%02d%02d", year, month, day))
     }
 
     private static func detectSeparatedFormats(from urlString: String) -> DateTemplateDetection {

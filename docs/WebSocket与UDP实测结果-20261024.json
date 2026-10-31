@@ -1,0 +1,49 @@
+{
+  "date": "2026-10-24",
+  "timezone": "Asia/Shanghai",
+  "public_websocket": {
+    "endpoint": "wss://ws.postman-echo.com/raw",
+    "route": "现有本地 HTTP 代理 127.0.0.1:10809",
+    "requested_seconds": 360,
+    "observed_seconds": 360.3183464583708,
+    "verified": true,
+    "survived": true,
+    "application_pings": "仅首尾各一次",
+    "scope": "公开参考链路，不是 Codex 账号会话"
+  },
+  "controlled_udp": {
+    "transport": "真实 Xray SOCKS5 UDP ASSOCIATE → 本地 STUN 回显夹具",
+    "sent": 30,
+    "unique_received": 24,
+    "loss_rate": 0.2,
+    "injected_drop_every": 5,
+    "duplicates_and_unrelated_transactions_ignored": true
+  },
+  "public_udp": {
+    "endpoint": "stun.cloudflare.com:3478",
+    "route": "临时认证 SOCKS 入口 → 现有本地 SOCKS 代理 127.0.0.1:10808",
+    "verified": false,
+    "loss_rate": null,
+    "reason": "UDP/STUN 预检未收到有效响应；无法区分节点、路径或端点原因，不计为 0% 或 100%"
+  },
+  "limitations": [
+    "未测实际 Codex 会话",
+    "未采集原始 IP 丢包或 TCP 重传率",
+    "未进行管理员 TUN 与双栈分别验收",
+    "未替换正在运行的应用"
+  ],
+  "automated_validation": {
+    "debug_build": "passed",
+    "total_tests": 242,
+    "passed": 237,
+    "skipped": 3,
+    "failed": 2,
+    "known_failures": [
+      "LibrarySafetyTests.testDamagedPrimaryRestoresWholePreviousCommitAndRetainsDamagedFile",
+      "LibrarySafetyTests.testMigrationEncryptsAllSecretsAndRemovesLegacyOnlyAfterSuccessfulCommit"
+    ],
+    "ai_quality_tests_passed": 10,
+    "default_probe_tests_passed": 9,
+    "public_wss_separate_test": "passed"
+  }
+}

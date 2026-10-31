@@ -9,6 +9,17 @@ struct SubscriptionMergePlan: Sendable {
 }
 
 enum SubscriptionMerger {
+    /// Merge counters include unchanged matches; compare the committed node content for prompts.
+    static func hasNodeChanges(before: [ProxyNode], after: [ProxyNode]) -> Bool {
+        guard before.count == after.count else { return true }
+        let previous = Dictionary(uniqueKeysWithValues: before.map { ($0.id, $0) })
+        return after.contains { node in
+            guard let old = previous[node.id] else { return true }
+            return old.name != node.name || old.pendingRemoval != node.pendingRemoval
+                || fingerprint(of: old) != fingerprint(of: node)
+        }
+    }
+
     /// Fields that may change during an in-flight refresh (tests, probes) without
     /// rejecting the downloaded merge.
     private struct RefreshBaseline: Equatable {
@@ -22,9 +33,14 @@ enum SubscriptionMerger {
         copy.unavailableSince = nil
         copy.lastTestDate = nil
         copy.lastTestStatus = .untested
+        copy.lastTestErrorMessage = nil
         copy.lastAppProbeOkCount = nil
         copy.lastAppProbeLatency = nil
         copy.lastAppProbeDate = nil
+        copy.lastAppProbePassedIDs = nil
+        copy.countryCode = nil
+        copy.countryName = nil
+        copy.exitMetadata = nil
         copy.pendingConfigUpdate = false
         return RefreshBaseline(node: copy)
     }
@@ -32,18 +48,37 @@ enum SubscriptionMerger {
     /// Commit only the downloaded subscription. Concurrent edits to its nodes
     /// reject the stale proposal; edits and additions in other subscriptions survive.
     static func commitRefresh(subscriptionID: UUID, baseline: [ProxyNode],
-                              proposed: [ProxyNode], current: [ProxyNode]) -> [ProxyNode]? {
+                              proposed: [ProxyNode], current: [ProxyNode],
+                              preserveNodeIDs: Set<UUID> = []) -> [ProxyNode]? {
         let currentSource = current.filter { $0.subscriptionID == subscriptionID }
         guard refreshBaselinesEqual(baseline, currentSource) else { return nil }
         let currentByID = Dictionary(uniqueKeysWithValues: currentSource.map { ($0.id, $0) })
-        let committed = proposed.filter { $0.subscriptionID == subscriptionID }.map { node in
+        let baselineByID = Dictionary(uniqueKeysWithValues: baseline.map { ($0.id, $0) })
+        var committed = proposed.filter { $0.subscriptionID == subscriptionID }.map { node in
             var copy = node
-            if let latest = currentByID[node.id]?.lastAvailableAt,
-               latest > (copy.lastAvailableAt ?? .distantPast) {
-                copy.lastAvailableAt = latest
-                copy.unavailableSince = nil
+            if let latest = currentByID[node.id], fingerprint(of: latest) == fingerprint(of: copy) {
+                copy.lastLatency = latest.lastLatency
+                copy.lastTestDate = latest.lastTestDate
+                copy.lastTestStatus = latest.lastTestStatus
+                copy.lastTestErrorMessage = latest.lastTestErrorMessage
+                copy.lastAvailableAt = latest.lastAvailableAt
+                copy.unavailableSince = latest.unavailableSince
+                copy.lastAppProbeOkCount = latest.lastAppProbeOkCount
+                copy.lastAppProbeLatency = latest.lastAppProbeLatency
+                copy.lastAppProbeDate = latest.lastAppProbeDate
+                copy.lastAppProbePassedIDs = latest.lastAppProbePassedIDs
+                copy.exitMetadata = latest.exitMetadata
+                copy.pendingConfigUpdate = latest.pendingConfigUpdate
+                if latest.countryCode != baselineByID[node.id]?.countryCode { copy.countryCode = latest.countryCode }
+                if latest.countryName != baselineByID[node.id]?.countryName { copy.countryName = latest.countryName }
             }
             return copy
+        }
+        let committedIDs = Set(committed.map(\.id))
+        for node in currentSource where preserveNodeIDs.contains(node.id) && !committedIDs.contains(node.id) {
+            var copy = node
+            copy.pendingRemoval = true
+            committed.append(copy)
         }
         return current.filter { $0.subscriptionID != subscriptionID } + committed
     }
@@ -302,15 +337,22 @@ enum SubscriptionMerger {
     }
 
     private static func preserveUserMetadata(from old: ProxyNode, onto incoming: ProxyNode) -> ProxyNode {
-        ProxyNode(
+        let replaceCredentials = [ProxyProtocolType.anytls, .masque, .tuic, .wireguard, .socks5, .http].contains(incoming.protocolType)
+        var node = ProxyNode(
             id: old.id,
             name: incoming.name,
             protocolType: incoming.protocolType,
             server: incoming.server,
             port: incoming.port,
-            credentialKey: old.credentialKey ?? incoming.credentialKey,
+            credentialKey: replaceCredentials ? incoming.credentialKey : old.credentialKey ?? incoming.credentialKey,
             uuid: incoming.uuid ?? old.uuid,
-            password: incoming.password ?? old.password,
+            password: replaceCredentials ? incoming.password : incoming.password ?? old.password,
+            username: incoming.username,
+            masqueHeaders: incoming.masqueHeaders,
+            masqueRemoteDNS: incoming.masqueRemoteDNS,
+            tuicOptions: incoming.tuicOptions,
+            wireGuardOptions: incoming.wireGuardOptions,
+            httpHeaders: incoming.httpHeaders,
             method: incoming.method ?? old.method,
             alterId: incoming.alterId ?? old.alterId,
             flow: incoming.flow ?? old.flow,
@@ -326,6 +368,8 @@ enum SubscriptionMerger {
             fingerprint: incoming.fingerprint,
             spiderX: incoming.spiderX,
             alpn: incoming.alpn,
+            allowInsecure: incoming.allowInsecure,
+            pinnedCertSHA256: incoming.pinnedCertSHA256,
             finalMaskJSON: incoming.finalMaskJSON ?? old.finalMaskJSON,
             countryCode: incoming.countryCode ?? old.countryCode,
             countryName: incoming.countryName ?? old.countryName,
@@ -348,5 +392,20 @@ enum SubscriptionMerger {
             pendingConfigUpdate: old.pendingConfigUpdate,
             note: old.note
         )
+        if fingerprint(of: old) == fingerprint(of: incoming) {
+            node.lastTestErrorMessage = old.lastTestErrorMessage
+            node.lastAppProbePassedIDs = old.lastAppProbePassedIDs
+            node.exitMetadata = old.exitMetadata
+        } else {
+            node.lastLatency = nil
+            node.lastTestDate = nil
+            node.lastAvailableAt = nil
+            node.unavailableSince = nil
+            node.lastTestStatus = .untested
+            node.lastAppProbeOkCount = nil
+            node.lastAppProbeLatency = nil
+            node.lastAppProbeDate = nil
+        }
+        return node
     }
 }

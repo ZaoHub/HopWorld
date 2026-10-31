@@ -3,6 +3,7 @@ import SwiftUI
 
 struct NodeDetailView: View {
     @EnvironmentObject private var appState: AppState
+    @EnvironmentObject private var connection: ConnectionManager
     @Environment(\.dismiss) private var dismiss
 
     let nodeID: UUID
@@ -23,14 +24,19 @@ struct NodeDetailView: View {
                 if let node {
                     Form {
                         Section("基本信息") {
-                            LabeledContent("名称", value: node.displayTitle)
+                            LabeledContent("名称", value: appState.settings.nodeDisplayTitle(node))
                             LabeledContent("协议", value: node.protocolType.displayName)
-                            LabeledContent("地址", value: "\(node.server):\(node.port)")
-                            LabeledContent("传输", value: node.transport.displayName)
-                            LabeledContent("安全", value: node.security.displayName)
+                            LabeledContent("节点地址", value: "\(node.server):\(node.port)")
+                            LabeledContent("传输", value: node.transportDisplayName)
+                            LabeledContent("安全", value: node.protocolType == .wireguard ? "WireGuard 内置加密" : node.security.displayName)
                             LabeledContent(
                                 "国家",
                                 value: "\(FlagResolver.flag(for: CountryResolver.effectiveCode(for: node))) \(CountryResolver.effectiveCountry(for: node).name)"
+                            )
+                            NodeExitBasicInformation(
+                                metadata: node.exitMetadata,
+                                countryCode: node.exitMetadata?.countryCode ?? node.countryCode,
+                                showChinese: appState.settings.showChineseNodeMetadata
                             )
                             if let sub = subscriptionName(for: node) {
                                 LabeledContent("订阅", value: sub)
@@ -39,6 +45,7 @@ struct NodeDetailView: View {
                                 LabeledContent("收藏", value: "是")
                             }
                         }
+                        .textSelection(.enabled)
 
                         if node.pendingConfigUpdate || node.pendingRemoval {
                             Section("订阅同步") {
@@ -135,17 +142,34 @@ struct NodeDetailView: View {
                     }
                     .formStyle(.grouped)
                 } else {
-                    ContentUnavailableView("节点不存在", systemImage: "server.rack")
+                    UnavailablePlaceholder("节点不存在", systemImage: "server.rack")
                 }
             }
             .navigationTitle("节点详情")
+            .task(id: nodeID) {
+                await appState.refreshMissingExitTypes(nodeIDs: [nodeID])
+            }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("关闭") { dismiss() }
                 }
                 if let node {
                     ToolbarItem(placement: .primaryAction) {
-                        if node.lastTestStatus == .untested {
+                        if connection.state.currentNodeID == node.id,
+                           connection.state.status == .connected || connection.state.status == .connecting
+                            || connection.state.status == .disconnecting {
+                            Button(role: .destructive) {
+                                Task { await appState.disconnect() }
+                                dismiss()
+                            } label: {
+                                Text(connection.state.status == .disconnecting ? "断开中…" : "断开")
+                                    .foregroundStyle(.white)
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .tint(.red)
+                            .disabled(connection.state.status == .disconnecting)
+                            .help("断开当前节点连接")
+                        } else if node.lastTestStatus == .untested {
                             Button("测试") {
                                 Task {
                                     await appState.testNodes([node])
@@ -190,6 +214,28 @@ struct NodeDetailView: View {
         Task {
             try? await Task.sleep(nanoseconds: 1_500_000_000)
             copied = false
+        }
+    }
+}
+
+private struct NodeExitBasicInformation: View {
+    @ObservedObject private var cityLibrary = ChineseCityLibrary.shared
+    let metadata: NodeExitMetadata?
+    let countryCode: String?
+    let showChinese: Bool
+
+    var body: some View {
+        let city = ExitMetadataLocalization.city(metadata?.city, countryCode: countryCode,
+            localizedCity: metadata?.localizedCity, showChinese: showChinese)
+        let networkOperator = ExitMetadataLocalization.networkOperator(metadata?.networkOperator, showChinese: showChinese)
+        Group {
+            LabeledContent("出口 IP", value: metadata?.ip ?? "未知")
+            LabeledContent("出口 IP 属性", value: metadata?.networkType?.displayName ?? "未知")
+            LabeledContent("出口城市", value: city)
+                .help(ExitMetadataLocalization.help(raw: metadata?.city, displayed: city, showChinese: showChinese))
+            LabeledContent("出口运营商", value: networkOperator)
+                .help(ExitMetadataLocalization.help(raw: metadata?.networkOperator, displayed: networkOperator, showChinese: showChinese))
+            LabeledContent("ASN", value: metadata?.asn ?? "未知")
         }
     }
 }

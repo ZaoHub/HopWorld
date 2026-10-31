@@ -1,10 +1,28 @@
 import Foundation
 import Darwin
 
+enum TunStopReason: String, Codable, Sendable {
+    case requested
+    case systemSignal
+    case leaseExpired
+}
+
 struct TunSessionStatus: Codable, Sendable {
     var state: String
     var message: String
     var updatedAt: Date = Date()
+    var stopReason: TunStopReason? = nil
+    var signal: Int32? = nil
+    var signalSenderPID: Int32? = nil
+    var signalSenderUID: UInt32? = nil
+    var signalSenderName: String? = nil
+
+    var allowsAutomaticRecovery: Bool {
+        guard state == "stopped" else { return true }
+        if let stopReason { return stopReason == .leaseExpired }
+        // Older helpers only reported a text reason.
+        return !message.contains("停止信号") && !message.contains("停止请求")
+    }
 }
 
 /// Fixed messages for the in-session root helper. The helper never receives a shell.

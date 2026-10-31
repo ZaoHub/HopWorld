@@ -53,6 +53,46 @@ final class ClashCompatibilityTests: XCTestCase {
         XCTAssertEqual(node.host, "edge.example.com")
     }
 
+    func testRealityKeyAliasesAndBlockMapsPreservePublicKey() throws {
+        for field in ["public-key", "publicKey", "public_key", "password"] {
+            let text = """
+            proxies:
+              - name: Reality
+                type: vless
+                server: example.com
+                port: 443
+                uuid: 11111111-1111-4111-8111-111111111111
+                reality-opts:
+                  \(field): fixture-key
+                  shortId: 00ab
+            """
+            let node = try XCTUnwrap(ClashYAMLParser.parse(text).validNodes.first)
+            XCTAssertEqual(node.publicKey, "fixture-key", field)
+            XCTAssertEqual(node.shortID, "00ab", field)
+            XCTAssertEqual(node.security, .reality, field)
+            XCTAssertTrue(NodeConfigChecker.validate(node).0, field)
+        }
+        let text = "proxies: [{name: Reality, type: vless, server: example.com, port: 443, uuid: 11111111-1111-4111-8111-111111111111, publicKey: fixture-key}]"
+        let node = try XCTUnwrap(ClashYAMLParser.parse(text).validNodes.first)
+        XCTAssertEqual(node.security, .reality)
+        XCTAssertEqual(node.publicKey, "fixture-key")
+    }
+
+    func testRealityKeySkipsEmptyFieldsWithoutBypassingMissingKeyValidation() throws {
+        let prefix = "proxies: [{name: Reality, type: vless, server: example.com, port: 443, uuid: 11111111-1111-4111-8111-111111111111, reality-opts: {"
+        for (fields, expected) in [("public-key: canonical, publicKey: alias", "canonical"),
+                                   ("public-key: '', publicKey: alias", "alias"),
+                                   ("public-key: '  ', public_key: alias", "alias")] {
+            let node = try XCTUnwrap(ClashYAMLParser.parse(prefix + fields + ", short-id: ''}}]").validNodes.first)
+            XCTAssertEqual(node.publicKey, expected)
+            XCTAssertEqual(node.shortID, "")
+        }
+        let missing = try XCTUnwrap(ClashYAMLParser.parse(prefix + "public-key: '  ', short-id: ''}}]").validNodes.first)
+        XCTAssertEqual(missing.security, .reality)
+        XCTAssertNil(missing.publicKey)
+        XCTAssertEqual(NodeConfigChecker.validate(missing).1, "REALITY 缺少 publicKey")
+    }
+
     func testUnknownTransportMissingCredentialsAndInvalidPortsAreNotValidNodes() throws {
         for fields in ["network: unsupported, password: p", "network: tcp", "password: p, port: 99999"] {
             let text = "proxies: [{name: n, type: trojan, server: example.com, port: 443, \(fields)}]"

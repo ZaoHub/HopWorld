@@ -7,6 +7,16 @@ struct ProxyApplication: Codable, Hashable, Identifiable, Sendable {
     var isBundle: Bool
     var id: String { path }
 
+    var isClaude: Bool {
+        let url = URL(fileURLWithPath: path)
+        if url.pathComponents.contains(where: { $0.caseInsensitiveCompare("Claude.app") == .orderedSame }) {
+            return true
+        }
+        let bundleName = Bundle(path: path)?.object(forInfoDictionaryKey: "CFBundleName") as? String
+        return bundleName?.caseInsensitiveCompare("Claude") == .orderedSame
+            || (!isBundle && url.lastPathComponent.caseInsensitiveCompare("claude") == .orderedSame)
+    }
+
     init(url: URL) throws {
         let canonical = url.resolvingSymlinksInPath().standardizedFileURL
         let bundle = canonical.pathExtension.lowercased() == "app"

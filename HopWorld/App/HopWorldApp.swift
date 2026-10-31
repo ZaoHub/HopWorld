@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 @main
@@ -10,6 +11,7 @@ struct HopWorldApp: App {
             ContentView()
                 .environmentObject(appState)
                 .environmentObject(appState.connection)
+                .environmentObject(appState.testManager)
                 .frame(minWidth: 980, minHeight: 640)
                 .background(MainWindowRevealAnchor())
         }
@@ -24,9 +26,10 @@ struct HopWorldApp: App {
             MenuBarView()
                 .environmentObject(appState)
                 .environmentObject(appState.connection)
+                .environmentObject(appState.testManager)
         } label: {
             HStack(spacing: 4) {
-                Image(systemName: menuBarImage)
+                MenuBarStatusIcon(status: appState.connection.state.status)
                 if appState.connection.state.status == .connected {
                     Text(appState.connection.state.latency.map { "\($0) ms" } ?? "超时")
                         .monospacedDigit()
@@ -41,24 +44,49 @@ struct HopWorldApp: App {
             SettingsView()
                 .environmentObject(appState)
                 .environmentObject(appState.connection)
+                .environmentObject(appState.testManager)
                 .frame(width: 520, height: 480)
         }
     }
 
-    private var menuBarImage: String {
-        switch appState.connection.state.status {
-        case .connected: return "shield.lefthalf.filled"
-        case .connecting, .disconnecting: return "shield.lefthalf.filled.slash"
-        case .error: return "exclamationmark.shield"
-        case .disconnected: return "shield"
+}
+
+/// 未连接黑图标、已连接白图标；连接中偏黑，断开中偏白。
+/// MenuBarExtra 会把 SwiftUI Image 强行当成 template，必须用 isTemplate=false 的 NSImage 才能保住黑/白。
+/// 菜单栏标签不能用 TimelineView：每帧换图会卡死状态栏布局。
+private struct MenuBarStatusIcon: View {
+    let status: ConnectionStatus
+
+    var body: some View {
+        Image(nsImage: menuBarImage(named: usesWhiteIcon ? "MenuBarIconWhite" : "MenuBarIconBlack"))
+            .resizable()
+            .interpolation(.high)
+            .frame(width: 18, height: 18)
+    }
+
+    private var usesWhiteIcon: Bool {
+        switch status {
+        case .connected, .disconnecting: return true
+        case .disconnected, .error, .connecting: return false
         }
+    }
+
+    private func menuBarImage(named name: String) -> NSImage {
+        let image = (NSImage(named: name)?.copy() as? NSImage) ?? NSImage(size: NSSize(width: 18, height: 18))
+        image.isTemplate = false
+        image.size = NSSize(width: 18, height: 18)
+        return image
     }
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    func applicationWillTerminate(_ notification: Notification) {
-        // Best-effort restore is handled by ConnectionManager disconnect on quit via notification.
-        NotificationCenter.default.post(name: .hopWorldWillTerminate, object: nil)
+    private var terminationPending = false
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard !terminationPending else { return .terminateLater }
+        terminationPending = true
+        NotificationCenter.default.post(name: .hopWorldWillTerminate, object: sender)
+        return .terminateLater
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {

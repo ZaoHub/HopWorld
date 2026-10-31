@@ -19,6 +19,12 @@ dist/
 *.dmg
 *.xcarchive/
 *.dSYM/
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+*.swp
+*~
 
 # Credentials and local application data
 .env

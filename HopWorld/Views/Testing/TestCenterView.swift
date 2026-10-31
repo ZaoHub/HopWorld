@@ -2,6 +2,30 @@ import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 
+struct UsageHelpButton: View {
+    var title: String
+    var text: String
+    @State private var showingHelp = false
+
+    var body: some View {
+        Button { showingHelp = true } label: {
+            Image(systemName: "questionmark.circle")
+                .foregroundStyle(.secondary)
+        }
+        .buttonStyle(.plain)
+        .help(title)
+        .accessibilityLabel(title)
+        .popover(isPresented: $showingHelp) {
+            VStack(alignment: .leading, spacing: 10) {
+                Text(title).font(.headline)
+                Text(text).font(.callout).fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(16)
+            .frame(width: 360, alignment: .leading)
+        }
+    }
+}
+
 /// 测试页「实验室」主题调色板，深浅色自适应。
 private struct LabPalette {
     var scheme: ColorScheme
@@ -78,6 +102,7 @@ private struct LabCard<Content: View>: View {
     var icon: String
     var tint: Color
     var palette: LabPalette
+    var subtitle: String? = nil
     var footnote: String? = nil
     @ViewBuilder var content: () -> Content
 
@@ -90,6 +115,14 @@ private struct LabCard<Content: View>: View {
                 Text(title)
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(palette.text)
+                    .fixedSize(horizontal: true, vertical: false)
+                if let subtitle {
+                    Text(subtitle)
+                        .font(.system(size: 11))
+                        .foregroundStyle(palette.subtext)
+                        .lineLimit(1)
+                        .help(subtitle)
+                }
                 if let footnote {
                     Spacer(minLength: 8)
                     Text(footnote)
@@ -116,72 +149,128 @@ private struct LabStatTile: View {
     var value: String
     var tint: Color
     var palette: LabPalette
+    var action: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text(value)
-                .font(.system(size: 22, weight: .bold, design: .monospaced))
-                .monospacedDigit()
-                .foregroundStyle(tint)
-                .lineLimit(1)
-            Text(label)
-                .font(.system(size: 11))
-                .foregroundStyle(palette.subtext)
+        Button(action: action) {
+            HStack(spacing: 8) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(value)
+                        .font(.system(size: 22, weight: .bold, design: .monospaced))
+                        .monospacedDigit()
+                        .foregroundStyle(tint)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.65)
+                    Text(label)
+                        .font(.system(size: 11))
+                        .foregroundStyle(palette.subtext)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.85)
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(palette.subtext)
+                    .accessibilityHidden(true)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(palette.text.opacity(0.05), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .strokeBorder(palette.line, lineWidth: 1)
+            }
+            .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(palette.text.opacity(0.05), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 9, style: .continuous)
-                .strokeBorder(palette.line, lineWidth: 1)
-        }
+        .buttonStyle(.plain)
+        .help("查看\(label)的分类与数量")
+        .accessibilityLabel(label)
+        .accessibilityValue(value)
+        .accessibilityHint("查看分类与数量")
     }
 }
 
-/// 应用探测目标芯片：状态灯 + 名称 + 延迟。
-private struct LabTargetChip: View {
-    var dot: Color
-    var name: String
-    var latency: String
-    var palette: LabPalette
-    var dimmed: Bool = false
+private struct TestStatisticsSheet: View {
+    @Environment(\.dismiss) private var dismiss
+
+    var statistic: NodeTestStatistic
+    var scopeTitle: String
+    var nodes: [ProxyNode]
+    var remainingNodeIDs: Set<UUID>
 
     var body: some View {
-        HStack(spacing: 6) {
-            Circle()
-                .fill(dot)
-                .frame(width: 8, height: 8)
-            Text(name)
-                .font(.system(size: 13))
-                .foregroundStyle(palette.text)
-                .lineLimit(1)
-            Spacer(minLength: 4)
-            Text(latency)
-                .font(.system(size: 11, design: .monospaced))
-                .monospacedDigit()
-                .foregroundStyle(palette.subtext)
+        VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(statistic.title)
+                    .font(.title2.bold())
+                    .accessibilityAddTraits(.isHeader)
+                Text(scopeTitle)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(nil)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Divider()
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 12) {
+                    ForEach(statistic.sections(for: nodes, remainingNodeIDs: remainingNodeIDs)) { section in
+                        Section {
+                            if section.counts.isEmpty {
+                                Text("当前范围没有相关节点")
+                                    .foregroundStyle(.secondary)
+                            } else {
+                                ForEach(section.sortedCounts, id: \.key) { row in
+                                    HStack(alignment: .top, spacing: 16) {
+                                        Text(row.key)
+                                            .frame(maxWidth: .infinity, alignment: .leading)
+                                            .lineLimit(nil)
+                                            .fixedSize(horizontal: false, vertical: true)
+                                        Text("\(row.value) 个")
+                                            .monospacedDigit()
+                                            .foregroundStyle(.secondary)
+                                            .fixedSize()
+                                    }
+                                    .accessibilityElement(children: .combine)
+                                }
+                            }
+                        } header: {
+                            Text(section.title)
+                                .font(.headline)
+                                .padding(.top, 4)
+                                .accessibilityAddTraits(.isHeader)
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .textSelection(.enabled)
+            }
+            Divider()
+            HStack {
+                Spacer()
+                Button("关闭") { dismiss() }
+                    .keyboardShortcut(.cancelAction)
+            }
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
-        .background(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(palette.text.opacity(dimmed ? 0.03 : 0.055))
-        )
-        .overlay {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .strokeBorder(palette.line, lineWidth: 1)
-        }
-        .opacity(dimmed ? 0.55 : 1)
+        .padding(24)
+        .frame(width: 600, height: 480)
     }
 }
 
 struct TestCenterView: View {
     @EnvironmentObject private var appState: AppState
+    @EnvironmentObject private var testManager: NodeTestManager
     @Environment(\.colorScheme) private var colorScheme
     /// Node picked in the results list for connect / app probe.
     @State private var selectedNodeID: UUID?
+    @State private var appProbeTestNodeID: UUID?
+    @State private var appProbeScope: NodeListFilter.Source = .all
     @State private var showingLatencyTierHelp = false
+    @State private var selectedStatistic: NodeTestStatistic?
+    @State private var editingAppProbes = false
+    @State private var draftAppProbeSettings: AppSettings?
+    @State private var appProbeBaseline: AppSettings?
+    @State private var resultPage = 1
 
     /// Shared with 节点 page subscription chips.
     private var testScope: NodeListFilter.Source {
@@ -192,7 +281,7 @@ struct TestCenterView: View {
         let current = NodeListFilter.decode(appState.settings.nodeListCategoryRaw)
         let raw = NodeListFilter.encode(scope: current.scope, source: value)
         guard appState.settings.nodeListCategoryRaw != raw else { return }
-        appState.updateSettings { $0.nodeListCategoryRaw = raw }
+        appState.updateSettingsFromView { $0.nodeListCategoryRaw = raw }
     }
 
     private var testScopeBinding: Binding<NodeListFilter.Source> {
@@ -208,7 +297,7 @@ struct TestCenterView: View {
         GeometryReader { geo in
             let wide = geo.size.width >= 700
             ScrollView {
-                VStack(spacing: 14) {
+                LazyVStack(spacing: 14) {
                     header
                     statusCard
                     controlsCard(wide: wide)
@@ -224,25 +313,45 @@ struct TestCenterView: View {
             .background { LabBackdrop(palette: palette) }
         }
         .onAppear {
-            if !appState.testManager.isProbingApps,
-               appState.testManager.appProbeResults.map(\.target) != appState.settings.automaticAppProbeTargets {
-                appState.testManager.resetAppProbes(targets: appState.settings.automaticAppProbeTargets)
+            let resultNodeLabel = testManager.appProbeNodeLabel
+            let targetNodeLabel = probeTargetNode.map { appState.appProbeNodeDescription(for: $0, useOriginalName: true) }
+            if !testManager.isProbingApps,
+               testManager.appProbeResults.map(\.target) != appState.settings.automaticAppProbeTargets
+                || (resultNodeLabel != nil && resultNodeLabel != targetNodeLabel) {
+                testManager.resetAppProbes(targets: appState.settings.automaticAppProbeTargets)
             }
         }
-        .onChange(of: appState.connection.state.status) { _, status in
+        .onChange(of: appState.nodes.map(\.id)) { ids in
+            if let id = appProbeTestNodeID ?? testManager.appProbeNodeID, !ids.contains(id) {
+                restoreCurrentProxyProbeTarget()
+            }
+        }
+        .onChange(of: appState.connection.state.status) { status in
+            guard appProbeTestNodeID == nil, testManager.appProbeNodeID == nil,
+                  !testManager.isProbingApps else { return }
             if status == .connected {
-                // Live proxy takes over app probe target; clear list-only selection highlight.
                 selectedNodeID = appState.connection.state.currentNodeID
-                appState.testManager.resetAppProbes(targets: appState.settings.automaticAppProbeTargets)
-                appState.testManager.appProbeStatusText = "已连接：可直接探测当前代理"
-            } else if status == .disconnected || status == .error {
-                appState.testManager.resetAppProbes(targets: appState.settings.automaticAppProbeTargets)
+                testManager.appProbeStatusText = "已连接，可独立探测当前节点"
             }
         }
-        .onChange(of: appState.subscriptions.map(\.id)) { _, ids in
+        .onChange(of: appState.subscriptions.map(\.id)) { ids in
             if case .subscription(let id) = testScope, !ids.contains(id) {
                 setTestScope(.all)
             }
+        }
+        .onChange(of: subscriptionScopeOptions.map(\.scope)) { scopes in
+            if appProbeScope != .all, !scopes.contains(appProbeScope) { appProbeScope = .all }
+        }
+        .onChange(of: testScope) { _ in
+            resultPage = 1
+        }
+        .sheet(item: $selectedStatistic) { statistic in
+            TestStatisticsSheet(
+                statistic: statistic,
+                scopeTitle: scopeLine,
+                nodes: scopedTargets,
+                remainingNodeIDs: Set(testManager.remainingNodeIDs)
+            )
         }
     }
 
@@ -261,10 +370,14 @@ struct TestCenterView: View {
                     Text("测试中心")
                         .font(.system(size: 26, weight: .bold))
                         .foregroundStyle(palette.text)
+                        .fixedSize()
+                    Text(scopeLine)
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundStyle(palette.subtext)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .help(scopeLine)
                 }
-                Text(scopeLine)
-                    .font(.system(size: 11, design: .monospaced))
-                    .foregroundStyle(palette.subtext)
             }
             Spacer(minLength: 8)
             TimelineView(.periodic(from: .now, by: 1)) { context in
@@ -292,19 +405,35 @@ struct TestCenterView: View {
 
     // MARK: - 测试仪表：阶段 + 进度 + 读数
 
-    /// Always show counts from persisted node results (not only during an active session).
+    /// 测速中用本轮实时计数（开测即清零）；空闲时用节点落盘结果。
+    /// 关自动应用连通只显示可用；开启时测速/探测中显示可用，探测结束后显示应用连通。
     private var statusCard: some View {
         let targets = scopedTargets
         let summary = scopedSummary(for: targets)
-        let running = appState.testManager.phase == .running || appState.testManager.phase == .paused
+        let running = testManager.phase == .running || testManager.phase == .paused
+        let probingApps = appState.appProbeBatch.isRunning || testManager.isProbingApps
+        let available = running ? testManager.availableCount : summary.available
+        let unavailable = running ? testManager.unavailableCount : summary.unavailable
+        let failed = running ? testManager.failedCount : summary.failed
+        let tested = running ? testManager.testedCount : summary.tested
+        let appConnected = summary.appConnected
+        let availableTile = availableStatTile(
+            available: available,
+            appConnected: appConnected,
+            targets: targets,
+            running: running,
+            probingApps: probingApps
+        )
         return LabCard(
             title: "测试仪表", icon: "gauge.with.dots.needle.67percent",
             tint: palette.accent, palette: palette,
-            footnote: running ? appState.testManager.statusText : statusIdleLine(summary: summary, total: targets.count)
+            footnote: running ? testManager.statusText
+                : (probingApps ? "正在测试应用连通性" : statusIdleLine(summary: summary, total: targets.count))
         ) {
             HStack(spacing: 8) {
-                SignalDot(color: phaseColor)
-                Text(appState.testManager.phase.displayName)
+                SignalDot(color: !running && probingApps ? palette.accent : phaseColor)
+                Text(running ? "节点延迟\(testManager.phase.displayName)"
+                     : (probingApps ? "应用连通测试中" : testManager.phase.displayName))
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(palette.text)
                 Spacer(minLength: 8)
@@ -324,28 +453,85 @@ struct TestCenterView: View {
                 }
             }
             if running {
-                ProgressView(value: appState.testManager.progress)
-                    .tint(palette.accent)
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        Text("节点延迟")
+                        Spacer(minLength: 8)
+                        Text("\(testManager.testedCount)/\(testManager.totalCount)")
+                            .monospacedDigit()
+                    }
+                    .font(.caption)
+                    .foregroundStyle(palette.subtext)
+                    ProgressView(value: testManager.progress)
+                        .tint(palette.accent)
+                        .accessibilityLabel("节点延迟测试进度")
+                }
             }
-            LazyVGrid(
-                columns: [GridItem(.adaptive(minimum: 130), spacing: 10)],
-                spacing: 10
-            ) {
-                LabStatTile(label: "可用", value: "\(summary.available)", tint: .green, palette: palette)
-                LabStatTile(label: "不可用", value: "\(summary.unavailable)", tint: .orange, palette: palette)
-                LabStatTile(label: "失败", value: "\(summary.failed)", tint: .red, palette: palette)
-                LabStatTile(
-                    label: appState.testManager.canResume ? "剩余" : "已测 / 范围",
-                    value: appState.testManager.canResume
-                        ? "\(appState.testManager.remainingNodeIDs.count)"
-                        : "\(summary.tested)/\(targets.count)",
-                    tint: palette.text, palette: palette
+            if appState.appProbeBatch.isRunning {
+                AppProbeProgressView(
+                    title: "应用连通 · 可用节点",
+                    completed: appState.appProbeBatch.completed,
+                    total: appState.appProbeBatch.total,
+                    statusText: appState.appProbeBatch.statusText
                 )
+                .tint(palette.accent)
+            }
+            if testManager.isProbingApps {
+                AppProbeProgressView(
+                    title: "应用连通 · 单节点",
+                    completed: testManager.appProbeCompletedCount,
+                    total: testManager.appProbeResults.count,
+                    statusText: testManager.appProbeNodeLabel.map { appState.settings.nodeDisplayName($0) }
+                        ?? testManager.appProbeStatusText
+                )
+                .tint(palette.accent)
+            }
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 4), spacing: 10) {
+                LabStatTile(
+                    label: availableTile.label,
+                    value: availableTile.value,
+                    tint: .green, palette: palette
+                ) { selectedStatistic = .available }
+                LabStatTile(label: "不可用", value: "\(unavailable)", tint: .orange, palette: palette) {
+                    selectedStatistic = .unavailable
+                }
+                LabStatTile(label: "失败", value: "\(failed)", tint: .red, palette: palette) {
+                    selectedStatistic = .failed
+                }
+                LabStatTile(
+                    label: testManager.canResume ? "延迟剩余" : "延迟已测 / 范围",
+                    value: testManager.canResume
+                        ? "\(testManager.remainingNodeIDs.count)"
+                        : "\(tested)/\(targets.count)",
+                    tint: palette.text, palette: palette
+                ) { selectedStatistic = .progress }
             }
         }
     }
 
-    private func statusIdleLine(summary: (available: Int, unavailable: Int, failed: Int, tested: Int), total: Int) -> String {
+    /// 关自动应用连通：只显示可用。开：测速/探测中显示可用，探测结束后显示应用连通。
+    private func availableStatTile(
+        available: Int,
+        appConnected: Int,
+        targets: [ProxyNode],
+        running: Bool,
+        probingApps: Bool
+    ) -> (label: String, value: String) {
+        let autoProbe = appState.settings.autoAppProbeUsableNodes
+        if !autoProbe {
+            return ("可用", "\(available)")
+        }
+        if running || probingApps {
+            return ("可用", "\(available)")
+        }
+        let probed = targets.contains { $0.lastAppProbeDate != nil }
+        if probed {
+            return ("应用连通", "\(appConnected)")
+        }
+        return ("可用", "\(available)")
+    }
+
+    private func statusIdleLine(summary: (available: Int, unavailable: Int, failed: Int, tested: Int, appConnected: Int), total: Int) -> String {
         summary.tested > 0 ? "当前范围已测 \(summary.tested) / \(total)" : "尚未测试，点击「测试全部」开始"
     }
 
@@ -396,7 +582,7 @@ struct TestCenterView: View {
             }
             .pickerStyle(.menu)
             .frame(maxWidth: 220)
-            .disabled(appState.testManager.isTesting)
+            .disabled(testManager.isTesting)
         }
     }
 
@@ -407,7 +593,7 @@ struct TestCenterView: View {
             }
             .buttonStyle(.bordered)
             .disabled(
-                appState.testManager.isTesting ||
+                testManager.isTesting ||
                 appState.connection.state.status != .connected
             )
 
@@ -463,31 +649,38 @@ struct TestCenterView: View {
         // This property used to reevaluate and sort liveResultRows for the empty
         // check, ForEach, and header count in the same render pass.
         let rows = liveResultRows
+        let pageSize = 18
+        let pageCount = max(1, (rows.count + pageSize - 1) / pageSize)
+        let page = min(max(resultPage, 1), pageCount)
+        let startIndex = (page - 1) * pageSize
+        let pageRows = Array(rows.dropFirst(startIndex).prefix(pageSize))
         return LabCard(
             title: "节点结果", icon: "testtube.2",
             tint: palette.accent, palette: palette,
-            footnote: "共 \(rows.count) 条"
+            subtitle: selectionHint,
+            footnote: "可用 \(rows.count) 条"
         ) {
-            selectionHint
             if rows.isEmpty {
-                ContentUnavailableView(
-                    "暂无测试结果",
+                UnavailablePlaceholder(
+                    "暂无可用节点",
                     systemImage: "list.bullet.rectangle",
-                    description: Text("点击「测试全部」开始测速；测完后单击节点可选中，再连接并探测应用")
+                    description: {
+                        Text("测试后仅显示可用节点；单击节点可选中，再连接并探测应用")
+                    }
                 )
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 24)
             } else {
+                if pageCount > 1 {
+                    resultPagination(page: page, pageCount: pageCount)
+                }
                 LazyVStack(spacing: 2) {
-                    ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
+                    ForEach(Array(pageRows.enumerated()), id: \.element.id) { index, row in
                         resultRow(row, striped: index % 2 == 1)
                             .contentShape(Rectangle())
                             .onTapGesture {
-                                guard appState.connection.state.status != .connected else {
-                                    appState.statusBanner = "已连接代理：请直接点「探测应用」测试当前连接"
-                                    return
-                                }
-                                selectedNodeID = selectedNodeID == row.id ? nil : row.id
+                                guard !testManager.isProbingApps else { return }
+                                selectAppProbeTestNode(row.id)
                             }
                             .contextMenu {
                                 nodeResultContextMenu(for: row)
@@ -496,25 +689,42 @@ struct TestCenterView: View {
                 }
             }
         }
+        .onChange(of: pageCount) { _ in
+            resultPage = min(max(resultPage, 1), pageCount)
+        }
         .animation(.default, value: selectedNodeID)
         .animation(.default, value: appState.connection.state.currentNodeID)
     }
 
-    @ViewBuilder
-    private var selectionHint: some View {
-        if let selected = selectedNode, appState.connection.state.status != .connected {
-            Text("已选探测：\(selected.displayTitle)")
+    private func resultPagination(page: Int, pageCount: Int) -> some View {
+        HStack(spacing: 8) {
+            Text("第 \(page) / \(pageCount) 页 · 每页 18 个")
                 .font(.system(size: 11))
+                .monospacedDigit()
                 .foregroundStyle(palette.subtext)
-                .lineLimit(1)
+            Spacer(minLength: 8)
+            Button("首页") { resultPage = 1 }
+                .disabled(page == 1)
+            Button("上一页") { resultPage = page - 1 }
+                .disabled(page == 1)
+            Button("下一页") { resultPage = page + 1 }
+                .disabled(page == pageCount)
+            Button("尾页") { resultPage = pageCount }
+                .disabled(page == pageCount)
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.small)
+    }
+
+    private var selectionHint: String {
+        if let selected = appProbeTestNode {
+            return "当前测试：\(appState.settings.nodeDisplayTitle(selected))；点击上方「当前测试」可返回当前代理"
         } else if appState.connection.state.status == .connected {
-            Text("已连接：应用探测使用当前代理")
-                .font(.system(size: 11))
-                .foregroundStyle(palette.subtext)
+            return "已连接：应用探测使用当前代理"
+        } else if let node = appState.recentNodes.first {
+            return "上次选中：\(appState.settings.nodeDisplayTitle(node))。单击可改选；不改选时探测使用该节点"
         } else {
-            Text("未连接：单击选中后点「探测应用」，选中只用于探测、不会建立代理")
-                .font(.system(size: 11))
-                .foregroundStyle(palette.subtext)
+            return "未连接：单击选中后点「探测应用」，选中只用于探测、不会建立代理"
         }
     }
 
@@ -526,10 +736,26 @@ struct TestCenterView: View {
                 .fill(row.statusColor)
                 .frame(width: 8, height: 8)
                 .shadow(color: row.statusColor.opacity(0.5), radius: 2)
+            if let countryName = row.countryName {
+                Text(countryName)
+                    .font(.caption)
+                    .foregroundStyle(palette.subtext)
+                    .fixedSize(horizontal: true, vertical: false)
+                    .help("国家/地区：\(countryName)")
+                    .accessibilityLabel("国家/地区：\(countryName)")
+            }
             Text(row.name)
                 .font(.system(size: 13, weight: highlighted ? .semibold : .medium))
                 .foregroundStyle(palette.text)
                 .lineLimit(1)
+                .help(row.name)
+            Text(row.exitIPType?.displayName ?? "未知")
+                .font(.caption)
+                .foregroundStyle(palette.subtext)
+                .fixedSize(horizontal: true, vertical: false)
+                .help("出口 IP 属性：\(row.exitIPType?.displayName ?? "未知")")
+                .accessibilityLabel("出口 IP 属性：\(row.exitIPType?.displayName ?? "未知")")
+            NodeGroupLabel(name: row.groupName)
 
             if row.isSelected && allowSelect {
                 Text("探测选中")
@@ -556,6 +782,18 @@ struct TestCenterView: View {
             }
 
             Spacer(minLength: 8)
+            if !row.passedAppTargets.isEmpty {
+                HStack(spacing: 4) {
+                    ForEach(row.passedAppTargets) { target in
+                        AppProbeIcon(target: target, passed: true, size: 18)
+                    }
+                }
+            } else if row.appProbeCompleted {
+                Text("应用均未通过")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                    .help("应用连通已测完，没有应用通过；节点延迟结果单独显示")
+            }
             Text(row.status)
                 .font(.system(size: 12))
                 .foregroundStyle(row.statusColor)
@@ -568,11 +806,6 @@ struct TestCenterView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        .background(
-            highlighted ? palette.accent.opacity(palette.scheme == .dark ? 0.14 : 0.10)
-                : (striped ? palette.text.opacity(0.035) : Color.clear),
-            in: RoundedRectangle(cornerRadius: 7, style: .continuous)
-        )
         .overlay {
             RoundedRectangle(cornerRadius: 7, style: .continuous)
                 .strokeBorder(
@@ -580,6 +813,11 @@ struct TestCenterView: View {
                     lineWidth: 1
                 )
         }
+        .modifier(WarmCardHover(
+            cornerRadius: 7,
+            fill: highlighted ? palette.accent.opacity(palette.scheme == .dark ? 0.14 : 0.10)
+                : (striped ? palette.text.opacity(0.035) : .clear)
+        ))
     }
 
     @ViewBuilder
@@ -605,32 +843,20 @@ struct TestCenterView: View {
 
         Divider()
 
-        if appState.connection.state.status != .connected {
-            Button("选中用于应用探测") {
-                selectedNodeID = row.id
-            }
-            Button("选中并探测应用") {
-                selectedNodeID = row.id
-                Task {
-                    guard let node else { return }
-                    await appState.probeApps(forSelectedNode: node)
-                }
-            }
-            .disabled(appState.testManager.isProbingApps || appState.testManager.isTesting)
-        } else {
-            Button("探测当前代理应用连通") {
-                Task { await appState.probeLiveConnectionApps() }
-            }
-            .disabled(appState.testManager.isProbingApps || appState.testManager.isTesting)
+        Button("选中并探测应用") {
+            guard let node else { return }
+            selectAppProbeTestNode(row.id)
+            Task { await appState.probeApps(forSelectedNode: node) }
         }
-
+        .disabled(node == nil || testManager.isProbingApps)
         Divider()
 
         Button("单独测速此节点") {
             guard let node else { return }
+            selectedNodeID = node.id
             Task { await appState.testNodes([node]) }
         }
-        .disabled(appState.testManager.isTesting)
+        .disabled(testManager.isTesting)
 
         if let node {
             Button(node.isFavorite ? "取消收藏" : "收藏") {
@@ -643,83 +869,104 @@ struct TestCenterView: View {
 
     private var appProbeCard: some View {
         let connected = appState.connection.state.status == .connected
+        let showsCurrentProxy = appProbeTestNode == nil && appState.currentNode != nil && (
+            connected
+            || appState.connection.state.status == .connecting
+            || appState.connection.state.status == .disconnecting
+        )
+        let connectionNote = appState.connection.state.status == .connecting ? "连接中" : "断开中"
 
         return LabCard(
             title: "应用连通", icon: "aqi.medium",
             tint: palette.accent, palette: palette,
-            footnote: appState.testManager.appProbeStatusText
+            subtitle: appProbePreviewSettings.effectiveAppProbeSource.displayName,
+            footnote: appProbeHasDraftChanges ? "预览中 · 尚未应用设置"
+                : (appState.appProbeBatch.isRunning ? "可用节点应用连通测试中" : testManager.appProbeStatusText)
         ) {
-            Picker("测试应用", selection: Binding(
-                get: { appState.settings.effectiveAppProbeSource },
-                set: { source in appState.updateAppProbeSettings { $0.appProbeSource = source } }
-            )) {
-                ForEach(AppProbeSource.allCases) { source in
-                    Text(source.displayName).tag(source)
+            appProbeBatchControls
+            Divider().overlay(palette.line)
+
+            HStack(spacing: 8) {
+                if appProbeTestNode != nil {
+                    Button("当前测试") { restoreCurrentProxyProbeTarget() }
+                        .buttonStyle(.link)
+                        .font(.system(size: 11))
+                        .help("切换回当前代理")
+                        .disabled(testManager.isProbingApps)
+                } else {
+                    Text(showsCurrentProxy ? "当前代理" : "探测目标")
+                        .font(.system(size: 11))
+                        .foregroundStyle(palette.subtext)
+                        .fixedSize()
                 }
+                if let node = appProbeTestNode {
+                    probeNodeLabel(node, note: "仅测试此节点 · 不切换代理", noteColor: palette.subtext)
+                } else if showsCurrentProxy, let node = appState.currentNode {
+                    probeNodeLabel(
+                        node,
+                        note: connected ? "已连接 · 独立探测节点" : connectionNote,
+                        noteColor: connected ? .green : palette.subtext
+                    )
+                } else if let node = selectedNode {
+                    probeNodeLabel(node, note: "未连接 · 仅测试选中节点", noteColor: palette.subtext)
+                } else if let node = appState.recentNodes.first {
+                    probeNodeLabel(node, note: "未连接 · 上次选中", noteColor: palette.subtext)
+                } else {
+                    Text("请先在下方节点列表点选一个节点")
+                        .font(.system(size: 13))
+                        .foregroundStyle(.orange)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 4)
+                appProbeActions
             }
-            .pickerStyle(.segmented)
-            .disabled(appState.testManager.isProbingApps)
-            if appState.settings.effectiveAppProbeSource != .defaults {
-                InstalledAppProbeSettings()
-            }
-            HStack(spacing: 10) {
+
+            if editingAppProbes {
+                Picker("应用来源", selection: Binding(
+                    get: { appProbePreviewSettings.effectiveAppProbeSource },
+                    set: { source in
+                        guard source != appProbePreviewSettings.effectiveAppProbeSource else { return }
+                        let baseline = appProbeBaseline ?? appState.settings
+                        updateAppProbeDraft {
+                            $0.appProbeSource = source == baseline.effectiveAppProbeSource ? baseline.appProbeSource : source
+                        }
+                    }
+                )) {
+                    ForEach(AppProbeSource.allCases) { source in
+                        Text(source.displayName).tag(source)
+                    }
+                }
+                .pickerStyle(.segmented)
+                if appProbePreviewSettings.effectiveAppProbeSource != .defaults {
+                    InstalledAppProbeSettings(settings: Binding(get: { appProbePreviewSettings }, set: { updated in updateAppProbeDraft { $0 = updated } }))
+                }
                 Stepper(
-                    "\(appState.settings.appProbeTimeoutSeconds) 秒",
+                    "探测超时：\(appProbePreviewSettings.appProbeTimeoutSeconds) 秒",
                     value: Binding(
-                        get: { appState.settings.appProbeTimeoutSeconds },
-                        set: { value in appState.updateSettings { $0.appProbeTimeoutSeconds = value } }
+                        get: { appProbePreviewSettings.appProbeTimeoutSeconds },
+                        set: { value in
+                            updateAppProbeDraft { $0.appProbeTimeoutSeconds = value }
+                        }
                     ),
                     in: 1...30
                 )
                 .help("每个应用探测目标的超时时间")
-                Spacer(minLength: 8)
-                Button(appState.testManager.isProbingApps ? "探测中…" : "探测应用") {
-                    Task { await runAppProbe() }
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(palette.accent)
-                .disabled(appProbeButtonDisabled)
-                .help(
-                    connected
-                        ? "通过当前代理探测所选应用"
-                        : "未连接时：对列表选中的节点临时探测（不切换系统代理）"
-                )
             }
 
-            HStack(spacing: 8) {
-                Text(connected ? "当前代理" : "探测目标")
-                    .font(.system(size: 11))
-                    .foregroundStyle(palette.subtext)
-                if connected, let node = appState.currentNode {
-                    Text(appState.appProbeNodeDescription(for: node))
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(palette.text)
-                        .lineLimit(1)
-                    Text("已连接 · 测当前代理")
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(.green)
-                } else if let node = selectedNode {
-                    Text(appState.appProbeNodeDescription(for: node))
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(palette.text)
-                        .lineLimit(1)
-                    Text("未连接 · 仅测试选中节点")
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(palette.subtext)
-                } else {
-                    Text("未连接：请先在下方列表单击选中一个节点再探测")
-                        .font(.system(size: 13))
-                        .foregroundStyle(.orange)
+            if !appProbePreviewSettings.automaticAppProbeTargets.isEmpty {
+                if editingAppProbes {
+                    Text("左右箭头调整应用优先级。")
+                        .font(.caption).foregroundStyle(.secondary)
                 }
-                Spacer(minLength: 4)
-            }
-
-            if !appState.testManager.appProbeResults.isEmpty {
                 LazyVGrid(
-                    columns: [GridItem(.adaptive(minimum: 150), spacing: 8)],
+                    columns: [GridItem(.adaptive(minimum: 168), spacing: 8)],
                     spacing: 8
                 ) {
-                    ForEach(appState.testManager.appProbeResults) { result in
+                    ForEach(appProbePreviewSettings.automaticAppProbeTargets) { target in
+                        let sameTargets = Set(appProbePreviewSettings.automaticAppProbeTargets) == Set(appState.settings.automaticAppProbeTargets)
+                        let result = sameTargets
+                            ? testManager.appProbeResults.first { $0.target == target } ?? .placeholder(target)
+                            : AppProbeResult.placeholder(target)
                         appProbeChip(result)
                     }
                 }
@@ -727,15 +974,218 @@ struct TestCenterView: View {
         }
     }
 
+    private var appProbeActions: some View {
+        HStack(spacing: 8) {
+            Button(testManager.isProbingApps ? "探测中…" : "探测应用") {
+                Task { await runAppProbe() }
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(palette.accent)
+            .disabled(appProbeButtonDisabled)
+            .help(
+                appProbeTestNode != nil
+                    ? "通过当前测试节点临时探测，不切换当前代理"
+                    : "通过当前连接节点或所选节点独立探测，不影响连接"
+            )
+            if editingAppProbes {
+                Button("应用设置") {
+                    if let baseline = appProbeBaseline {
+                        let draft = appProbePreviewSettings
+                        appState.updateSettings { $0 = $0.applyingSettingsEdits(from: draft, comparedTo: baseline) }
+                    }
+                    draftAppProbeSettings = nil
+                    appProbeBaseline = nil
+                    editingAppProbes = false
+                }
+                .buttonStyle(.borderedProminent)
+                Button("取消") {
+                    draftAppProbeSettings = nil
+                    appProbeBaseline = nil
+                    editingAppProbes = false
+                }
+                .buttonStyle(.bordered)
+            } else {
+                Button("编辑") { editingAppProbes = true }
+                    .buttonStyle(.bordered)
+            }
+        }
+        .fixedSize()
+        .disabled(testManager.isProbingApps)
+    }
+
+    private var appProbeBatchControls: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 16) {
+                    appProbeBatchSelection
+                    appProbeAutoTestToggle
+                    Spacer(minLength: 8)
+                    appProbeBatchButtons
+                        .fixedSize()
+                }
+                VStack(alignment: .leading, spacing: 8) {
+                    appProbeBatchSelection
+                    HStack(spacing: 16) {
+                        appProbeAutoTestToggle
+                        Spacer(minLength: 8)
+                        appProbeBatchButtons
+                            .fixedSize()
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            if appState.appProbeBatch.isRunning {
+                ProgressView(value: Double(appState.appProbeBatch.completed), total: Double(max(1, appState.appProbeBatch.total)))
+                    .accessibilityLabel("可用节点应用连通测试进度")
+            }
+            if !appState.appProbeBatch.statusText.isEmpty {
+                Text(appState.appProbeBatch.statusText)
+                    .font(.caption)
+                    .foregroundStyle(palette.subtext)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Text("批量结果见下方「节点结果」，测试不会切换当前代理。")
+                .font(.caption)
+                .foregroundStyle(palette.subtext)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private var appProbeBatchSelection: some View {
+        HStack(spacing: 8) {
+            Text("可用节点")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(palette.subtext)
+                .fixedSize()
+            appProbeAvailablePicker
+        }
+    }
+
+    private var appProbeAutoTestToggle: some View {
+        Toggle("测速后自动测试应用连通", isOn: Binding(
+            get: { appState.settings.autoAppProbeUsableNodes },
+            set: { value in appState.updateSettingsFromView { $0.autoAppProbeUsableNodes = value } }
+        ))
+        .font(.caption)
+        .toggleStyle(.checkbox)
+        .fixedSize()
+        .help("开启后，手动与后台测速完成都会继续测试可用节点的应用连通；关闭后都不自动继续，仍可在「应用连通 → 可用」手动测试")
+    }
+
+    private var appProbeAvailablePicker: some View {
+        Picker("可用", selection: $appProbeScope) {
+            Text("全部（\(appState.usableNodesForAppProbe(in: .all).count)）")
+                .tag(NodeListFilter.Source.all)
+            ForEach(subscriptionScopeOptions) { option in
+                Text("\(option.title)（\(appState.usableNodesForAppProbe(in: option.scope).count)）")
+                    .tag(option.scope)
+            }
+        }
+        .pickerStyle(.menu)
+        .labelsHidden()
+        .frame(maxWidth: 180, alignment: .leading)
+        .fixedSize(horizontal: true, vertical: false)
+        .disabled(appState.appProbeBatch.isRunning)
+        .help("选择全部或指定节点组，仅测试其中已通过延迟测试的可用节点")
+    }
+
+    private var appProbeBatchButtons: some View {
+        HStack(spacing: 8) {
+            Button("测试可用节点") {
+                setTestScope(appProbeScope)
+                appState.testUsableNodeApps(in: appProbeScope)
+            }
+            .buttonStyle(.bordered)
+            .disabled(appProbeHasDraftChanges || appState.appProbeBatch.isRunning ||
+                      appState.settings.automaticAppProbeTargets.isEmpty ||
+                      appState.usableNodesForAppProbe(in: appProbeScope).isEmpty)
+            if appState.appProbeBatch.isRunning {
+                Button("停止") { appState.stopAppProbeBatch() }
+                    .buttonStyle(.bordered)
+                    .help("停止可用节点的批量应用连通测试")
+            }
+        }
+    }
+
+    private var appProbePreviewSettings: AppSettings {
+        draftAppProbeSettings ?? appState.settings
+    }
+
+    private func updateAppProbeDraft(_ mutate: (inout AppSettings) -> Void) {
+        if appProbeBaseline == nil { appProbeBaseline = appState.settings }
+        var draft = appProbePreviewSettings
+        mutate(&draft)
+        if let baseline = appProbeBaseline,
+           baseline.applyingSettingsEdits(from: draft, comparedTo: baseline) == baseline {
+            draftAppProbeSettings = nil
+            appProbeBaseline = nil
+        } else {
+            draftAppProbeSettings = draft
+        }
+    }
+
+    private var appProbeHasDraftChanges: Bool {
+        guard let baseline = appProbeBaseline else { return false }
+        let draft = appProbePreviewSettings
+        return draft.appProbeSource != baseline.appProbeSource ||
+            draft.appProbeOrder != baseline.appProbeOrder ||
+            draft.installedAppProbes != baseline.installedAppProbes ||
+            draft.appProbeTimeoutSeconds != baseline.appProbeTimeoutSeconds
+    }
+
     private var appProbeButtonDisabled: Bool {
+        if appProbeHasDraftChanges { return true }
         if appState.settings.automaticAppProbeTargets.isEmpty { return true }
-        if appState.testManager.isProbingApps || appState.testManager.isTesting {
+        if testManager.isProbingApps {
             return true
         }
-        if appState.connection.state.status == .connected {
-            return appState.currentNode == nil
+        return probeTargetNode == nil
+    }
+
+    /// 单独测试的节点独立于当前代理，直到用户主动切回。
+    private var appProbeTestNode: ProxyNode? {
+        let snapshotID = testManager.appProbeNodeID
+        let snapshotIsSeparate = testManager.isProbingApps || snapshotID != appState.currentNode?.id
+        guard let id = appProbeTestNodeID ?? (snapshotIsSeparate ? snapshotID : nil) else { return nil }
+        return appState.nodes.first { $0.id == id }
+    }
+
+    private func selectAppProbeTestNode(_ id: UUID) {
+        selectedNodeID = id
+        if appProbeTestNodeID != id {
+            testManager.resetAppProbes(targets: appState.settings.automaticAppProbeTargets)
         }
-        return selectedNodeID == nil
+        appProbeTestNodeID = id
+        testManager.appProbeStatusText = "当前测试节点已选中，可探测应用"
+    }
+
+    private func restoreCurrentProxyProbeTarget() {
+        appProbeTestNodeID = nil
+        selectedNodeID = appState.currentNode?.id
+        testManager.resetAppProbes(targets: appState.settings.automaticAppProbeTargets)
+        testManager.appProbeStatusText = appState.connection.state.status == .connected
+            ? "已切回当前代理，可探测应用" : "当前未连接代理，请先连接或选择测试节点"
+    }
+
+    private var probeTargetNode: ProxyNode? {
+        if let node = appProbeTestNode { return node }
+        if appState.connection.state.status == .connected {
+            return appState.currentNode
+        }
+        return selectedNode ?? appState.recentNodes.first
+    }
+
+    private func probeNodeLabel(_ node: ProxyNode, note: String, noteColor: Color) -> some View {
+        HStack(spacing: 8) {
+            Text(appState.appProbeNodeDescription(for: node))
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(palette.text)
+                .lineLimit(1)
+            Text(note)
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(noteColor)
+                .lineLimit(1)
+        }
     }
 
     private var selectedNode: ProxyNode? {
@@ -745,12 +1195,14 @@ struct TestCenterView: View {
 
     private func scopedSummary(
         for targets: [ProxyNode]
-    ) -> (available: Int, unavailable: Int, failed: Int, tested: Int) {
+    ) -> (available: Int, unavailable: Int, failed: Int, tested: Int, appConnected: Int) {
         var available = 0
         var unavailable = 0
         var failed = 0
         var tested = 0
+        var appConnected = 0
         for node in targets {
+            if node.hasAppProbeSuccess { appConnected += 1 }
             switch node.lastTestStatus {
             case .ultraFast, .fast, .fairlyFast, .fairlySlow, .slow, .ultraSlow:
                 available += 1
@@ -761,21 +1213,19 @@ struct TestCenterView: View {
             case .failed:
                 failed += 1
                 tested += 1
-            case .testing:
-                tested += 1
-            case .untested:
+            case .testing, .untested:
                 break
             }
         }
-        return (available, unavailable, failed, tested)
+        return (available, unavailable, failed, tested, appConnected)
     }
 
     private func runAppProbe() async {
-        if appState.connection.state.status == .connected {
-            await appState.probeLiveConnectionApps()
+        if appProbeTestNode == nil, appState.connection.state.status == .connected {
+            await appState.probeCurrentConnectionNodeApps()
             return
         }
-        guard let node = selectedNode else {
+        guard let node = probeTargetNode else {
             appState.statusBanner = "未连接时代理：请先在节点结果中单击选中一个节点"
             return
         }
@@ -783,13 +1233,53 @@ struct TestCenterView: View {
     }
 
     private func appProbeChip(_ result: AppProbeResult) -> some View {
-        LabTargetChip(
-            dot: appProbeDotColor(result.status),
-            name: result.target.displayName,
-            latency: appProbeLatencyText(result),
-            palette: palette,
-            dimmed: appProbeButtonDisabled
-        )
+        let targets = appProbePreviewSettings.automaticAppProbeTargets
+        let index = targets.firstIndex { $0.id == result.target.id } ?? 0
+        return VStack(alignment: .leading, spacing: 6) {
+            ZStack {
+                Text(appProbeLatencyText(result))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                HStack(spacing: 6) {
+                    Text("\(index + 1)").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                    Spacer(minLength: 4)
+                    Circle().fill(appProbeDotColor(result.status)).frame(width: 8, height: 8)
+                }
+            }
+            HStack(spacing: 6) {
+                AppProbeIcon(target: result.target, passed: true)
+                Text(result.target.displayName).font(.system(size: 13)).lineLimit(1)
+                    .help(result.target.displayName)
+            }
+            if editingAppProbes {
+                HStack {
+                    Button { moveAppProbe(result.target.id, by: -1) } label: { Image(systemName: "arrow.left") }
+                        .disabled(index == 0 || testManager.isProbingApps)
+                        .help("提高\(result.target.displayName)的优先级")
+                        .accessibilityLabel("提高\(result.target.displayName)的优先级")
+                    Spacer(minLength: 4)
+                    Button { moveAppProbe(result.target.id, by: 1) } label: { Image(systemName: "arrow.right") }
+                        .disabled(index == targets.count - 1 || testManager.isProbingApps)
+                        .help("降低\(result.target.displayName)的优先级")
+                        .accessibilityLabel("降低\(result.target.displayName)的优先级")
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+            }
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(palette.text.opacity(0.055), in: RoundedRectangle(cornerRadius: 8))
+        .overlay { RoundedRectangle(cornerRadius: 8).strokeBorder(palette.line, lineWidth: 1) }
+    }
+
+    private func moveAppProbe(_ id: String, by offset: Int) {
+        updateAppProbeDraft { settings in
+            var ids = settings.automaticAppProbeTargets.map(\.id)
+            guard let index = ids.firstIndex(of: id), ids.indices.contains(index + offset) else { return }
+            ids.swapAt(index, index + offset)
+            settings.appProbeOrder[settings.effectiveAppProbeSource.rawValue] = ids
+        }
     }
 
     private func appProbeDotColor(_ status: AppProbeResult.Status) -> Color {
@@ -803,44 +1293,44 @@ struct TestCenterView: View {
 
     private func appProbeLatencyText(_ result: AppProbeResult) -> String {
         switch result.status {
-        case .untested: return "—"
-        case .testing: return "…"
-        case .ok: return result.latencyMs.map { LatencyFormat.seconds($0) } ?? "通"
+        case .untested: return "未探测"
+        case .testing: return "探测中"
+        case .ok: return result.latencyMs.map { LatencyFormat.display($0) } ?? "通"
         case .failed: return "不通"
         }
     }
 
     @ViewBuilder
     private var testControls: some View {
-        if appState.testManager.canPause {
+        if testManager.canPause {
             Button("暂停") {
                 appState.pauseTesting()
             }
         }
 
-        if appState.testManager.canResume {
+        if testManager.canResume {
             Button("继续测试") {
                 Task { await appState.resumeTesting() }
             }
             .buttonStyle(.borderedProminent)
         }
 
-        if appState.testManager.canResume {
+        if testManager.canResume {
             Button("重新测试") {
                 Task { await startScopedTest() }
             }
-            .disabled(!appState.testManager.canRetest || scopedTargets.isEmpty)
+            .disabled(!testManager.canRetest || scopedTargets.isEmpty)
         } else {
             Button(primaryTestButtonTitle) {
                 Task { await startScopedTest() }
             }
             .buttonStyle(.borderedProminent)
-            .disabled(!appState.testManager.canRetest || scopedTargets.isEmpty)
+            .disabled(!testManager.canRetest || scopedTargets.isEmpty)
         }
     }
 
     private var primaryTestButtonTitle: String {
-        let rerun = appState.testManager.phase != .idle
+        let rerun = testManager.phase != .idle
         switch testScope {
         case .all:
             return rerun ? "重新测试全部" : "测试全部"
@@ -895,38 +1385,24 @@ struct TestCenterView: View {
     }
 
     private var scopedTargets: [ProxyNode] {
-        let active = appState.nodes.filter { $0.enabled && !$0.pendingRemoval }
-        switch testScope {
-        case .all:
-            return active
-        case .subscription(let id):
-            return active.filter { $0.subscriptionID == id }
-        case .manual:
-            return active.filter { $0.subscriptionID == nil }
-        case .namedSource(let name):
-            let knownIDs = Set(appState.subscriptions.map(\.id))
-            return active.filter { node in
-                guard let sid = node.subscriptionID, !knownIDs.contains(sid) else { return false }
-                return (node.sourceName ?? "未知订阅") == name
-            }
-        }
+        NodeListFilter.nodes(in: appState.nodes, source: testScope, subscriptions: appState.subscriptions)
     }
 
-    private var recentResults: [ProxyNode] {
+    private var usableResults: [ProxyNode] {
         scopedTargets.filter {
-            $0.lastTestStatus != .untested && $0.lastTestStatus != .failed
+            $0.resolvedTestStatus.isUsable
         }
     }
 
-    /// 可用各档 → 测试中 → 未测试 → 有 TCP 数字的不可用 → 完全不可用。
-    /// 当前连接 / 已选中节点排在最前。
+    /// 仅显示可用各档；当前连接 / 已选中节点排在最前。
     private var liveResultRows: [TestResultRow] {
         let connStatus = appState.connection.state.status
         let currentID = (connStatus == .connected || connStatus == .connecting)
             ? appState.connection.state.currentNodeID
             : nil
         let selectedID = selectedNodeID
-        let ranked = recentResults.sorted { lhs, rhs in
+        let appTargets = appState.settings.automaticAppProbeTargets
+        let ranked = usableResults.sorted { lhs, rhs in
             let leftPin = (lhs.id == currentID ? 0 : 1) + (lhs.id == selectedID ? 0 : 1)
             let rightPin = (rhs.id == currentID ? 0 : 1) + (rhs.id == selectedID ? 0 : 1)
             if leftPin != rightPin { return leftPin < rightPin }
@@ -937,13 +1413,20 @@ struct TestCenterView: View {
             let isConnected = connStatus == .connected && node.id == currentID
             return TestResultRow(
                 id: node.id,
-                name: node.displayTitle,
+                name: appState.settings.nodeDisplayTitle(node),
+                countryName: appState.settings.nodeCountryLabel(node),
+                exitIPType: isConnected
+                    ? appState.connection.state.exitIPType ?? node.exitMetadata?.networkType
+                    : node.exitMetadata?.networkType,
+                groupName: node.groupName(subscriptions: appState.subscriptions),
                 status: isConnecting ? "连接中" : statusLabel(for: node),
                 latency: isConnecting ? "—" : node.latencyText,
                 statusColor: isConnecting ? .orange : statusColor(node.resolvedTestStatus),
                 isCurrent: isConnected,
                 isConnecting: isConnecting,
-                isSelected: node.id == selectedID
+                isSelected: node.id == selectedID,
+                passedAppTargets: appTargets.filter { node.lastAppProbePassedIDs?.contains($0.id) == true },
+                appProbeCompleted: node.lastAppProbeDate != nil && node.lastAppProbePassedIDs != nil
             )
         }
     }
@@ -966,7 +1449,7 @@ struct TestCenterView: View {
             if leftLatency != rightLatency { return leftLatency < rightLatency }
         }
 
-        return lhs.displayTitle.localizedStandardCompare(rhs.displayTitle) == .orderedAscending
+        return appState.settings.nodeDisplayTitle(lhs).localizedStandardCompare(appState.settings.nodeDisplayTitle(rhs)) == .orderedAscending
     }
 
     /// 0 = 可用各档, 1 = 测试中, 2 = 未测试, 3 = 失败(配置), 4 = 不可用但有 TCP, 5 = 完全不可用.
@@ -1016,12 +1499,17 @@ struct TestCenterView: View {
     private struct TestResultRow: Identifiable {
         var id: UUID
         var name: String
+        var countryName: String?
+        var exitIPType: ExitIPType?
+        var groupName: String
         var status: String
         var latency: String
         var statusColor: Color
         var isCurrent: Bool
         var isConnecting: Bool = false
         var isSelected: Bool
+        var passedAppTargets: [AppProbeTarget]
+        var appProbeCompleted: Bool
     }
 
     private func startScopedTest() async {
@@ -1029,7 +1517,7 @@ struct TestCenterView: View {
     }
 
     private var phaseColor: Color {
-        switch appState.testManager.phase {
+        switch testManager.phase {
         case .running: return .blue
         case .paused: return .orange
         case .finished: return .green
@@ -1150,6 +1638,7 @@ private struct RouteCard<Content: View>: View {
     var tint: Color
     var palette: RoutePalette
     var footnote: String? = nil
+    var helpText: String? = nil
     @ViewBuilder var content: () -> Content
 
     var body: some View {
@@ -1161,6 +1650,10 @@ private struct RouteCard<Content: View>: View {
                 Text(title)
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(palette.text)
+                if let helpText {
+                    UsageHelpButton(title: "\(title)使用说明", text: helpText)
+                        .font(.system(size: 13))
+                }
                 if let footnote {
                     Spacer(minLength: 8)
                     Text(footnote)
@@ -1206,7 +1699,7 @@ private struct RouteModeCard: View {
 
     var body: some View {
         Button(action: action) {
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 8) {
                     SignalLamp(tint: palette.modeTint(mode), active: isActive)
                     Spacer(minLength: 4)
@@ -1219,16 +1712,23 @@ private struct RouteModeCard: View {
                             .background(palette.modeTint(mode), in: Capsule())
                     }
                 }
-                Image(systemName: icon)
-                    .font(.system(size: 20, weight: .semibold))
-                    .foregroundStyle(palette.modeTint(mode))
-                Text(mode.displayName)
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(palette.text)
-                Text(shortDesc)
-                    .font(.system(size: 11))
-                    .foregroundStyle(palette.subtext)
-                    .fixedSize(horizontal: false, vertical: true)
+                HStack(alignment: .center, spacing: 12) {
+                    Image(systemName: icon)
+                        .font(.system(size: 28, weight: .semibold))
+                        .foregroundStyle(palette.modeTint(mode))
+                        .frame(width: 32, alignment: .center)
+                    Spacer(minLength: 8)
+                    VStack(alignment: .trailing, spacing: 3) {
+                        Text(mode.displayName)
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(palette.text)
+                        Text(shortDesc)
+                            .font(.system(size: 11))
+                            .foregroundStyle(palette.subtext)
+                            .multilineTextAlignment(.trailing)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
             }
             .padding(14)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -1298,6 +1798,7 @@ private struct RouteRuleEditor: View {
     var tint: Color
     var palette: RoutePalette
     var count: Int
+    var isEditing: Bool
     @Binding var text: String
 
     var body: some View {
@@ -1317,17 +1818,25 @@ private struct RouteRuleEditor: View {
                     .padding(.vertical, 2)
                     .background(palette.text.opacity(0.07), in: Capsule())
             }
-            TextEditor(text: $text)
-                .font(.system(.body, design: .monospaced))
-                .scrollContentBackground(.hidden)
-                .background(palette.editor)
-                .frame(minHeight: 120, maxHeight: 180)
-                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .strokeBorder(palette.line, lineWidth: 1)
-                }
-                .accessibilityLabel(title)
+            if isEditing {
+                TextEditor(text: $text)
+                    .font(.system(.body, design: .monospaced))
+                    .scrollContentBackground(.hidden)
+                    .background(palette.editor)
+                    .frame(minHeight: 120, maxHeight: 180)
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .strokeBorder(palette.line, lineWidth: 1)
+                    }
+                    .accessibilityLabel(title)
+            } else {
+                Text(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "暂无规则" : text)
+                    .font(.system(.caption, design: .monospaced))
+                    .foregroundStyle(palette.subtext)
+                    .lineLimit(3)
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
+            }
         }
     }
 }
@@ -1335,12 +1844,32 @@ private struct RouteRuleEditor: View {
 struct RoutingView: View {
     @EnvironmentObject private var appState: AppState
     @Environment(\.colorScheme) private var colorScheme
-    @State private var showingRoutingModeHelp = false
+    @State private var pendingRoutingMode: RoutingMode?
+    @State private var portsDraft: AppSettings?
+    @State private var portsBaseline: AppSettings?
+    @State private var proxyApplicationsDraft: [ProxyApplication] = []
+    @State private var routingDraftsLoaded = false
+    @State private var editingRules = false
+    @State private var editingPorts = false
+    @State private var portsError: String?
+
+    private var previewMode: RoutingMode { pendingRoutingMode ?? appState.settings.routingMode }
+    private var previewPorts: AppSettings { portsDraft ?? appState.settings }
     @State private var draft = RoutingRules()
     @State private var saving = false
     @State private var ruleError: String?
 
     private var palette: RoutePalette { RoutePalette(scheme: colorScheme) }
+
+    private var rulesActiveModeSummary: String {
+        let mode = appState.settings.routingMode
+        guard mode == .rules else { return "当前生效：\(mode.displayName)" }
+        switch appState.settings.connectionCaptureMode {
+        case .applications: return "当前生效：规则代理 · 仅指定应用"
+        case .systemProxy: return "当前生效：规则代理 · 系统代理（全应用）"
+        default: return "当前生效：规则代理 · \(appState.settings.connectionCaptureMode.displayName)"
+        }
+    }
 
     private var connectionStatus: ConnectionStatus { appState.connection.state.status }
 
@@ -1359,15 +1888,30 @@ struct RoutingView: View {
         GeometryReader { geo in
             let wide = geo.size.width >= 700
             ScrollView {
-                VStack(spacing: 14) {
+                LazyVStack(spacing: 14) {
                     header
                     modeCard(wide: wide)
-                    if appState.settings.routingMode == .global {
+                    if previewMode == .global {
                         globalCard
                     }
-                    if appState.settings.supportsApplicationProxy {
-                        RouteCard(title: "按应用代理", icon: "app.badge", tint: .orange, palette: palette, footnote: "实验性") {
-                            ApplicationProxySection()
+                    if previewMode == .rules {
+                        RouteCard(title: "按应用代理", icon: "app.badge", tint: .orange, palette: palette, footnote: "实验性", helpText: """
+                        所选应用走代理，其他应用直连。仅在「仅指定应用（TUN）」生效时，名单中的应用走代理。
+
+                        连接节点并完成管理员授权后生效；首次连接会下载并校验 sing-box 核心。此模式不使用域名分流规则。
+
+                        应用包内的辅助程序自动包含；包外命令行工具需单独添加，会匹配该工具的所有实例。应用后请重建连接，必要时重启目标应用。移除应用后，新连接直连，已有连接可能需要重启该应用。
+
+                        系统 DNS 保持本地解析；局域网及无法识别进程的流量直连，此模式不提供防泄漏隔离。
+
+                        请关闭其他 VPN / TUN 和第三方系统代理，避免冲突。断开后恢复本地网络；异常退出通常约 13 秒内清理，不含休眠时间。
+                        """) {
+                            ApplicationProxySection(applications: $proxyApplicationsDraft)
+                                .disabled(previewMode != appState.settings.routingMode)
+                            if previewMode != appState.settings.routingMode {
+                                Text("先应用规则代理模式，再保存代理应用。")
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }
                         }
                     }
                     flowCard
@@ -1381,17 +1925,16 @@ struct RoutingView: View {
             }
             .background { RouteBackdrop(palette: palette) }
         }
-        .onAppear { draft = appState.settings.routingRules }
-        .alert("路由模式说明", isPresented: $showingRoutingModeHelp) {
-            Button("好", role: .cancel) {}
-        } message: {
-            Text(
-                RoutingMode.allCases
-                    .map { "· \($0.displayName)\n\($0.helpText)" }
-                    .joined(separator: "\n\n")
-                + "\n\n另：已连接时切换会立即按新模式重载代理。"
-            )
+        .onAppear {
+            guard !routingDraftsLoaded else { return }
+            draft = appState.settings.routingRules
+            proxyApplicationsDraft = appState.settings.proxyApplications
+            routingDraftsLoaded = true
         }
+        .onChange(of: appState.settings.routingRules) { saved in
+            if !editingRules { draft = saved }
+        }
+
     }
 
     // MARK: - 页眉：标题 + 实时状态
@@ -1409,23 +1952,26 @@ struct RoutingView: View {
                     Text("信号塔")
                         .font(.system(size: 26, weight: .bold))
                         .foregroundStyle(palette.text)
+                        .fixedSize()
+                    HStack(spacing: 7) {
+                        Circle()
+                            .fill(palette.statusColor(connectionStatus))
+                            .frame(width: 8, height: 8)
+                        Text(connectionStatus.displayName)
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(palette.text)
+                            .fixedSize()
+                        Text(captureText)
+                            .font(.system(size: 11))
+                            .foregroundStyle(palette.subtext)
+                            .lineLimit(1)
+                            .help(captureText)
+                    }
+                    .padding(.horizontal, 11)
+                    .padding(.vertical, 6)
+                    .background(palette.card, in: Capsule())
+                    .overlay { Capsule().strokeBorder(palette.cardBorder, lineWidth: 1) }
                 }
-                HStack(spacing: 7) {
-                    Circle()
-                        .fill(palette.statusColor(connectionStatus))
-                        .frame(width: 8, height: 8)
-                    Text(connectionStatus.displayName)
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(palette.text)
-                    Text(captureText)
-                        .font(.system(size: 11))
-                        .foregroundStyle(palette.subtext)
-                        .lineLimit(1)
-                }
-                .padding(.horizontal, 11)
-                .padding(.vertical, 6)
-                .background(palette.card, in: Capsule())
-                .overlay { Capsule().strokeBorder(palette.cardBorder, lineWidth: 1) }
             }
             Spacer(minLength: 8)
             TimelineView(.periodic(from: .now, by: 1)) { context in
@@ -1449,7 +1995,8 @@ struct RoutingView: View {
     private func modeCard(wide: Bool) -> some View {
         RouteCard(
             title: "路由模式", icon: "arrow.triangle.branch", tint: palette.accent,
-            palette: palette, footnote: "已连接时切换会立即重载"
+            palette: palette, footnote: "选择仅预览，应用后生效",
+            helpText: RoutingMode.allCases.map { "\($0.displayName)\n\($0.helpText)" }.joined(separator: "\n\n")
         ) {
             Group {
                 if wide {
@@ -1462,13 +2009,26 @@ struct RoutingView: View {
                     }
                 }
             }
-            Button {
-                showingRoutingModeHelp = true
-            } label: {
-                Label("查看各模式说明", systemImage: "questionmark.circle")
-                    .font(.system(size: 12))
+            HStack {
+                Text(rulesActiveModeSummary)
+                    .font(.caption).foregroundStyle(.secondary)
+                Spacer()
+                if previewMode != appState.settings.routingMode {
+                    Button("取消修改") { pendingRoutingMode = nil }
+                    Button("应用模式") {
+                        let mode = previewMode
+                        Task {
+                            saving = true
+                            await appState.setRoutingMode(mode)
+                            pendingRoutingMode = nil
+                            saving = false
+                        }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(modeBusy)
+                }
             }
-            .buttonStyle(.link)
+
         }
     }
 
@@ -1476,10 +2036,10 @@ struct RoutingView: View {
         RouteModeCard(
             mode: mode,
             palette: palette,
-            isActive: appState.settings.routingMode == mode,
+            isActive: previewMode == mode,
             disabled: modeBusy
         ) {
-            Task { await appState.setRoutingMode(mode) }
+            pendingRoutingMode = mode
         }
     }
 
@@ -1551,16 +2111,41 @@ struct RoutingView: View {
         RouteCard(
             title: "规则代理分流", icon: "list.bullet.rectangle",
             tint: palette.accent, palette: palette,
-            footnote: draftDirty ? "有未保存修改" : nil
+            footnote: draftDirty ? "有未保存修改" : nil,
+            helpText: "仅在规则代理模式生效。每行一条：example.com（含子域名）、full:example.com（精确匹配）、1.2.3.4 或 10.0.0.0/8。支持 IPv6；# 开头为注释。\n\n已连接时会重连当前节点。全局/直连模式下保存，下次启用规则代理时生效。"
         ) {
-            Toggle("国内域名和 IP 直连", isOn: $draft.bypassChina)
-                .tint(palette.accent)
-            Text("仅在规则代理模式生效。")
-                .font(.system(size: 11))
-                .foregroundStyle(palette.subtext)
-            Text("每行一条：example.com（含子域名）、full:example.com（精确匹配）、1.2.3.4 或 10.0.0.0/8。支持 IPv6；# 开头为注释。")
-                .font(.system(size: 11))
-                .foregroundStyle(palette.subtext)
+            HStack {
+                if editingRules {
+                    Toggle("国内域名和 IP 直连", isOn: $draft.bypassChina)
+                        .tint(palette.accent)
+                } else {
+                    Label(draft.bypassChina ? "国内域名和 IP 直连" : "国内域名和 IP 不直连",
+                          systemImage: draft.bypassChina ? "checkmark.circle" : "minus.circle")
+                        .font(.callout)
+                        .foregroundStyle(palette.subtext)
+                }
+                Spacer()
+                if editingRules {
+                    Button(saving ? "正在应用…" : "保存并应用") {
+                        saving = true
+                        ruleError = nil
+                        Task {
+                            do { try await appState.saveRoutingRules(draft); editingRules = false }
+                            catch { ruleError = error.localizedDescription }
+                            saving = false
+                        }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(palette.accent)
+                    .disabled(saving)
+                    Button("取消") { draft = appState.settings.routingRules; ruleError = nil; editingRules = false }
+                        .buttonStyle(.bordered)
+                        .disabled(saving)
+                } else {
+                    Button("编辑") { draft = appState.settings.routingRules; editingRules = true }
+                        .buttonStyle(.bordered)
+                }
+            }
             Group {
                 if wide {
                     HStack(alignment: .top, spacing: 12) {
@@ -1578,34 +2163,7 @@ struct RoutingView: View {
                     .foregroundStyle(.red)
                     .textSelection(.enabled)
             }
-            HStack(spacing: 10) {
-                Button(saving ? "正在应用…" : "保存并应用") {
-                    saving = true
-                    ruleError = nil
-                    Task {
-                        do { try await appState.saveRoutingRules(draft) }
-                        catch { ruleError = error.localizedDescription }
-                        saving = false
-                    }
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(palette.accent)
-                .disabled(saving)
-                Button("撤销未保存修改") { draft = appState.settings.routingRules; ruleError = nil }
-                    .buttonStyle(.bordered)
-                    .disabled(saving || !draftDirty)
-                if draftDirty && !saving {
-                    HStack(spacing: 4) {
-                        Circle().fill(.orange).frame(width: 7, height: 7)
-                        Text("未保存")
-                            .font(.system(size: 11))
-                            .foregroundStyle(.orange)
-                    }
-                }
-            }
-            Text("已连接时会重连当前节点。全局/直连模式下保存，下次启用规则代理时生效。")
-                .font(.system(size: 11))
-                .foregroundStyle(palette.subtext)
+
         }
         .disabled(rulesBusy)
     }
@@ -1615,17 +2173,17 @@ struct RoutingView: View {
         RouteRuleEditor(
             title: "强制代理", icon: "paperplane.fill",
             tint: .blue, palette: palette,
-            count: entryCount(draft.proxy), text: $draft.proxy
+            count: entryCount(draft.proxy), isEditing: editingRules, text: $draft.proxy
         )
         RouteRuleEditor(
             title: "强制直连", icon: "arrow.right.circle.fill",
             tint: .gray, palette: palette,
-            count: entryCount(draft.direct), text: $draft.direct
+            count: entryCount(draft.direct), isEditing: editingRules, text: $draft.direct
         )
         RouteRuleEditor(
             title: "拦截", icon: "octagon.fill",
             tint: .red, palette: palette,
-            count: entryCount(draft.blocked), text: $draft.blocked
+            count: entryCount(draft.blocked), isEditing: editingRules, text: $draft.blocked
         )
     }
 
@@ -1643,63 +2201,78 @@ struct RoutingView: View {
             title: "本地端口", icon: "cable.connector",
             tint: palette.accent, palette: palette
         ) {
-            LazyVGrid(
-                columns: [GridItem(.adaptive(minimum: 240), spacing: 12)],
-                alignment: .leading, spacing: 12
-            ) {
-                portField(
-                    title: "SOCKS 主机",
-                    text: Binding(
-                        get: { appState.settings.socksHost },
-                        set: { value in appState.updateSettings { $0.socksHost = value } }
-                    )
-                )
-                portField(
-                    title: "SOCKS 端口",
-                    value: Binding(
-                        get: { appState.settings.socksPort },
-                        set: { value in appState.updateSettings { $0.socksPort = value } }
-                    )
-                )
-                portField(
-                    title: "HTTP 主机",
-                    text: Binding(
-                        get: { appState.settings.httpHost },
-                        set: { value in appState.updateSettings { $0.httpHost = value } }
-                    )
-                )
-                portField(
-                    title: "HTTP 端口",
-                    value: Binding(
-                        get: { appState.settings.httpPort },
-                        set: { value in appState.updateSettings { $0.httpPort = value } }
-                    )
-                )
+            HStack {
+                Text(editingPorts ? "保存后下次连接生效" : "本地监听地址")
+                    .font(.caption).foregroundStyle(.secondary)
+                Spacer()
+                if editingPorts {
+                    Button("应用端口") { applyPortsDraft(); if portsDraft == nil { editingPorts = false } }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(portsDraft == nil || modeBusy)
+                    Button("取消") { portsDraft = nil; portsBaseline = nil; portsError = nil; editingPorts = false }
+                        .buttonStyle(.bordered)
+                } else {
+                    Button("编辑") { editingPorts = true }
+                        .buttonStyle(.bordered)
+                }
             }
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 270), alignment: .leading)], alignment: .leading, spacing: 8) {
+                if editingPorts {
+                    HStack(spacing: 6) {
+                        Text("SOCKS").font(.caption)
+                        TextField("主机", text: Binding(get: { previewPorts.socksHost }, set: { value in updatePortsDraft { $0.socksHost = value } }))
+                            .accessibilityLabel("SOCKS 主机")
+                        TextField("端口", value: Binding(get: { previewPorts.socksPort }, set: { value in updatePortsDraft { $0.socksPort = value } }), format: .number.grouping(.never))
+                            .frame(width: 70).accessibilityLabel("SOCKS 端口")
+                    }
+                    HStack(spacing: 6) {
+                        Text("HTTP").font(.caption)
+                        TextField("主机", text: Binding(get: { previewPorts.httpHost }, set: { value in updatePortsDraft { $0.httpHost = value } }))
+                            .accessibilityLabel("HTTP 主机")
+                        TextField("端口", value: Binding(get: { previewPorts.httpPort }, set: { value in updatePortsDraft { $0.httpPort = value } }), format: .number.grouping(.never))
+                            .frame(width: 70).accessibilityLabel("HTTP 端口")
+                    }
+                } else {
+                    Text("SOCKS  \(previewPorts.socksHost):\(String(previewPorts.socksPort))")
+                    Text("HTTP  \(previewPorts.httpHost):\(String(previewPorts.httpPort))")
+                }
+            }
+            .textFieldStyle(.roundedBorder)
+            .font(.callout.monospacedDigit())
+            if let portsError { Text(portsError).font(.caption).foregroundStyle(.orange) }
         }
     }
 
-    private func portField(title: String, text: Binding<String>) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(title)
-                .font(.system(size: 11))
-                .foregroundStyle(palette.subtext)
-            TextField(title, text: text)
-                .textFieldStyle(.roundedBorder)
-                .font(.system(.body, design: .monospaced))
+    private func updatePortsDraft(_ mutate: (inout AppSettings) -> Void) {
+        if portsBaseline == nil { portsBaseline = appState.settings }
+        var updated = previewPorts
+        mutate(&updated)
+        if let baseline = portsBaseline,
+           baseline.applyingSettingsEdits(from: updated, comparedTo: baseline) == baseline {
+            portsDraft = nil
+            portsBaseline = nil
+        } else {
+            portsDraft = updated
         }
+        portsError = nil
     }
 
-    private func portField(title: String, value: Binding<Int>) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(title)
-                .font(.system(size: 11))
-                .foregroundStyle(palette.subtext)
-            TextField(title, value: value, format: .number)
-                .textFieldStyle(.roundedBorder)
-                .font(.system(.body, design: .monospaced))
+    private func applyPortsDraft() {
+        guard let draft = portsDraft, let baseline = portsBaseline else { return }
+        guard (1...65535).contains(draft.socksPort), (1...65535).contains(draft.httpPort),
+              draft.socksPort != draft.httpPort,
+              !draft.socksHost.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              !draft.httpHost.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            portsError = "请填写有效主机和不同的端口（1–65535）。"
+            return
         }
+        appState.updateSettings { $0 = $0.applyingSettingsEdits(from: draft, comparedTo: baseline) }
+        portsDraft = nil
+        portsBaseline = nil
+        portsError = nil
     }
+
+
 }
 
 /// 设置页「控制室」主题调色板，深浅色自适应。
@@ -1802,7 +2375,146 @@ private struct SetCard<Content: View>: View {
     }
 }
 
+private struct SubscriptionTimeZonePicker: View {
+    @Binding var selection: String
+    private static let identifiers = Set(TimeZone.knownTimeZoneIdentifiers + ["UTC"])
+
+    var body: some View {
+        let current = TimeZone.current.identifier
+        Picker("默认地区（时区）", selection: $selection) {
+            Text("当前地区 · \(Self.title(for: current))").tag(current)
+            Divider()
+            ForEach(Self.identifiers.union([selection]).sorted().filter { $0 != current }, id: \.self) { identifier in
+                Text(Self.title(for: identifier)).tag(identifier)
+            }
+        }
+        .pickerStyle(.menu)
+        .help("当前地区取自 macOS 系统时区；新建订阅使用所选地区。")
+    }
+
+    private static func title(for identifier: String) -> String {
+        guard let zone = TimeZone(identifier: identifier) else { return identifier }
+        let name = zone.localizedName(for: .shortGeneric, locale: Locale(identifier: "zh_CN")) ?? identifier
+        return "\(name) · \(identifier)"
+    }
+}
+
+private struct NodeNameAdFilterSettings: View {
+    @Binding var isEnabled: Bool
+    @Binding var filterText: String
+    @State private var isAdding = false
+    @State private var pendingFilter = ""
+    @FocusState private var inputFocused: Bool
+
+    private var filters: [String] {
+        filterText.components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+    }
+
+    private var trimmedFilter: String {
+        pendingFilter.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var isDuplicate: Bool {
+        filters.contains { $0.caseInsensitiveCompare(trimmedFilter) == .orderedSame }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Toggle("过滤节点名称广告", isOn: $isEnabled)
+                    .fixedSize()
+                Button("添加") { isAdding = true }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .disabled(!isEnabled || isAdding)
+                    .accessibilityLabel("添加额外过滤文字")
+                Spacer(minLength: 0)
+            }
+            Text("自动隐藏常见格式的推广文字，保留国家、线路信息；关闭后显示原始名称。")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.leading, 22)
+
+            if isEnabled {
+                if isAdding {
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack(spacing: 8) {
+                            TextField("输入要过滤的广告文字", text: $pendingFilter)
+                                .textFieldStyle(.roundedBorder)
+                                .focused($inputFocused)
+                                .onAppear { inputFocused = true }
+                                .onSubmit(addFilter)
+                                .accessibilityLabel("额外过滤文字")
+                            Button("确定", action: addFilter)
+                                .buttonStyle(.borderedProminent)
+                                .disabled(trimmedFilter.isEmpty || isDuplicate)
+                            Button("取消", action: cancelAdding)
+                                .buttonStyle(.bordered)
+                        }
+                        .controlSize(.small)
+                        Text(isDuplicate ? "该文字已添加。" : "按原文匹配，不区分英文大小写；添加后点击「应用设置」生效。")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .padding(.leading, 22)
+                }
+
+                if !filters.isEmpty {
+                    VStack(alignment: .leading, spacing: 6) {
+                        ForEach(Array(filters.enumerated()), id: \.offset) { index, text in
+                            HStack(spacing: 8) {
+                                Text(text)
+                                    .font(.callout)
+                                    .textSelection(.enabled)
+                                    .fixedSize(horizontal: false, vertical: true)
+                                Spacer(minLength: 8)
+                                Button {
+                                    var updated = filters
+                                    updated.remove(at: index)
+                                    filterText = updated.joined(separator: "\n")
+                                } label: {
+                                    Image(systemName: "xmark.circle.fill")
+                                        .foregroundStyle(.secondary)
+                                }
+                                .buttonStyle(.plain)
+                                .help("移除这条过滤文字")
+                                .accessibilityLabel("移除过滤文字：\(text)")
+                            }
+                        }
+                    }
+                    .padding(10)
+                    .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 8))
+                    .padding(.leading, 22)
+                }
+            }
+        }
+        .onChange(of: isEnabled) { enabled in
+            if !enabled { cancelAdding() }
+        }
+    }
+
+    private func addFilter() {
+        guard isEnabled, !trimmedFilter.isEmpty, !isDuplicate else { return }
+        filterText = (filters + [trimmedFilter]).joined(separator: "\n")
+        cancelAdding()
+    }
+
+    private func cancelAdding() {
+        pendingFilter = ""
+        isAdding = false
+        inputFocused = false
+    }
+}
+
 struct SettingsView: View {
+    private enum BackupOperation {
+        case export, restore
+    }
+
     private struct CountryListConflict {
         let code: String
         let name: String
@@ -1810,6 +2522,15 @@ struct SettingsView: View {
         var destination: String { addingToAllowed ? "指定国家" : "排除国家" }
         var source: String { addingToAllowed ? "排除国家" : "指定国家" }
     }
+    @State private var settingsDraft: AppSettings?
+    @State private var settingsBaseline: AppSettings?
+    @State private var customTestURL = ""
+    @State private var customTestURLName = ""
+    @State private var customTestURLUsesGenerate204 = false
+    @State private var isAddingCustomTestURL = false
+    @FocusState private var customTestURLNameFocused: Bool
+    @State private var testURLFeedback: String?
+    @State private var settingsFeedback: String?
     @State private var countryListConflict: CountryListConflict?
     @State private var countryListFeedback: String?
     @EnvironmentObject private var appState: AppState
@@ -1817,6 +2538,8 @@ struct SettingsView: View {
     @State private var showingFavoritePreferenceHelp = false
     @State private var showingUpdateModeHelp = false
     @State private var backupPassphrase = ""
+    @State private var backupOperation: BackupOperation?
+    @FocusState private var backupPasswordFocused: Bool
     @State private var includeCredentialsInBackup = false
     @State private var backupFeedback: String?
     @State private var pendingImportData: Data?
@@ -1828,88 +2551,118 @@ struct SettingsView: View {
 
     var body: some View {
         ScrollView {
-            VStack(spacing: 12) {
+            LazyVStack(spacing: 12) {
                 settingsHeader
+                themeSettings
+                SetCard(title: "中文地名离线库", icon: "globe.asia.australia", palette: palette) {
+                    ChineseCityLibrarySettings()
+                }
                 SetCard(title: "常规", icon: "gearshape", palette: palette) {
                 Toggle("登录时启动", isOn: Binding(
-                    get: { appState.settings.launchAtLogin },
-                    set: { value in appState.updateSettings { $0.launchAtLogin = value } }
+                    get: { previewSettings.launchAtLogin },
+                    set: { value in updateDraftSettings { $0.launchAtLogin = value } }
                 ))
-                Toggle("显示菜单栏", isOn: Binding(
-                    get: { appState.settings.showMenuBar },
-                    set: { value in appState.updateSettings { $0.showMenuBar = value } }
+                Toggle("节点信息显示中文", isOn: Binding(
+                    get: { previewSettings.showChineseNodeMetadata },
+                    set: { value in updateDraftSettings { $0.showChineseNodeMetadata = value } }
+                ))
+                .help("默认开启。仅可用节点会自动在线匹配中文城市；未找到可靠中文名时显示原名，悬停提示中文名待补充。")
+                NodeNameAdFilterSettings(isEnabled: Binding(
+                    get: { previewSettings.filterNodeNameAds },
+                    set: { value in updateDraftSettings { $0.filterNodeNameAds = value } }
+                ), filterText: Binding(
+                    get: { previewSettings.nodeNameAdFilterText },
+                    set: { value in updateDraftSettings { $0.nodeNameAdFilterText = value } }
                 ))
                 Picker("启动后", selection: Binding(
-                    get: { appState.settings.connectOnLaunch },
-                    set: { value in appState.updateSettings { $0.connectOnLaunch = value } }
+                    get: { previewSettings.connectOnLaunch },
+                    set: { value in updateDraftSettings { $0.connectOnLaunch = value } }
                 )) {
                     ForEach(ConnectOnLaunch.allCases, id: \.self) { item in
                         Text(item.displayName).tag(item)
                     }
                 }
                 Toggle("电脑锁屏时自动断开连接", isOn: Binding(
-                    get: { appState.settings.disconnectOnScreenLock },
-                    set: { value in appState.updateSettings { $0.disconnectOnScreenLock = value } }
+                    get: { previewSettings.disconnectOnScreenLock },
+                    set: { value in updateDraftSettings { $0.disconnectOnScreenLock = value } }
                 ))
-                if appState.settings.disconnectOnScreenLock {
+                if previewSettings.disconnectOnScreenLock {
                     Stepper(
-                        "锁屏后断开：\(appState.settings.screenLockDisconnectDelayMinutes) 分钟",
+                        "锁屏后断开：\(previewSettings.screenLockDisconnectDelayMinutes) 分钟",
                         value: Binding(
-                            get: { appState.settings.screenLockDisconnectDelayMinutes },
-                            set: { value in appState.updateSettings { $0.screenLockDisconnectDelayMinutes = value } }
+                            get: { previewSettings.screenLockDisconnectDelayMinutes },
+                            set: { value in updateDraftSettings { $0.screenLockDisconnectDelayMinutes = value } }
                         ),
                         in: 0...1440
                     )
                 }
-                Text("默认锁屏 15 分钟后断开并恢复系统网络设置；提前解锁会取消断开。设为 0 分钟则立即断开。")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                HStack {
+                    Text("锁屏断开说明").font(.caption).foregroundStyle(.secondary)
+                    UsageHelpButton(title: "锁屏断开说明", text: "默认锁屏 15 分钟后断开并恢复系统网络设置；提前解锁会取消断开。设为 0 分钟则立即断开。关闭此选项后，锁屏期间保留连接，并继续执行定时检测、订阅更新和数据保存。电脑需要保持唤醒；系统睡眠或注销会暂停运行。")
+                }
             }
 
             SetCard(title: "连接", icon: "cable.connector", palette: palette) {
                 Toggle("自动故障切换", isOn: Binding(
-                    get: { appState.settings.autoFailover },
-                    set: { value in appState.updateSettings { $0.autoFailover = value } }
+                    get: { previewSettings.autoFailover },
+                    set: { value in updateDraftSettings { $0.autoFailover = value } }
                 ))
 
+                HStack {
+                    Toggle("依据 Codex 应用健康智能切换", isOn: Binding(
+                        get: { previewSettings.codexSmartFailover },
+                        set: { value in updateDraftSettings { $0.codexSmartFailover = value } }
+                    ))
+                    .disabled(!previewSettings.autoFailover)
+                    UsageHelpButton(
+                        title: "Codex 智能切换说明",
+                        text: "连接策略对所有节点统一生效，修改后点击“应用设置”。需开启概览中的自动优选和 TUN 接管。开启后，主要依据工作空间设置无法加载、正在重新连接或等待网络判断故障。慢连接和偶发超时会先延长等待并复验，持续不可用才按顺序切换备用节点；故障期间邀请功能检查成功时，会额外观察，同一故障只延长一次。邀请好友暂不可用、对话空闲、认证或服务异常不会单独触发切换。"
+                    )
+                }
+                LabeledContent("当前自动恢复状态", value: appState.applicationHealthSwitchStatus)
+                    .font(.caption)
+
                 Picker("候选范围", selection: Binding(
-                    get: { appState.settings.failoverPoolMode },
-                    set: { value in appState.updateSettings { $0.failoverPoolMode = value } }
+                    get: { previewSettings.failoverPoolMode },
+                    set: { value in updateDraftSettings { $0.failoverPoolMode = value } }
                 )) {
                     ForEach(FailoverPoolMode.allCases, id: \.self) { mode in
                         Text(mode.displayName).tag(mode)
                     }
                 }
-                .disabled(!appState.settings.autoFailover)
+                .disabled(!previewSettings.autoFailover)
 
-                if appState.settings.failoverPoolMode == .limited {
+                if previewSettings.failoverPoolMode == .limited {
                     Stepper(
-                        "最大尝试节点：\(appState.settings.maxFailoverAttempts)",
+                        "最大尝试节点：\(previewSettings.maxFailoverAttempts)",
                         value: Binding(
-                            get: { appState.settings.maxFailoverAttempts },
-                            set: { value in appState.updateSettings { $0.maxFailoverAttempts = value } }
+                            get: { previewSettings.maxFailoverAttempts },
+                            set: { value in updateDraftSettings { $0.maxFailoverAttempts = value } }
                         ),
                         in: 1...50
                     )
-                    .disabled(!appState.settings.autoFailover)
+                    .disabled(!previewSettings.autoFailover)
                 }
 
                 Stepper(
-                    "连接超时：\(appState.settings.connectTimeoutSeconds) 秒",
+                    "连接超时：\(previewSettings.connectTimeoutSeconds) 秒",
                     value: Binding(
-                        get: { appState.settings.connectTimeoutSeconds },
-                        set: { value in appState.updateSettings { $0.connectTimeoutSeconds = value } }
+                        get: { previewSettings.connectTimeoutSeconds },
+                        set: { value in updateDraftSettings { $0.connectTimeoutSeconds = value } }
                     ),
-                    in: 1...30
+                    in: 1...99
                 )
+                Text("默认 15 秒。慢连接和偶发超时先延长等待并复验，仍无法连通时再尝试备用节点。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 Text(
-                    appState.settings.failoverPoolMode == .allAvailable
-                        ? (appState.settings.autoAppProbeUsableNodes
-                            ? "超时后按应用连通通过数与延迟依次尝试全部可用节点"
-                            : "超时后按测速延迟依次尝试全部可用节点")
-                        : (appState.settings.autoAppProbeUsableNodes
-                            ? "超时后按应用连通通过数与延迟依次尝试前 \(appState.settings.maxFailoverAttempts) 个可用节点"
-                            : "超时后按测速延迟依次尝试前 \(appState.settings.maxFailoverAttempts) 个可用节点")
+                    previewSettings.failoverPoolMode == .allAvailable
+                        ? (previewSettings.autoAppProbeUsableNodes
+                            ? "复验仍失败时，按应用优先顺序和延迟依次尝试全部可用节点"
+                            : "复验仍失败时，按测速延迟依次尝试全部可用节点")
+                        : (previewSettings.autoAppProbeUsableNodes
+                            ? "复验仍失败时，按应用优先顺序和延迟依次尝试前 \(previewSettings.maxFailoverAttempts) 个可用节点"
+                            : "复验仍失败时，按测速延迟依次尝试前 \(previewSettings.maxFailoverAttempts) 个可用节点")
                 )
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -1917,8 +2670,8 @@ struct SettingsView: View {
 
             SetCard(title: "自动优选国家", icon: "globe", palette: palette) {
                 Picker("连接范围", selection: Binding(
-                    get: { appState.settings.autoSelectCountryScope },
-                    set: { value in appState.updateSettings { $0.autoSelectCountryScope = value } }
+                    get: { previewSettings.autoSelectCountryScope },
+                    set: { value in updateDraftSettings { $0.autoSelectCountryScope = value } }
                 )) {
                     ForEach(AutoSelectCountryScope.allCases, id: \.self) { scope in
                         Text(scope.displayName).tag(scope)
@@ -1927,8 +2680,8 @@ struct SettingsView: View {
                 .pickerStyle(.segmented)
 
                 Picker("最低速度", selection: Binding(
-                    get: { appState.settings.autoSelectMinimumSpeed },
-                    set: { value in appState.updateSettings { $0.autoSelectMinimumSpeed = value } }
+                    get: { previewSettings.autoSelectMinimumSpeed },
+                    set: { value in updateDraftSettings { $0.autoSelectMinimumSpeed = value } }
                 )) {
                     ForEach(AutoSelectMinimumSpeed.allCases, id: \.self) { speed in
                         Text(speed.displayName).tag(speed)
@@ -1937,15 +2690,15 @@ struct SettingsView: View {
                 Text("选择“较快及以上”时，会包含较快、快和特快节点。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                Stepper("自动切换延时：\(appState.settings.autoSelectUnhealthySeconds) 秒", value: Binding(
-                    get: { appState.settings.autoSelectUnhealthySeconds },
-                    set: { value in appState.updateSettings { $0.autoSelectUnhealthySeconds = value } }
+                Stepper("自动切换延时：\(previewSettings.autoSelectUnhealthySeconds) 秒", value: Binding(
+                    get: { previewSettings.autoSelectUnhealthySeconds },
+                    set: { value in updateDraftSettings { $0.autoSelectUnhealthySeconds = value } }
                 ), in: 5...300, step: 5)
                 Text("持续超时或低于最低速度要求后自动优选其它节点；恢复正常则重新计时。按实时探测结果检查，无合格节点时保留连接。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
-                if appState.settings.autoSelectCountryScope == .specified {
+                if previewSettings.autoSelectCountryScope == .specified {
                     HStack {
                         Text("允许连接")
                         Spacer()
@@ -1986,7 +2739,7 @@ struct SettingsView: View {
                                         .foregroundStyle(.tertiary)
                                     Spacer(minLength: 2)
                                     Button {
-                                        appState.updateSettings { settings in
+                                        updateDraftSettings { settings in
                                             settings.autoSelectIncludedCountryCodes.remove(country.code)
                                         }
                                     } label: {
@@ -2033,14 +2786,14 @@ struct SettingsView: View {
                             Text("尚未排除任何国家，请点击上方“添加国家”。")
                                 .foregroundStyle(.secondary)
                         }
-                        CountryTagFlow(spacing: 8) {
+                        WrappingFlow(spacing: 8) {
                             ForEach(excludedAutoSelectCountries, id: \.code) { country in
                                 HStack(spacing: 6) {
                                     Text(country.flag)
                                     Text(country.name).font(.callout).lineLimit(1)
                                     Spacer(minLength: 2)
                                     Button {
-                                        appState.updateSettings { $0.autoSelectExcludedCountryCodes.remove(country.code) }
+                                        updateDraftSettings { $0.autoSelectExcludedCountryCodes.remove(country.code) }
                                         countryListFeedback = "已取消排除：\(country.name)"
                                     } label: {
                                         Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
@@ -2068,15 +2821,15 @@ struct SettingsView: View {
 
             SetCard(title: "定时测速", icon: "timer", palette: palette) {
                 Toggle("启用定时测速", isOn: Binding(
-                    get: { appState.settings.scheduledTestEnabled },
-                    set: { value in appState.updateSettings { $0.scheduledTestEnabled = value } }
+                    get: { previewSettings.scheduledTestEnabled },
+                    set: { value in updateDraftSettings { $0.scheduledTestEnabled = value } }
                 ))
                 Stepper(
-                    "间隔：\(appState.settings.scheduledTestIntervalMinutes) 分钟",
+                    "间隔：\(previewSettings.scheduledTestIntervalMinutes) 分钟",
                     value: Binding(
-                        get: { appState.settings.scheduledTestIntervalMinutes },
+                        get: { previewSettings.scheduledTestIntervalMinutes },
                         set: { value in
-                            appState.updateSettings {
+                            updateDraftSettings {
                                 $0.scheduledTestIntervalMinutes = max(5, value)
                             }
                         }
@@ -2084,22 +2837,22 @@ struct SettingsView: View {
                     in: 5...1440,
                     step: 5
                 )
-                .disabled(!appState.settings.scheduledTestEnabled)
+                .disabled(!previewSettings.scheduledTestEnabled)
 
                 Picker("订阅范围", selection: Binding(
-                    get: { appState.settings.scheduledTestSubscriptionRaw },
-                    set: { value in appState.updateSettings { $0.scheduledTestSubscriptionRaw = value } }
+                    get: { previewSettings.scheduledTestSubscriptionRaw },
+                    set: { value in updateDraftSettings { $0.scheduledTestSubscriptionRaw = value } }
                 )) {
                     Text("全部订阅").tag("all")
                     ForEach(appState.subscriptions) { sub in
                         Text(sub.name).tag("subscription:\(sub.id.uuidString)")
                     }
                 }
-                .disabled(!appState.settings.scheduledTestEnabled)
+                .disabled(!previewSettings.scheduledTestEnabled)
 
                 Picker(selection: Binding(
-                    get: { appState.settings.scheduledTestScope },
-                    set: { value in appState.updateSettings { $0.scheduledTestScope = value } }
+                    get: { previewSettings.scheduledTestScope },
+                    set: { value in updateDraftSettings { $0.scheduledTestScope = value } }
                 )) {
                     ForEach(ScheduledTestNodeScope.allCases, id: \.self) { scope in
                         Text(scope.displayName).tag(scope)
@@ -2117,7 +2870,7 @@ struct SettingsView: View {
                         .help("查看节点范围说明")
                     }
                 }
-                .disabled(!appState.settings.scheduledTestEnabled)
+                .disabled(!previewSettings.scheduledTestEnabled)
                 .alert("节点范围说明", isPresented: $showingScheduledScopeHelp) {
                     Button("好", role: .cancel) {}
                 } message: {
@@ -2137,53 +2890,57 @@ struct SettingsView: View {
             }
 
             SetCard(title: "测试", icon: "flask", palette: palette) {
-                TextField("连通性测试 URL", text: Binding(
-                    get: { appState.settings.testURL },
-                    set: { value in appState.updateSettings { $0.testURL = value } }
-                ))
+                testURLSettings
                 Stepper(
-                    "批量并发：\(min(16, appState.settings.testConcurrency))", 
+                    "批量并发：\(min(16, previewSettings.testConcurrency))",
                     value: Binding(
-                        get: { appState.settings.testConcurrency },
-                        set: { value in appState.updateSettings { $0.testConcurrency = value } }
+                        get: { previewSettings.testConcurrency },
+                        set: { value in updateDraftSettings { $0.testConcurrency = value } }
                     ),
                     in: 1...16
                 )
                 Stepper(
-                    "单测超时：\(appState.settings.testTimeoutSeconds) 秒",
+                    "单测超时：\(previewSettings.testTimeoutSeconds) 秒",
                     value: Binding(
-                        get: { appState.settings.testTimeoutSeconds },
-                        set: { value in appState.updateSettings { $0.testTimeoutSeconds = value } }
+                        get: { previewSettings.testTimeoutSeconds },
+                        set: { value in updateDraftSettings { $0.testTimeoutSeconds = value } }
                     ),
                     in: 1...30
                 )
-                Text("右键/详情只测 1 个节点，以及「单测」路径使用此时限；慢握手节点可调高。")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                HStack {
+                    Text("单节点测速说明").font(.caption).foregroundStyle(.secondary)
+                    UsageHelpButton(title: "单节点测速说明", text: "右键/详情只测 1 个节点，以及「单测」路径使用此时限；慢握手节点可调高。")
+                }
                 Stepper(
-                    "批量测速超时：\(appState.settings.batchTestTimeoutSeconds) 秒",
+                    "批量测速超时：\(previewSettings.batchTestTimeoutSeconds) 秒",
                     value: Binding(
-                        get: { appState.settings.batchTestTimeoutSeconds },
-                        set: { value in appState.updateSettings { $0.batchTestTimeoutSeconds = value } }
+                        get: { previewSettings.batchTestTimeoutSeconds },
+                        set: { value in updateDraftSettings { $0.batchTestTimeoutSeconds = value } }
                     ),
                     in: 1...30
                 )
-                Text("每个节点的 HTTPS 预算，默认 2 秒；批量不自动延长或重复测试，进程清理最多另需约 1 秒。TCP 预检最多 3 秒，慢握手节点可调高预算或单独复测。")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Toggle("自动测试可用节点的应用连通", isOn: Binding(
-                    get: { appState.settings.autoAppProbeUsableNodes },
-                    set: { value in appState.updateSettings { $0.autoAppProbeUsableNodes = value } }
+                HStack {
+                    Text("批量测速说明").font(.caption).foregroundStyle(.secondary)
+                    UsageHelpButton(title: "批量测速说明", text: "每个节点的 HTTPS 预算，默认 2 秒；批量不自动延长或重复测试，进程清理最多另需约 1 秒。TCP 预检最多 3 秒，慢握手节点可调高预算或单独复测。")
+                }
+                HStack {
+                    Toggle("自动测试可用节点的应用连通", isOn: Binding(
+                        get: { previewSettings.autoAppProbeUsableNodes },
+                        set: { value in updateDraftSettings { $0.autoAppProbeUsableNodes = value } }
+                    ))
+                    UsageHelpButton(title: "自动应用连通说明", text: "关闭（默认）时，手动与后台测速完成后都不自动继续应用探测，自动优选只按测速延迟排序。开启后，测速结束会补测可用节点，并按应用优先顺序比较连通结果，再结合收藏偏好和延迟优选。也可在「应用连通 → 可用」中独立手动测试；进度显示在「测试仪表」。\n\n探测名单默认来自「路由 → 按应用代理」，也可改用默认应用或自定义应用；只检查网址能否打开，不会启动应用，也不会改变哪些应用走代理。浏览器默认测 Google，没有对应网址的应用需要填写。")
+                }
+                InstalledAppProbeSettings(settings: Binding(
+                    get: { previewSettings },
+                    set: { updated in
+                        updateDraftSettings { $0.installedAppProbes = updated.installedAppProbes }
+                    }
                 ))
-                Text("关闭（默认）：测速后不自动做应用连通，自动优选也不按应用连通分档，只按测速延迟排序。开启后会对可用且未探测的节点补测，并按通过目标数优选。")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                InstalledAppProbeSettings()
                 Stepper(
-                    "应用连通超时：\(appState.settings.appProbeTimeoutSeconds) 秒",
+                    "应用连通超时：\(previewSettings.appProbeTimeoutSeconds) 秒",
                     value: Binding(
-                        get: { appState.settings.appProbeTimeoutSeconds },
-                        set: { value in appState.updateSettings { $0.appProbeTimeoutSeconds = value } }
+                        get: { previewSettings.appProbeTimeoutSeconds },
+                        set: { value in updateDraftSettings { $0.appProbeTimeoutSeconds = value } }
                     ),
                     in: 1...30
                 )
@@ -2191,10 +2948,10 @@ struct SettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Stepper(
-                    "结果有效期：\(appState.settings.testResultTTLMinutes) 分钟",
+                    "结果有效期：\(previewSettings.testResultTTLMinutes) 分钟",
                     value: Binding(
-                        get: { appState.settings.testResultTTLMinutes },
-                        set: { value in appState.updateSettings { $0.testResultTTLMinutes = value } }
+                        get: { previewSettings.testResultTTLMinutes },
+                        set: { value in updateDraftSettings { $0.testResultTTLMinutes = value } }
                     ),
                     in: 5...180
                 )
@@ -2202,20 +2959,20 @@ struct SettingsView: View {
 
             SetCard(title: "订阅默认值", icon: "link.badge.plus", palette: palette) {
                 Stepper(
-                    "默认更新时间 \(String(format: "%02d:%02d", appState.settings.defaultUpdateHour, appState.settings.defaultUpdateMinute))",
+                    "默认更新时间 \(String(format: "%02d:%02d", previewSettings.defaultUpdateHour, previewSettings.defaultUpdateMinute))",
                     value: Binding(
-                        get: { appState.settings.defaultUpdateHour },
-                        set: { value in appState.updateSettings { $0.defaultUpdateHour = value } }
+                        get: { previewSettings.defaultUpdateHour },
+                        set: { value in updateDraftSettings { $0.defaultUpdateHour = value } }
                     ),
                     in: 0...23
                 )
-                TextField("默认时区", text: Binding(
-                    get: { appState.settings.defaultTimeZoneID },
-                    set: { value in appState.updateSettings { $0.defaultTimeZoneID = value } }
+                SubscriptionTimeZonePicker(selection: Binding(
+                    get: { previewSettings.defaultTimeZoneID },
+                    set: { value in updateDraftSettings { $0.defaultTimeZoneID = value } }
                 ))
                 Picker(selection: Binding(
-                    get: { appState.settings.defaultUpdateMode },
-                    set: { value in appState.updateSettings { $0.defaultUpdateMode = value } }
+                    get: { previewSettings.defaultUpdateMode },
+                    set: { value in updateDraftSettings { $0.defaultUpdateMode = value } }
                 )) {
                     ForEach(SubscriptionUpdateMode.allCases, id: \.self) { mode in
                         Text(mode.displayName).tag(mode)
@@ -2243,10 +3000,10 @@ struct SettingsView: View {
                     )
                 }
                 Stepper(
-                    "默认回退天数：\(appState.settings.defaultFallbackDays)",
+                    "默认回退天数：\(previewSettings.defaultFallbackDays)",
                     value: Binding(
-                        get: { appState.settings.defaultFallbackDays },
-                        set: { value in appState.updateSettings { $0.defaultFallbackDays = value } }
+                        get: { previewSettings.defaultFallbackDays },
+                        set: { value in updateDraftSettings { $0.defaultFallbackDays = value } }
                     ),
                     in: 0...14
                 )
@@ -2254,8 +3011,8 @@ struct SettingsView: View {
 
             SetCard(title: "节点", icon: "paperplane", palette: palette) {
                 Picker(selection: Binding(
-                    get: { appState.settings.favoritePreference },
-                    set: { value in appState.updateSettings { $0.favoritePreference = value } }
+                    get: { previewSettings.favoritePreference },
+                    set: { value in updateDraftSettings { $0.favoritePreference = value } }
                 )) {
                     ForEach(FavoritePreference.allCases, id: \.self) { item in
                         Text(item.displayName).tag(item)
@@ -2286,26 +3043,13 @@ struct SettingsView: View {
             }
 
             SetCard(title: "数据备份", icon: "externaldrive", palette: palette) {
-                SecureField("备份密码", text: $backupPassphrase)
-                Toggle("包含节点凭证（文件含敏感信息）", isOn: $includeCredentialsInBackup)
-                HStack {
-                    Button("导出备份…") { exportLibraryBackup() }
-                    Button("从备份恢复…") { pickLibraryBackup() }
-                }
-                Text("备份使用您设置的密码加密，可迁移到其他 Mac；与本机钥匙串无关。默认不含密码/UUID。")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                if let backupFeedback {
-                    Text(backupFeedback)
-                        .font(.caption)
-                        .foregroundStyle(backupFeedback.contains("失败") ? .red : .secondary)
-                }
+                backupSettings
             }
 
             SetCard(title: "高级", icon: "wrench", palette: palette) {
                 Picker("日志等级", selection: Binding(
-                    get: { appState.settings.logLevel },
-                    set: { value in appState.updateSettings { $0.logLevel = value } }
+                    get: { previewSettings.logLevel },
+                    set: { value in updateDraftSettings { $0.logLevel = value } }
                 )) {
                     ForEach(AppLogLevel.allCases, id: \.self) { level in
                         Text(level.displayName).tag(level)
@@ -2313,9 +3057,11 @@ struct SettingsView: View {
                 }
 
                 if XrayProcessManager.resolveBinaryURL() == nil {
-                    Text("未检测到本地 xray。首次连接时会自动下载安装；也可手动运行 Scripts/fetch_xray.sh。")
+                    Text("未检测到本地 xray。请打开「关于 → 管理更新」安装；首次连接也会自动下载。下载失败可切换下载线路。")
                         .foregroundStyle(.orange)
                         .font(.caption)
+                    Button("打开管理更新") { appState.showComponentUpdates = true }
+                        .buttonStyle(.bordered)
                 } else {
                     Text("已检测到 xray：\(XrayProcessManager.resolveBinaryURL()!.path)")
                         .font(.caption)
@@ -2328,6 +3074,29 @@ struct SettingsView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         }
         .background { SetBackdrop(palette: palette) }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            HStack {
+                Text(settingsDraft == nil ? "主题即时保存，其他设置修改后点击应用。" : "有未保存的设置")
+                    .font(.caption).foregroundStyle(.secondary)
+                if let settingsFeedback { Text(settingsFeedback).font(.caption).foregroundStyle(.orange) }
+                Spacer()
+                Button("取消修改") {
+                    settingsDraft = nil
+                    settingsBaseline = nil
+                    settingsFeedback = nil
+                    countryListFeedback = nil
+                    cancelCustomTestURLAddition()
+                    cancelBackupOperation()
+                }
+                    .disabled(settingsDraft == nil)
+                Button("应用设置") { applySettingsDraft() }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(settingsDraft == nil)
+            }
+            .padding(12)
+            .background(.regularMaterial)
+        }
+        .onDisappear(perform: cancelBackupOperation)
         .alert("国家名单冲突", isPresented: Binding(
             get: { countryListConflict != nil },
             set: { if !$0 { countryListConflict = nil } }
@@ -2338,7 +3107,7 @@ struct SettingsView: View {
             }
             Button("取消", role: .cancel) { countryListConflict = nil }
         } message: { conflict in
-            Text("\(conflict.name)已在“\(conflict.source)”中。是否从该名单移除，并加入“\(conflict.destination)”？\(conflict.addingToAllowed ? "指定国家模式下，将允许自动优选该国家。" : "自动优选将不再连接该国家。")")
+            Text("\(conflict.name)已在“\(conflict.source)”中。是否从该名单移除，并加入“\(conflict.destination)”？\(conflict.addingToAllowed ? "保存设置后，指定国家模式下将允许自动优选该国家。" : "保存设置后，自动优选将不再连接该国家。")")
         }
         .confirmationDialog(
             "覆盖当前节点与订阅？",
@@ -2349,11 +3118,163 @@ struct SettingsView: View {
                 applyPendingImport(replaceExisting: true)
             }
             Button("取消", role: .cancel) {
-                pendingImportData = nil
+                cancelBackupOperation()
             }
         }         message: {
             Text("将用备份替换本机全部节点与订阅（连接状态不受影响，建议先断开）。")
         }
+    }
+
+    private var themeSettings: some View {
+        SetCard(title: "主题", icon: "paintpalette", palette: palette) {
+            Picker("主题模式", selection: Binding(
+                get: { appState.settings.theme },
+                set: { theme in appState.updateSettingsFromView { $0.theme = theme } }
+            )) {
+                ForEach(AppTheme.allCases, id: \.self) { theme in
+                    Text(theme.displayName).tag(theme)
+                }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            Text("更改后立即生效，并自动保存。")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
+    private var testURLSettings: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Text("连通性测试地址")
+                    .fixedSize()
+                Picker("连通性测试地址", selection: Binding(
+                    get: { previewSettings.testURL },
+                    set: { value in updateDraftSettings { $0.testURL = value } }
+                )) {
+                    ForEach(previewSettings.availableTestURLs, id: \.self) { url in
+                        Text("\(previewSettings.testURLDisplayTitle(url)) · \(url)").tag(url)
+                    }
+                }
+                .labelsHidden()
+                .layoutPriority(-1)
+                Button("添加") { isAddingCustomTestURL = true }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .fixedSize()
+                    .disabled(isAddingCustomTestURL)
+                    .accessibilityLabel("添加连通性测试地址")
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            if isAddingCustomTestURL {
+                HStack(spacing: 8) {
+                    TextField("测试名称", text: $customTestURLName)
+                        .textFieldStyle(.roundedBorder)
+                        .onChange(of: customTestURLName) { _ in testURLFeedback = nil }
+                        .frame(minWidth: 72, idealWidth: 160, maxWidth: 160)
+                        .focused($customTestURLNameFocused)
+                        .onAppear { customTestURLNameFocused = true }
+                    TextField("HTTP 或 HTTPS 测试地址", text: $customTestURL)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(minWidth: 100)
+                        .onChange(of: customTestURL) { _ in testURLFeedback = nil }
+                        .onSubmit(addCustomTestURL)
+                    Toggle("/generate_204", isOn: $customTestURLUsesGenerate204)
+                        .toggleStyle(.checkbox)
+                        .fixedSize()
+                        .help("将地址路径设为 /generate_204，并移除查询参数和片段。是否返回 204 取决于目标网站。")
+                    Button("确定", action: addCustomTestURL)
+                        .buttonStyle(.borderedProminent)
+                        .fixedSize()
+                        .disabled(customTestURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                                  || customTestURLName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    Button("取消", action: cancelCustomTestURLAddition)
+                        .buttonStyle(.bordered)
+                        .fixedSize()
+                }
+                .controlSize(.small)
+                if customTestURLUsesGenerate204,
+                   let url = AppSettings.testURLForAddition(customTestURL, useGenerate204: true) {
+                    Text("将添加：\(url.absoluteString)")
+                        .font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+                }
+                if let testURLFeedback {
+                    Text(testURLFeedback).font(.caption).foregroundStyle(.red)
+                }
+            }
+            Text("选择的地址用于节点连通性测试；添加后点击「应用设置」生效。")
+                .font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private func addCustomTestURL() {
+        let name = customTestURLName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else {
+            testURLFeedback = "请填写测试名称。"
+            return
+        }
+        guard let url = AppSettings.testURLForAddition(customTestURL, useGenerate204: customTestURLUsesGenerate204) else {
+            testURLFeedback = "请输入有效的 HTTP 或 HTTPS 地址。"
+            return
+        }
+        let value = url.absoluteString
+        updateDraftSettings {
+            if !$0.availableTestURLs.contains(value) {
+                $0.customTestURLs = ($0.customTestURLs ?? []) + [value]
+            }
+            var names = $0.customTestURLNames ?? [:]
+            names[value] = name
+            $0.customTestURLNames = names
+            $0.testURL = value
+        }
+        cancelCustomTestURLAddition()
+    }
+
+    private func cancelCustomTestURLAddition() {
+        customTestURL = ""
+        customTestURLName = ""
+        customTestURLUsesGenerate204 = false
+        testURLFeedback = nil
+        isAddingCustomTestURL = false
+        customTestURLNameFocused = false
+    }
+
+    private var previewSettings: AppSettings { settingsDraft ?? appState.settings }
+
+    private func updateDraftSettings(_ mutate: (inout AppSettings) -> Void) {
+        if settingsBaseline == nil { settingsBaseline = appState.settings }
+        var updated = previewSettings
+        mutate(&updated)
+        if let baseline = settingsBaseline,
+           baseline.applyingSettingsEdits(from: updated, comparedTo: baseline) == baseline {
+            settingsDraft = nil
+            settingsBaseline = nil
+        } else {
+            settingsDraft = updated
+        }
+        settingsFeedback = nil
+    }
+
+    private func applySettingsDraft() {
+        guard let draft = settingsDraft, let baseline = settingsBaseline else { return }
+        if draft.testURL != baseline.testURL {
+            guard let url = URL(string: draft.testURL),
+                  ["http", "https"].contains(url.scheme?.lowercased() ?? ""), url.host != nil else {
+                settingsFeedback = "请输入有效的 HTTP 或 HTTPS 测试地址。"
+                return
+            }
+        }
+        if draft.defaultTimeZoneID != baseline.defaultTimeZoneID,
+           TimeZone(identifier: draft.defaultTimeZoneID) == nil {
+            settingsFeedback = "请输入有效时区，例如 Asia/Shanghai。"
+            return
+        }
+        appState.updateSettings { $0 = $0.applyingSettingsEdits(from: draft, comparedTo: baseline) }
+        settingsDraft = nil
+        settingsBaseline = nil
+        settingsFeedback = "设置已应用"
+        countryListFeedback = nil
     }
 
     // MARK: - 控制室页眉
@@ -2385,6 +3306,76 @@ struct SettingsView: View {
         .padding(.bottom, 2)
     }
 
+    private var backupSettings: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Button("导出备份") { beginBackupOperation(.export) }
+                Button("从备份恢复") { beginBackupOperation(.restore) }
+            }
+            .buttonStyle(.bordered)
+            .disabled(backupOperation != nil)
+
+            if let operation = backupOperation {
+                HStack(spacing: 8) {
+                    SecureField(operation == .export ? "设置备份密码（至少 6 位）" : "输入备份密码", text: $backupPassphrase)
+                        .textFieldStyle(.roundedBorder)
+                        .onChange(of: backupPassphrase) { _ in
+                            if backupOperation != nil { backupFeedback = nil }
+                        }
+                        .focused($backupPasswordFocused)
+                        .onAppear { backupPasswordFocused = true }
+                        .onSubmit(confirmBackupOperation)
+                    Button(operation == .export ? "确定导出" : "确定恢复", action: confirmBackupOperation)
+                        .buttonStyle(.borderedProminent)
+                        .disabled(backupPassphrase.trimmingCharacters(in: .whitespacesAndNewlines).count < 6)
+                    Button("取消", action: cancelBackupOperation)
+                        .buttonStyle(.bordered)
+                }
+                .controlSize(.small)
+                if operation == .export {
+                    Toggle("包含节点凭证（文件含敏感信息）", isOn: $includeCredentialsInBackup)
+                        .toggleStyle(.checkbox)
+                        .font(.caption)
+                }
+            }
+
+            Text("备份使用您设置的密码加密，可在其他 Mac 恢复；恢复时需要同一密码。")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            if let backupFeedback {
+                Text(backupFeedback)
+                    .font(.caption)
+                    .foregroundStyle(backupFeedback.contains("失败") ? .red : .secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private func beginBackupOperation(_ operation: BackupOperation) {
+        cancelBackupOperation()
+        backupOperation = operation
+    }
+
+    private func cancelBackupOperation() {
+        backupOperation = nil
+        backupPassphrase = ""
+        includeCredentialsInBackup = false
+        backupPasswordFocused = false
+        pendingImportData = nil
+        pendingImportPassphrase = ""
+        showReplaceImportConfirm = false
+        backupFeedback = nil
+    }
+
+    private func confirmBackupOperation() {
+        switch backupOperation {
+        case .export: exportLibraryBackup()
+        case .restore: pickLibraryBackup()
+        case nil: break
+        }
+    }
+
     private func exportLibraryBackup() {
         let phrase = backupPassphrase.trimmingCharacters(in: .whitespacesAndNewlines)
         guard phrase.count >= 6 else {
@@ -2402,6 +3393,7 @@ struct SettingsView: View {
             panel.allowedContentTypes = [.data]
             guard panel.runModal() == .OK, let url = panel.url else { return }
             try data.write(to: url, options: .atomic)
+            cancelBackupOperation()
             backupFeedback = "已导出至 \(url.lastPathComponent)"
         } catch {
             backupFeedback = "导出失败：\(error.localizedDescription)"
@@ -2409,26 +3401,29 @@ struct SettingsView: View {
     }
 
     private func pickLibraryBackup() {
-        let panel = NSOpenPanel()
-        panel.title = "选择跃界备份"
-        panel.allowedContentTypes = [.data]
-        panel.allowsMultipleSelection = false
-        guard panel.runModal() == .OK, let url = panel.url else { return }
         let phrase = backupPassphrase.trimmingCharacters(in: .whitespacesAndNewlines)
         guard phrase.count >= 6 else {
             backupFeedback = "请先填写与导出时相同的备份密码"
             return
         }
+        let panel = NSOpenPanel()
+        panel.title = "选择跃界备份"
+        panel.allowedContentTypes = [.data]
+        panel.allowsMultipleSelection = false
+        guard panel.runModal() == .OK, let url = panel.url else { return }
         do {
             let data = try Data(contentsOf: url)
             pendingImportData = data
             pendingImportPassphrase = phrase
             try appState.importLibraryBackup(from: data, passphrase: phrase, replaceExisting: false)
+            cancelBackupOperation()
+            backupFeedback = "备份已恢复"
         } catch LibraryBackupError.requiresReplaceConfirmation {
             showReplaceImportConfirm = true
         } catch {
             backupFeedback = "导入失败：\(error.localizedDescription)"
             pendingImportData = nil
+            pendingImportPassphrase = ""
         }
     }
 
@@ -2440,17 +3435,19 @@ struct SettingsView: View {
                 passphrase: pendingImportPassphrase,
                 replaceExisting: replaceExisting
             )
+            cancelBackupOperation()
             backupFeedback = "备份已恢复"
         } catch {
             backupFeedback = "导入失败：\(error.localizedDescription)"
         }
         pendingImportData = nil
+        pendingImportPassphrase = ""
     }
 
     private func requestAddCountry(_ country: CountryGroup, toAllowed: Bool) {
         let code = country.code.uppercased()
-        let opposite = toAllowed ? appState.settings.autoSelectExcludedCountryCodes
-            : appState.settings.autoSelectIncludedCountryCodes
+        let opposite = toAllowed ? previewSettings.autoSelectExcludedCountryCodes
+            : previewSettings.autoSelectIncludedCountryCodes
         if opposite.contains(code) {
             countryListConflict = CountryListConflict(code: code, name: country.name, addingToAllowed: toAllowed)
         } else {
@@ -2459,7 +3456,7 @@ struct SettingsView: View {
     }
 
     private func addCountry(_ code: String, toAllowed: Bool) {
-        appState.updateSettings { settings in
+        updateDraftSettings { settings in
             if toAllowed {
                 settings.autoSelectExcludedCountryCodes.remove(code)
                 settings.autoSelectIncludedCountryCodes.insert(code)
@@ -2469,23 +3466,23 @@ struct SettingsView: View {
             }
         }
         let name = CountryResolver.displayName(for: code)
-        countryListFeedback = toAllowed ? "已加入指定国家：\(name)" : "已排除：\(name)"
+        countryListFeedback = toAllowed ? "待保存到指定国家：\(name)" : "待保存到排除国家：\(name)"
     }
 
     private var availableAutoSelectCountries: [CountryGroup] {
         appState.countryGroups.filter {
-            !appState.settings.autoSelectIncludedCountryCodes.contains($0.code.uppercased())
+            !previewSettings.autoSelectIncludedCountryCodes.contains($0.code.uppercased())
         }
     }
 
     private var availableAutoSelectExcludedCountries: [CountryGroup] {
         appState.countryGroups.filter {
-            !appState.settings.autoSelectExcludedCountryCodes.contains($0.code.uppercased())
+            !previewSettings.autoSelectExcludedCountryCodes.contains($0.code.uppercased())
         }
     }
 
     private var excludedAutoSelectCountries: [(code: String, name: String, flag: String, nodeCount: Int)] {
-        appState.settings.autoSelectExcludedCountryCodes.map { code in
+        previewSettings.autoSelectExcludedCountryCodes.map { code in
             let group = appState.countryGroups.first { $0.code.uppercased() == code.uppercased() }
             return (
                 code: code.uppercased(),
@@ -2497,7 +3494,7 @@ struct SettingsView: View {
     }
 
     private var includedAutoSelectCountries: [(code: String, name: String, flag: String, nodeCount: Int)] {
-        appState.settings.autoSelectIncludedCountryCodes
+        previewSettings.autoSelectIncludedCountryCodes
             .map { code in
                 let group = appState.countryGroups.first { $0.code.uppercased() == code.uppercased() }
                 return (
@@ -2511,7 +3508,7 @@ struct SettingsView: View {
     }
 }
 
-private struct CountryTagFlow: Layout {
+struct WrappingFlow: Layout {
     var spacing: CGFloat = 8
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
@@ -2559,47 +3556,15 @@ struct LogView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 10) {
-                Picker("分类", selection: $filter) {
-                    Text("全部").tag(LogCategory?.none)
-                    ForEach(LogCategory.allCases, id: \.self) { category in
-                        Text(category.displayName).tag(Optional(category))
-                    }
-                }
-                .frame(width: 180)
-
-                Picker("级别", selection: $levelFilter) {
-                    Text("全部级别").tag(AppLogLevel?.none)
-                    ForEach(AppLogLevel.allCases, id: \.self) { level in
-                        Text(level.displayName).tag(Optional(level))
-                    }
-                }
-                .frame(width: 140)
-
-                TextField("搜索日志", text: $searchText)
-                    .textFieldStyle(.roundedBorder)
-                    .frame(minWidth: 160, maxWidth: 280)
-
-                Text("\(filtered.count) / \(appState.logger.entries.count)")
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(.secondary)
-
-                Spacer()
-                Button("复制") {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(
-                        appState.logger.exportText(Array(filtered.reversed())),
-                        forType: .string
-                    )
-                    appState.statusBanner = "已复制 \(filtered.count) 条脱敏日志"
-                }
-                .disabled(filtered.isEmpty)
-                Button("导出…") { exportLogs() }
-                    .disabled(filtered.isEmpty)
-                Button("清除", role: .destructive) { confirmClear = true }
-                    .disabled(appState.logger.entries.isEmpty)
+            HStack(spacing: 8) {
+                filterPickers
+                searchField
+                entryCount
+                Spacer(minLength: 0)
+                logActions
             }
-            .padding()
+            .padding(.horizontal, 12)
+            .padding(.vertical, 16)
 
             List(filtered) { entry in
                 VStack(alignment: .leading, spacing: 2) {
@@ -2615,7 +3580,7 @@ struct LogView: View {
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                     }
-                    Text(entry.message)
+                    Text(entry.displayMessage)
                         .font(.system(.caption, design: .monospaced))
                         .textSelection(.enabled)
                 }
@@ -2640,13 +3605,66 @@ struct LogView: View {
         }
     }
 
+    private var filterPickers: some View {
+        HStack(spacing: 8) {
+            Picker("分类", selection: $filter) {
+                Text("全部分类").tag(LogCategory?.none)
+                ForEach(LogCategory.allCases, id: \.self) { category in
+                    Text(category.displayName).tag(Optional(category))
+                }
+            }
+            .labelsHidden()
+            .frame(width: 128)
+            Picker("级别", selection: $levelFilter) {
+                Text("全部级别").tag(AppLogLevel?.none)
+                ForEach(AppLogLevel.allCases, id: \.self) { level in
+                    Text(level.displayName).tag(Optional(level))
+                }
+            }
+            .labelsHidden()
+            .frame(width: 112)
+        }
+    }
+
+    private var searchField: some View {
+        TextField("搜索日志", text: $searchText)
+            .textFieldStyle(.roundedBorder)
+            .frame(minWidth: 80, maxWidth: 280)
+    }
+
+    private var entryCount: some View {
+        Text("\(filtered.count) / \(appState.logger.entries.count)")
+            .font(.caption.monospacedDigit())
+            .foregroundStyle(.secondary)
+            .fixedSize()
+    }
+
+    private var logActions: some View {
+        HStack(spacing: 8) {
+            Button("复制") {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(
+                    appState.logger.exportText(Array(filtered.reversed())),
+                    forType: .string
+                )
+                appState.statusBanner = "已复制 \(filtered.count) 条脱敏日志"
+            }
+            .disabled(filtered.isEmpty)
+            Button("导出…") { exportLogs() }
+                .disabled(filtered.isEmpty)
+            Button("清除", role: .destructive) { confirmClear = true }
+                .disabled(appState.logger.entries.isEmpty)
+        }
+        .fixedSize()
+    }
+
     private var filtered: [LogEntry] {
         appState.logger.entries.reversed().filter { entry in
             if let filter, entry.category != filter { return false }
             if let levelFilter, entry.level != levelFilter { return false }
             let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !query.isEmpty else { return true }
-            return entry.message.localizedCaseInsensitiveContains(query) ||
+            return entry.displayMessage.localizedCaseInsensitiveContains(query) ||
                 entry.category.displayName.localizedCaseInsensitiveContains(query) ||
                 entry.level.displayName.localizedCaseInsensitiveContains(query)
         }
@@ -2777,15 +3795,15 @@ struct MenuBarView: View {
             }
         ))
 
-        Menu(appState.settings.connectionCaptureMode == .applications ? "路由模式：规则代理 · 应用白名单" : "路由模式：\(appState.settings.routingMode.displayName)") {
+        Menu(routingModeMenuTitle) {
             ForEach(RoutingMode.allCases, id: \.self) { mode in
                 Button {
                     Task { await appState.setRoutingMode(mode) }
                 } label: {
                     if appState.settings.routingMode == mode {
-                        Text("✓ \(mode.displayName)")
+                        Text("✓ \(mode.displayName)（当前）")
                     } else {
-                        Text(mode.displayName)
+                        Text("应用\(mode.displayName)")
                     }
                 }
             }
@@ -2806,14 +3824,21 @@ struct MenuBarView: View {
         }
 
         Button("退出") {
-            Task {
-                await appState.disconnect()
-                NSApp.terminate(nil)
-            }
+            NSApp.terminate(nil)
         }
     }
 
     // MARK: - Node menus
+
+    private var routingModeMenuTitle: String {
+        let mode = appState.settings.routingMode
+        guard mode == .rules else { return "路由模式：\(mode.displayName)" }
+        switch appState.settings.connectionCaptureMode {
+        case .applications: return "路由模式：规则代理 · 应用白名单"
+        case .systemProxy: return "路由模式：规则代理 · 系统代理"
+        default: return "路由模式：规则代理 · \(appState.settings.connectionCaptureMode.displayName)"
+        }
+    }
 
     private var menuStatusLine: String {
         appState.connection.state.status.displayName
@@ -2822,7 +3847,7 @@ struct MenuBarView: View {
     private func menuNodeLine(for node: ProxyNode) -> String {
         let flag = FlagResolver.flag(for: CountryResolver.effectiveCode(for: node))
         let country = CountryResolver.effectiveCountry(for: node).name
-        let title = node.displayTitle
+        let title = appState.settings.nodeDisplayTitle(node)
         let base: String
         if title == country || title.hasPrefix(country) {
             base = "\(flag) \(title)"
@@ -2831,7 +3856,7 @@ struct MenuBarView: View {
         }
         if appState.connection.state.status == .connected {
             if let ms = appState.connection.state.latency {
-                return "\(base) \(LatencyFormat.seconds(ms))"
+                return "\(base) \(LatencyFormat.display(ms))"
             }
             let text = node.latencyText
             if text != "—" {
@@ -2865,7 +3890,7 @@ struct MenuBarView: View {
 
     private func countryMenuTitle(_ group: CountryGroup, availableCount: Int, listedCount: Int? = nil) -> String {
         let listed = listedCount ?? availableCount
-        let latency = group.bestLatency.map { " · \(LatencyFormat.seconds($0))" } ?? ""
+        let latency = group.bestLatency.map { " · \(LatencyFormat.display($0))" } ?? ""
         let current = appState.connection.state.currentCountryCode == group.code ? " ✓" : ""
         let ratio = appState.connection.state.autoSelectEnabled
             ? "\(availableCount)/\(group.nodes.count)"
@@ -2885,7 +3910,9 @@ struct MenuBarView: View {
         if node.isFavorite {
             parts.append("★")
         }
-        parts.append(node.displayTitle)
+        parts.append(appState.settings.nodeDisplayTitle(node))
+        parts.append("·")
+        parts.append(node.groupName(subscriptions: appState.subscriptions))
         parts.append("·")
         parts.append(node.protocolType.displayName)
         parts.append("·")
@@ -2936,25 +3963,23 @@ struct MenuBarView: View {
 
 
 private struct InstalledAppProbeSettings: View {
-    @EnvironmentObject private var appState: AppState
+    @Binding var settings: AppSettings
     @State private var error: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(appState.settings.effectiveAppProbeSource == .custom
-                ? "添加已安装应用并设置测试服务地址。"
-                : "使用已保存的规则代理应用列表；请在规则代理设置中调整应用。")
+            Text(settings.effectiveAppProbeSource == .custom
+                ? "添加本机应用，并填写要探测的网址。只检查网址能否打开，不会启动应用，也不会改变哪些应用走代理。"
+                : "探测名单来自「路由 → 按应用代理」，增删请到那里。只检查网址能否打开，不会启动应用，也不会改变哪些应用走代理。浏览器默认测 Google，没有对应网址的应用需要填写。")
                 .font(.caption).foregroundStyle(.secondary)
-            Text("测试服务地址的可达性，不会启动应用；HTTP 错误响应也表示网络可达。浏览器默认测试 Google，未知应用请配置服务地址。")
-                .font(.caption).foregroundStyle(.secondary)
-            if appState.settings.effectiveAppProbeSource == .custom {
-                ForEach(appState.settings.installedAppProbes) { probe in
+            if settings.effectiveAppProbeSource == .custom {
+                ForEach(settings.installedAppProbes) { probe in
                     HStack {
                         Text(probe.application.name).frame(width: 100, alignment: .leading)
                         TextField("https://应用服务地址", text: Binding(
-                            get: { appState.settings.installedAppProbes.first { $0.id == probe.id }?.endpoint ?? "" },
+                            get: { settings.installedAppProbes.first { $0.id == probe.id }?.endpoint ?? "" },
                             set: { value in
-                                appState.updateAppProbeSettings { settings in
+                                updateSettings { settings in
                                     if let index = settings.installedAppProbes.firstIndex(where: { $0.id == probe.id }) {
                                         settings.installedAppProbes[index].endpoint = value
                                     }
@@ -2963,7 +3988,7 @@ private struct InstalledAppProbeSettings: View {
                         ))
                         if probe.target == nil { Text("请输入有效地址").font(.caption).foregroundStyle(.orange) }
                         Button("移除") {
-                            appState.updateAppProbeSettings { $0.installedAppProbes.removeAll { $0.id == probe.id } }
+                            updateSettings { $0.installedAppProbes.removeAll { $0.id == probe.id } }
                         }
                     }
             }
@@ -2981,23 +4006,173 @@ private struct InstalledAppProbeSettings: View {
                     } catch { self.error = error.localizedDescription }
             }
             } else {
-                ForEach(appState.settings.proxyApplications.filter { application in
-                    !appState.settings.ruleAppProbeTargets.contains { $0.id == application.id && !$0.probeURLs.isEmpty }
+                ForEach(settings.proxyApplications.filter { application in
+                    !settings.ruleAppProbeTargets.contains { $0.id == application.id && !$0.probeURLs.isEmpty }
                 }) { application in
                     HStack {
-                        Text("\(application.name)：尚未配置测试地址").font(.caption).foregroundStyle(.orange)
-                        Text("请在自定义应用中配置该应用的服务地址").font(.caption).foregroundStyle(.secondary)
+                        Text("\(application.name) 还没有探测网址").font(.caption).foregroundStyle(.orange)
+                        Text("请在「自定义应用」里填写").font(.caption).foregroundStyle(.secondary)
                     }
             }
             }
-            Text("本次自动测试目标：\(appState.settings.automaticAppProbeTargets.map(\.displayName).joined(separator: "、"))")
-                .font(.caption).foregroundStyle(.secondary)
             if let error { Text(error).font(.caption).foregroundStyle(.red) }
         }
     }
 
+    private func updateSettings(_ mutate: (inout AppSettings) -> Void) {
+        var updated = settings
+        mutate(&updated)
+        settings = updated
+    }
+
     private func add(_ application: ProxyApplication) {
-        guard !appState.settings.installedAppProbes.contains(where: { $0.id == application.id }) else { return }
-        appState.updateAppProbeSettings { $0.installedAppProbes.append(InstalledAppProbe(application: application, endpoint: "")) }
+        guard !settings.installedAppProbes.contains(where: { $0.id == application.id }) else { return }
+        updateSettings { $0.installedAppProbes.append(InstalledAppProbe(application: application, endpoint: "")) }
+    }
+}
+
+
+/// AppKit 提示。SwiftUI 的 help 在快速切换行里经常被挡住，悬停时看不到应用名。
+private final class AppProbeNameTooltipView: NSView {
+    var tip = "" {
+        didSet { toolTip = tip }
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        trackingAreas.forEach { removeTrackingArea($0) }
+        addTrackingArea(NSTrackingArea(
+            rect: bounds,
+            options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+            owner: self
+        ))
+    }
+}
+
+private struct AppProbeNameTooltip: NSViewRepresentable {
+    var text: String
+
+    func makeNSView(context: Context) -> AppProbeNameTooltipView {
+        let view = AppProbeNameTooltipView(frame: .zero)
+        view.tip = text
+        return view
+    }
+
+    func updateNSView(_ view: AppProbeNameTooltipView, context: Context) {
+        view.tip = text
+    }
+}
+
+struct AppProbeIcon: View {
+    let target: AppProbeTarget
+    let passed: Bool
+    var size: CGFloat = 20
+
+    var body: some View {
+        Group {
+            if case .application(let path, _, _) = target {
+                Image(nsImage: Self.applicationIcon(path))
+                    .resizable().renderingMode(.original).scaledToFit()
+            } else if let image = NSImage(named: serviceAssetName) {
+                Image(nsImage: image).resizable().renderingMode(.original).scaledToFit()
+            } else {
+                ZStack {
+                    RoundedRectangle(cornerRadius: size * 0.2).fill(serviceColor)
+                    Text(serviceInitial).font(.system(size: size * 0.5, weight: .bold)).foregroundStyle(.white)
+                }
+            }
+        }
+        .frame(width: size, height: size)
+        .contentShape(Rectangle())
+        .saturation(passed ? 1 : 0)
+        .opacity(passed ? 1 : 0.4)
+        .overlay(AppProbeNameTooltip(text: target.displayName))
+        .accessibilityLabel("\(target.displayName)：\(passed ? "通过" : "未通过或未测试")")
+        .help(target.displayName)
+    }
+
+    private static let applicationIcons = NSCache<NSString, NSImage>()
+
+    private static func applicationIcon(_ path: String) -> NSImage {
+        if let cached = applicationIcons.object(forKey: path as NSString) { return cached }
+        let icon = NSWorkspace.shared.icon(forFile: path)
+        applicationIcons.setObject(icon, forKey: path as NSString)
+        return icon
+    }
+
+    private var serviceAssetName: String {
+        switch target {
+        case .google: return "AppProbeGoogle"
+        case .cloudflare: return "AppProbeCloudflare"
+        case .chatgpt: return "AppProbeChatGPT"
+        case .github: return "AppProbeGitHub"
+        case .youtube: return "AppProbeYouTube"
+        case .twitter: return "AppProbeTwitter"
+        case .claude: return "AppProbeClaude"
+        case .tiktok: return "AppProbeTikTok"
+        case .application: return ""
+        }
+    }
+
+    private var serviceInitial: String {
+        switch target {
+        case .google: return "G"
+        case .cloudflare: return "CF"
+        case .chatgpt: return "AI"
+        case .github: return "GH"
+        case .youtube: return "YT"
+        case .twitter: return "X"
+        case .claude: return "C"
+        case .tiktok: return "TT"
+        case .application: return ""
+        }
+    }
+    private var serviceColor: Color {
+        switch target {
+        case .google: return .blue
+        case .cloudflare: return .orange
+        case .chatgpt: return .green
+        case .github: return .purple
+        case .youtube: return .red
+        case .twitter: return .black
+        case .claude: return .orange
+        case .tiktok: return .black
+        case .application: return .accentColor
+        }
+    }
+}
+
+
+private struct ChineseCityLibrarySettings: View {
+    @ObservedObject private var library = ChineseCityLibrary.shared
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 4) {
+                        Text("GeoNames 中文地名").font(.headline)
+                        UsageHelpButton(
+                            title: "中文地名离线库说明",
+                            text: "从 GeoNames 官方源下载约 220 MB 数据，生成的离线库约 10 MB，保存在本机。开启中文显示后优先使用离线库，仅对可用节点在线补充。"
+                        )
+                    }
+                    if library.isInstalled {
+                        Text("GeoNames · \(library.catalog.cityCount) 个地名 · \(library.catalog.version)")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                Spacer()
+                if library.stage != nil {
+                    ProgressView().controlSize(.small)
+                    Button("取消") { library.cancel() }
+                } else {
+                    Button(library.isInstalled ? "已下载" : "下载离线库") { library.download() }
+                        .disabled(library.isInstalled)
+                }
+            }
+            if let stage = library.stage { Text(stage).font(.caption).foregroundStyle(.secondary) }
+            if let error = library.error { Text(error).font(.caption).foregroundStyle(.red).textSelection(.enabled) }
+            Link("GeoNames · CC BY 4.0", destination: URL(string: "https://www.geonames.org/")!).font(.caption)
+        }
     }
 }

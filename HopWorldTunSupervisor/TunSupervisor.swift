@@ -2,6 +2,17 @@ import Foundation
 import Darwin
 import CryptoKit
 
+enum TunProcessIsolation {
+    static func detachFromLauncher() throws {
+        guard getpgrp() != getpid() else { return }
+        guard setsid() >= 0 else {
+            let code = errno
+            throw NSError(domain: NSPOSIXErrorDomain, code: Int(code),
+                          userInfo: [NSLocalizedDescriptionKey: "无法将 TUN 辅助服务与授权启动器分离：errno=\(code)"])
+        }
+    }
+}
+
 /// Foundation may canonicalize /private/var/run to /var/run on macOS.
 /// Compare canonical parents, never one spelling of an absolute prefix.
 enum TunRuntimeDirectory {
@@ -94,16 +105,51 @@ struct TunLeaseWatchdog {
 final class TunSupervisor {
     private let lock = NSLock()
     private var stopping = false
-    func requestStop() { lock.lock(); stopping = true; lock.unlock() }
+    private var stopSignal: Int32?
+    private var signalSenderPID: Int32?
+    private var signalSenderUID: UInt32?
+    private var signalSenderName: String?
+    func requestStop(signal: Int32? = nil, senderPID: Int32? = nil, senderUID: UInt32? = nil, senderName: String? = nil) {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !stopping else { return }
+        stopping = true
+        stopSignal = signal
+        signalSenderPID = senderPID
+        signalSenderUID = senderUID
+        signalSenderName = senderName
+    }
     private var shouldStop: Bool { lock.lock(); defer { lock.unlock() }; return stopping }
+
+    private var requestedStopStatus: TunSessionStatus? {
+        lock.lock()
+        let requested = stopping
+        let signal = stopSignal
+        let senderPID = signalSenderPID
+        let senderUID = signalSenderUID
+        let senderName = signalSenderName
+        lock.unlock()
+        guard requested else { return nil }
+        let name = signal.map { $0 == SIGTERM ? "SIGTERM" : $0 == SIGINT ? "SIGINT" : "\($0)" }
+        let sender = senderPID.map { "；发送进程：\(senderName ?? "未知")（PID \($0)" +
+            (senderUID.map { "，UID \($0)" } ?? "") + "）" } ?? ""
+        return .init(state: "stopped", message: "TUN 收到停止信号" + (name.map { "（\($0)）" } ?? "") + sender,
+                     stopReason: signal == nil ? .requested : .systemSignal, signal: signal,
+                     signalSenderPID: senderPID, signalSenderUID: senderUID, signalSenderName: senderName)
+    }
 
     /// Also exercised unprivileged with a fixture child in the test target.
     @discardableResult
     func run(executable: URL, arguments: [String], lease: TunControlFile, status: TunControlFile,
              leaseTimeout: TimeInterval = 10, startupTimeout: TimeInterval = 15) throws -> TunSessionStatus {
+        if let result = requestedStopStatus {
+            status.publish(result)
+            return result
+        }
         var watchdog = TunLeaseWatchdog(lastChange: ProcessInfo.processInfo.systemUptime, timeout: leaseTimeout)
         guard lease.recentlyModified, watchdog.isAlive(value: lease.read(), now: ProcessInfo.processInfo.systemUptime) else {
-            let result = TunSessionStatus(state: "stopped", message: "启动租约已失效：心跳文件被移除或超过 12 秒未更新，未启动核心。")
+            let result = TunSessionStatus(state: "stopped", message: "启动租约已失效：心跳文件被移除或超过 12 秒未更新，未启动核心。",
+                                          stopReason: .leaseExpired)
             status.publish(result)
             return result
         }
@@ -144,11 +190,13 @@ final class TunSupervisor {
         child.waitUntilExit()
         capture.finish()
         let result: TunSessionStatus
-        if unexpectedExit || failure != nil {
+        if let requested = requestedStopStatus {
+            result = requested
+        } else if unexpectedExit || failure != nil {
             let tail = String(decoding: capture.snapshot(maxBytes: 2048), as: UTF8.self)
             result = .init(state: "failed", message: (failure ?? "TUN 核心已退出（退出码 \(child.terminationStatus)）") + "\n" + tail)
         } else {
-            result = .init(state: "stopped", message: shouldStop ? "TUN 收到停止信号" : "TUN 心跳租约失效，已停止核心")
+            result = .init(state: "stopped", message: "TUN 心跳租约失效，已停止核心", stopReason: .leaseExpired)
         }
         status.publish(result)
         return result
@@ -176,13 +224,39 @@ enum TunRuntimeFactory {
 /// Root helper for one app session. It copies and hashes the two files, then
 /// runs sing-box with fixed arguments. Callers cannot supply a shell.
 final class TunHelperServer {
-    private let supervisor = TunSupervisor()
     private let lock = NSLock()
     private var stopRequested = false
+    private var activeSupervisor: TunSupervisor?
 
-    func requestStop() {
-        lock.lock(); stopRequested = true; lock.unlock()
-        supervisor.requestStop()
+    func requestStop(signal: Int32? = nil, senderPID: Int32? = nil, senderUID: UInt32? = nil, senderName: String? = nil) {
+        lock.lock()
+        stopRequested = true
+        let supervisor = activeSupervisor
+        lock.unlock()
+        supervisor?.requestStop(signal: signal, senderPID: senderPID, senderUID: senderUID, senderName: senderName)
+    }
+
+    private func stopSession() {
+        lock.lock()
+        let supervisor = activeSupervisor
+        lock.unlock()
+        supervisor?.requestStop()
+    }
+
+    private func beginSession() -> TunSupervisor? {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !stopRequested else { return nil }
+        // A stopped session must not leave its stop flag on the next session.
+        let supervisor = TunSupervisor()
+        activeSupervisor = supervisor
+        return supervisor
+    }
+
+    private func endSession(_ supervisor: TunSupervisor) {
+        lock.lock()
+        defer { lock.unlock() }
+        if activeSupervisor === supervisor { activeSupervisor = nil }
     }
 
     private var shouldStop: Bool { lock.lock(); defer { lock.unlock() }; return stopRequested }
@@ -210,10 +284,13 @@ final class TunHelperServer {
         var peer = uid_t()
         var peerGroup = gid_t()
         guard getpeereid(client, &peer, &peerGroup) == 0, peer == owner else { return 77 }
+        var preparedCore: (runtime: URL, binary: URL, digest: String)?
+        defer { if let preparedCore { Self.removeRuntime(preparedCore.runtime) } }
         var lastActivity = ProcessInfo.processInfo.systemUptime
         while !shouldStop {
             let remaining = idleTimeout - (ProcessInfo.processInfo.systemUptime - lastActivity)
-            guard remaining > 0, let request = TunHelperSocket.readRequest(client, timeout: remaining) else { return 0 }
+            guard remaining > 0, let request = TunHelperSocket.readRequest(client, timeout: remaining),
+                  !shouldStop else { return 0 }
             lastActivity = ProcessInfo.processInfo.systemUptime
             switch request.op {
             case "ping":
@@ -222,7 +299,7 @@ final class TunHelperServer {
                 _ = TunHelperSocket.write(TunHelperResponse(ok: true, message: ""), client)
                 return 0
             case "stop":
-                supervisor.requestStop()
+                stopSession()
                 guard TunHelperSocket.write(TunHelperResponse(ok: true, message: ""), client) else { return 0 }
             case "start":
                 let runtime: URL
@@ -232,11 +309,28 @@ final class TunHelperServer {
                 }
                 var accepted = false
                 do {
-                    defer { Self.removeRuntime(runtime) }
+                    defer {
+                        if preparedCore?.runtime == runtime {
+                            try? FileManager.default.removeItem(at: runtime.appendingPathComponent("config.json"))
+                        } else {
+                            Self.removeRuntime(runtime)
+                        }
+                    }
                     let staged = try Self.stage(request, owner: owner, runtime: runtime)
+                    guard let supervisor = beginSession() else { throw TunHelperFailure("TUN 辅助服务正在停止，未启动核心。") }
+                    defer { endSession(supervisor) }
+                    let binary: URL
+                    if let preparedCore, preparedCore.digest == request.binaryDigest {
+                        binary = preparedCore.binary
+                    } else {
+                        if let preparedCore { Self.removeRuntime(preparedCore.runtime) }
+                        // Every request is still copied and hashed by stage; retain only the verified executable.
+                        preparedCore = (runtime, staged.binary, request.binaryDigest!)
+                        binary = staged.binary
+                    }
                     guard TunHelperSocket.write(TunHelperResponse(ok: true, message: ""), client) else { return 0 }
                     accepted = true
-                    _ = try supervisor.run(executable: staged.binary,
+                    _ = try supervisor.run(executable: binary,
                         arguments: ["run", "-c", staged.config.path], lease: staged.lease, status: staged.status)
                 } catch {
                     if !accepted {
@@ -334,4 +428,74 @@ private struct TunHelperFailure: LocalizedError {
     let message: String
     init(_ message: String) { self.message = message }
     var errorDescription: String? { message }
+}
+
+private var tunSignalWriteFD: Int32 = -1
+
+struct TunTerminationSignal {
+    var number: Int32 = 0
+    var senderPID: Int32 = 0
+    var senderUID: UInt32 = 0
+
+    var senderName: String? {
+        guard senderPID > 0 else { return nil }
+        var name = [CChar](repeating: 0, count: 256)
+        guard proc_name(senderPID, &name, UInt32(name.count)) > 0 else { return nil }
+        return String(cString: name)
+    }
+}
+
+enum TunTerminationSignals {
+    /// Process-lifetime handlers use only an async-signal-safe pipe write;
+    /// resolving process names and stopping the core happen on a normal queue.
+    static func install(_ handler: @escaping (TunTerminationSignal) -> Void) throws -> DispatchSourceRead {
+        guard tunSignalWriteFD == -1 else { throw TunHelperFailure("停止信号监听已启动。") }
+        var descriptors: [Int32] = [-1, -1]
+        guard pipe(&descriptors) == 0 else { throw TunHelperFailure("无法创建停止信号通道。") }
+        for fd in descriptors {
+            guard fcntl(fd, F_SETFD, FD_CLOEXEC) == 0, fcntl(fd, F_SETFL, O_NONBLOCK) == 0 else {
+                close(descriptors[0]); close(descriptors[1])
+                throw TunHelperFailure("无法配置停止信号通道。")
+            }
+        }
+        tunSignalWriteFD = descriptors[1]
+        var action = sigaction()
+        sigemptyset(&action.sa_mask)
+        sigaddset(&action.sa_mask, SIGTERM)
+        sigaddset(&action.sa_mask, SIGINT)
+        action.sa_flags = SA_SIGINFO | SA_RESTART
+        action.__sigaction_u.__sa_sigaction = { number, info, _ in
+            let savedErrno = errno
+            var event = TunTerminationSignal(number: number, senderPID: info?.pointee.si_pid ?? 0,
+                                             senderUID: info?.pointee.si_uid ?? 0)
+            _ = withUnsafePointer(to: &event) { Darwin.write(tunSignalWriteFD, $0, MemoryLayout<TunTerminationSignal>.size) }
+            errno = savedErrno
+        }
+        var installed: [(Int32, sigaction)] = []
+        for number in [SIGTERM, SIGINT] {
+            var previous = sigaction()
+            guard sigaction(number, &action, &previous) == 0 else {
+                for (number, var previous) in installed { _ = sigaction(number, &previous, nil) }
+                tunSignalWriteFD = -1
+                close(descriptors[0]); close(descriptors[1])
+                throw TunHelperFailure("无法监听停止信号。")
+            }
+            installed.append((number, previous))
+        }
+        // The descriptors stay open until process exit so a late signal cannot
+        // write to a reused descriptor; CLOEXEC keeps them out of the core.
+        let readFD = descriptors[0]
+        let source = DispatchSource.makeReadSource(fileDescriptor: readFD, queue: .global())
+        source.setEventHandler {
+            while true {
+                var event = TunTerminationSignal()
+                let count = withUnsafeMutablePointer(to: &event) { Darwin.read(readFD, $0, MemoryLayout<TunTerminationSignal>.size) }
+                if count < 0 && errno == EINTR { continue }
+                guard count == MemoryLayout<TunTerminationSignal>.size else { return }
+                handler(event)
+            }
+        }
+        source.resume()
+        return source
+    }
 }

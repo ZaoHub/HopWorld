@@ -1,25 +1,15 @@
 import Foundation
 
-struct SubscriptionTestReport: Sendable {
-    var resolvedURL: String
-    var httpStatus: Int?
-    var downloadBytes: Int
-    var formatName: String
-    var totalParsed: Int
-    var validCount: Int
-    var duplicateCount: Int
-    var invalidCount: Int
-    var durationMS: Int
-    var errorMessage: String?
-}
-
 @MainActor
 final class SubscriptionManager: ObservableObject {
     @Published var updateState: SubscriptionUpdateState = .idle
-    @Published var lastTestReport: SubscriptionTestReport?
 
-    private let fetcher = SubscriptionFetcher()
+    private let fetcher: SubscriptionFetcher
     private let logger = AppLogger.shared
+
+    init(fetcher: SubscriptionFetcher = SubscriptionFetcher()) {
+        self.fetcher = fetcher
+    }
 
     func detectDateTemplate(for urlString: String) -> DateTemplateDetection {
         SubscriptionDateTemplateDetector.detect(from: urlString)
@@ -73,25 +63,18 @@ final class SubscriptionManager: ObservableObject {
         calendar.timeZone = timeZone
 
         switch subscription.updateInterval {
-        case .daily, .every2Days, .weekly:
+        case .days, .weeks:
             var components = calendar.dateComponents([.year, .month, .day], from: date)
             components.hour = subscription.updateHour
             components.minute = subscription.updateMinute
             components.second = 0
-            var candidate = calendar.date(from: components) ?? date
+            let candidate = calendar.date(from: components) ?? date
             if candidate <= date {
-                let days: Int = {
-                    switch subscription.updateInterval {
-                    case .daily: return 1
-                    case .every2Days: return 2
-                    case .weekly: return 7
-                    default: return 1
-                    }
-                }()
-                candidate = calendar.date(byAdding: .day, value: days, to: candidate) ?? candidate
+                let component: Calendar.Component = subscription.updateInterval.unit == .weeks ? .weekOfYear : .day
+                return calendar.date(byAdding: component, value: subscription.updateInterval.count, to: candidate)
             }
             return candidate
-        case .every6Hours, .every12Hours:
+        case .hours:
             guard let interval = subscription.updateInterval.seconds else { return nil }
             return date.addingTimeInterval(interval)
         case .manual:
@@ -117,65 +100,6 @@ final class SubscriptionManager: ObservableObject {
         subscription.nextRetryAt = nil
     }
 
-    func testAddress(_ subscription: Subscription) async -> SubscriptionTestReport {
-        defer { updateState = .idle }
-        let started = Date()
-        updateState = .resolvingURL
-
-        let dates = candidateDates(
-            offset: subscription.dateOffset,
-            fallbackDays: subscription.fallbackDays,
-            timeZoneID: subscription.urlDateTimeZoneID
-        )
-
-        for (index, date) in dates.enumerated() {
-            let url = resolveURL(for: subscription, date: date)
-            updateState = .fetching
-            do {
-                let response = try await fetcher.fetch(urlString: url)
-                updateState = .validating
-                guard SubscriptionPayloadValidator.validateBasic(response.data) else { continue }
-                updateState = .parsing
-                let parsed = try SubscriptionContentParser.parse(data: response.data)
-                let deduped = SubscriptionMerger.deduplicate(parsed.validNodes)
-                let duration = Int(Date().timeIntervalSince(started) * 1000)
-                let report = SubscriptionTestReport(
-                    resolvedURL: url,
-                    httpStatus: response.statusCode,
-                    downloadBytes: response.data.count,
-                    formatName: parsed.formatName,
-                    totalParsed: parsed.validNodes.count + parsed.invalidCount,
-                    validCount: parsed.validNodes.count,
-                    duplicateCount: max(0, parsed.validNodes.count - deduped.count),
-                    invalidCount: parsed.invalidCount,
-                    durationMS: duration,
-                    errorMessage: index > 0 ? "使用回退日期" : nil
-                )
-                lastTestReport = report
-                updateState = .completed
-                return report
-            } catch {
-                continue
-            }
-        }
-
-        let report = SubscriptionTestReport(
-            resolvedURL: subscription.originalURL,
-            httpStatus: nil,
-            downloadBytes: 0,
-            formatName: "—",
-            totalParsed: 0,
-            validCount: 0,
-            duplicateCount: 0,
-            invalidCount: 0,
-            durationMS: Int(Date().timeIntervalSince(started) * 1000),
-            errorMessage: "全部候选地址均不可用"
-        )
-        lastTestReport = report
-        updateState = .failed(report.errorMessage ?? "失败")
-        return report
-    }
-
     func update(
         _ subscription: Subscription,
         existingNodes: [ProxyNode],
@@ -189,11 +113,11 @@ final class SubscriptionManager: ObservableObject {
         var sub = subscription
         sub.lastAttemptAt = Date()
         updateState = .resolvingURL
-        logger.info("开始更新订阅：\(sub.name)", category: .subscription)
+        logger.debug("开始更新订阅：\(sub.name)", category: .subscription)
 
         let dates = candidateDates(
             offset: sub.dateOffset,
-            fallbackDays: sub.fallbackDays,
+            fallbackDays: sub.urlMode == .dateTemplate ? sub.fallbackDays : 0,
             timeZoneID: sub.urlDateTimeZoneID
         )
 
@@ -216,8 +140,12 @@ final class SubscriptionManager: ObservableObject {
                 var response = try await fetcher.fetch(
                     urlString: resolved,
                     etag: sameURL ? sub.etag : nil,
-                    lastModified: sameURL ? sub.lastModified : nil
+                    lastModified: sameURL ? sub.lastModified : nil,
+                    fallbackNodes: existingNodes
                 )
+                if response.usedTemporaryProxy {
+                    logger.info("订阅 \(sub.name) 已通过临时下载通道获取，未切换系统代理", category: .subscription)
+                }
                 httpStatus = response.statusCode
                 if response.notModified {
                     if sameURL {
@@ -243,7 +171,8 @@ final class SubscriptionManager: ObservableObject {
                     response = try await fetcher.fetch(
                         urlString: resolved,
                         etag: nil,
-                        lastModified: nil
+                        lastModified: nil,
+                        fallbackNodes: existingNodes
                     )
                     httpStatus = response.statusCode
                     if response.notModified {
@@ -260,7 +189,9 @@ final class SubscriptionManager: ObservableObject {
 
                 // Probe parse before accepting.
                 updateState = .parsing
-                let parsed = try SubscriptionContentParser.parse(data: response.data)
+                let parsed = try await Task.detached(priority: .utility) {
+                    try SubscriptionContentParser.parse(data: response.data)
+                }.value
                 guard !parsed.validNodes.isEmpty else {
                     lastFailureReason = "未解析到有效节点"
                     continue
@@ -275,8 +206,11 @@ final class SubscriptionManager: ObservableObject {
                 sub.lastResolvedDate = date
                 break
             } catch {
+                if let failure = error as? SubscriptionFetcherError, case .httpError(let code) = failure {
+                    httpStatus = code
+                }
                 lastFailureReason = error.localizedDescription
-                logger.warning("候选地址失败 \(resolved)：\(error.localizedDescription)", category: .subscription)
+                logger.debug("候选地址失败 \(resolved)：\(error.localizedDescription)", category: .subscription)
                 continue
             }
         }
@@ -368,26 +302,28 @@ final class SubscriptionManager: ObservableObject {
             }
 
             updateState = .deduplicating
-            let normalized = parsed.validNodes.map { node -> ProxyNode in
-                var copy = node
-                copy.subscriptionID = sub.id
-                copy.sourceName = sub.name
-                CountryResolver.applyNameHeuristics(to: &copy)
-                copy.nodeFingerprint = NodeFingerprint.make(from: copy)
-                KeychainStore.storeNodeCredentials(&copy)
-                return copy
-            }
+            let mergeInput = sub
+            let normalized = await Task.detached(priority: .utility) {
+                parsed.validNodes.map { node -> ProxyNode in
+                    var copy = node
+                    copy.subscriptionID = mergeInput.id
+                    copy.sourceName = mergeInput.name
+                    CountryResolver.applyNameHeuristics(to: &copy)
+                    copy.nodeFingerprint = NodeFingerprint.make(from: copy)
+                    KeychainStore.storeNodeCredentials(&copy)
+                    return copy
+                }
+            }.value
 
             updateState = .merging
             let oldNodes = existingNodes.filter { $0.subscriptionID == sub.id }
             let otherNodes = existingNodes.filter { $0.subscriptionID != sub.id }
-            let plan = SubscriptionMerger.buildPlan(
-                mode: sub.updateMode,
-                oldNodes: oldNodes,
-                newNodes: normalized,
-                missingLimit: sub.smartMergeMissingLimit,
-                preserveNodeIDs: preserveNodeIDs
-            )
+            let plan = await Task.detached(priority: .utility) {
+                SubscriptionMerger.buildPlan(
+                    mode: mergeInput.updateMode, oldNodes: oldNodes, newNodes: normalized,
+                    missingLimit: mergeInput.smartMergeMissingLimit, preserveNodeIDs: preserveNodeIDs
+                )
+            }.value
 
             let resulting = otherNodes + plan.resultingNodes
             sub.contentHash = newHash
@@ -404,7 +340,8 @@ final class SubscriptionManager: ObservableObject {
             if usedFallback {
                 sub.statusMessage = "今日订阅尚未发布，当前使用：\(resolvedDateText ?? "")"
             } else {
-                sub.statusMessage = "更新成功"
+                sub.statusMessage =
+                    "更新成功 · 新增 \(plan.addedCount) · 更新 \(plan.updatedCount) · 移除 \(plan.removedCount)"
             }
 
             let log = SubscriptionUpdateLog(
@@ -453,7 +390,7 @@ final class SubscriptionManager: ObservableObject {
         subscriptionID: UUID? = nil
     ) -> [ProxyNode] {
         let parsed = NodeLinkParser.parseLines(text)
-        return parsed.validNodes.map { node in
+        return SubscriptionMerger.deduplicate(parsed.validNodes).map { node in
             var copy = node
             copy.sourceName = sourceName
             copy.subscriptionID = subscriptionID
@@ -472,12 +409,12 @@ final class SubscriptionManager: ObservableObject {
         var sub = subscription
         sub.lastAttemptAt = Date()
         updateState = .parsing
-        logger.info("解析节点分享链接：\(sub.name)", category: .subscription)
+        logger.debug("解析节点分享链接：\(sub.name)", category: .subscription)
 
         let text = sub.shareLinksText ?? ""
-        let parsed = NodeLinkParser.parseLines(text)
+        let parsed = await Task.detached(priority: .utility) { NodeLinkParser.parseLines(text) }.value
         guard !parsed.validNodes.isEmpty else {
-            sub.lastError = "未解析到有效节点（ss/vless/vmess/trojan）"
+            sub.lastError = "未解析到有效节点" + parsed.skippedLinksSummary
             sub.statusMessage = sub.lastError
             scheduleFailureRetry(for: &sub)
             updateState = .failed(sub.lastError ?? "")
@@ -491,33 +428,35 @@ final class SubscriptionManager: ObservableObject {
             return (sub, existingNodes, log)
         }
 
-        let imported = parsed.validNodes.map { node -> ProxyNode in
-            var copy = node
-            copy.subscriptionID = sub.id
-            copy.sourceName = sub.name
-            CountryResolver.applyNameHeuristics(to: &copy)
-            copy.nodeFingerprint = NodeFingerprint.make(from: copy)
-            KeychainStore.storeNodeCredentials(&copy)
-            return copy
-        }
+        let mergeInput = sub
+        let imported = await Task.detached(priority: .utility) {
+            parsed.validNodes.map { node -> ProxyNode in
+                var copy = node
+                copy.subscriptionID = mergeInput.id
+                copy.sourceName = mergeInput.name
+                CountryResolver.applyNameHeuristics(to: &copy)
+                copy.nodeFingerprint = NodeFingerprint.make(from: copy)
+                KeychainStore.storeNodeCredentials(&copy)
+                return copy
+            }
+        }.value
 
         updateState = .merging
         let others = existingNodes.filter { $0.subscriptionID != sub.id }
         let oldForSub = existingNodes.filter { $0.subscriptionID == sub.id }
-        let plan = SubscriptionMerger.buildPlan(
-            mode: sub.updateMode,
-            oldNodes: oldForSub,
-            newNodes: imported,
-            missingLimit: sub.smartMergeMissingLimit,
-            preserveNodeIDs: preserveNodeIDs
-        )
+        let plan = await Task.detached(priority: .utility) {
+            SubscriptionMerger.buildPlan(
+                mode: mergeInput.updateMode, oldNodes: oldForSub, newNodes: imported,
+                missingLimit: mergeInput.smartMergeMissingLimit, preserveNodeIDs: preserveNodeIDs
+            )
+        }.value
         let merged = others + plan.resultingNodes
         sub.nodeCount = plan.resultingNodes.filter { !$0.pendingRemoval }.count
         sub.lastSuccessAt = Date()
         sub.lastError = nil
         clearFailureRetry(for: &sub)
         sub.lastHTTPStatus = nil
-        sub.statusMessage = "已导入 \(parsed.validNodes.count) 个分享节点"
+        sub.statusMessage = "已导入 \(parsed.validNodes.count) 个分享节点" + parsed.skippedLinksSummary
         sub.contentHash = String(text.hashValue)
         sub.nextUpdateAt = nil
         sub.autoUpdate = false

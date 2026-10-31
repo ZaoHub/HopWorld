@@ -1,6 +1,7 @@
 import Foundation
 import CryptoKit
 import Combine
+import Darwin
 
 enum CryptoUtil {
     static func sha256Hex(_ string: String) -> String {
@@ -15,7 +16,33 @@ enum CryptoUtil {
 
 enum NodeFingerprint {
     static func make(from node: ProxyNode) -> String {
-        let raw = connectionCanonicalParts(from: node).joined(separator: "|")
+        var raw = connectionCanonicalParts(from: node).joined(separator: "|")
+        if node.protocolType == .anytls {
+            raw += "|insecure=\(node.allowInsecure ?? false)|alpn=\(node.alpn ?? "")|fingerprint=\(node.fingerprint ?? "")"
+        }
+        if node.protocolType == .hysteria2 { raw += "|insecure=\(node.allowInsecure ?? false)|alpn=\(node.alpn ?? "")|pin=\(node.pinnedCertSHA256 ?? "")" }
+        if node.protocolType == .masque {
+            let options: [String: Any] = ["username": node.username ?? "", "headers": node.masqueHeaders ?? [:],
+                                          "remoteDNS": node.masqueRemoteDNS ?? [], "alpn": node.alpn ?? "h3",
+                                          "pin": node.pinnedCertSHA256 ?? "", "insecure": node.allowInsecure ?? false,
+                                          "fingerprint": node.fingerprint ?? "", "finalMask": node.finalMaskJSON ?? ""]
+            if let data = try? JSONSerialization.data(withJSONObject: options, options: [.sortedKeys]) {
+                raw += "|masque=" + String(decoding: data, as: UTF8.self)
+            }
+        }
+        if [.tuic, .wireguard, .socks5, .http].contains(node.protocolType) {
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.sortedKeys]
+            let tuic = node.tuicOptions ?? TuicOptions()
+            let options: [String: Any] = ["username": node.username ?? "", "headers": node.httpHeaders ?? [:],
+                "alpn": node.alpn ?? (node.protocolType == .tuic ? "h3" : ""), "sni": node.sni ?? "",
+                "pin": node.pinnedCertSHA256 ?? "", "insecure": node.allowInsecure ?? false,
+                "tuic": String(decoding: (try? encoder.encode(tuic)) ?? Data(), as: UTF8.self),
+                "wireguard": String(decoding: (try? encoder.encode(node.wireGuardOptions)) ?? Data(), as: UTF8.self)]
+            if let data = try? JSONSerialization.data(withJSONObject: options, options: [.sortedKeys]) {
+                raw += "|remote=" + String(decoding: data, as: UTF8.self)
+            }
+        }
         return CryptoUtil.sha256Hex(raw)
     }
 
@@ -82,6 +109,16 @@ struct LogEntry: Identifiable, Codable, Hashable, Sendable {
     let category: LogCategory
     let message: String
 
+    var isProblem: Bool { level == .warning || level == .error }
+
+    var displayMessage: String {
+        guard category == .test, message.hasPrefix("节点测试失败 · "),
+              let nodeList = message.range(of: #" · [0-9]+ 个节点[：:]"#, options: .regularExpression) else {
+            return message
+        }
+        return String(message[..<message.index(before: nodeList.upperBound)])
+    }
+
     init(
         id: UUID = UUID(),
         date: Date = Date(),
@@ -98,8 +135,27 @@ struct LogEntry: Identifiable, Codable, Hashable, Sendable {
 }
 
 enum LogRedactor {
+    private static let addressKey = SymmetricKey(size: .bits256)
+
+    static func addressIdentifier(_ address: String) -> String {
+        let digest = HMAC<SHA256>.authenticationCode(for: Data(address.lowercased().utf8), using: addressKey)
+        return "ip#" + digest.prefix(6).map { String(format: "%02x", $0) }.joined()
+    }
+
     static func redact(_ text: String) -> String {
         var result = text
+        // Drop URL paths/queries, share links, auth headers and structured secrets.
+        let secrets: [(String, String)] = [
+            (#"(?i)\b(?:https?|wss?|socks(?:4a?|5h?)?|anytls|vless|vmess|trojan|ss|hysteria2|hy2|masque|tuic|wireguard|wg)://[^\s<>\"'，；）]+"#, "[URL 已脱敏]"),
+            (#"(?im)\b(?:authorization|proxy-authorization|cookie|set-cookie)\s*[:=][^\r\n]+"#, "[认证信息已脱敏]"),
+            (#"(?i)\bbearer\s+[^\s,;]+"#, "Bearer ••••••"),
+            (#"(?i)(\"?(?:access_token|refresh_token|api[_-]?key|token|password|passwd|pwd|secret|private[_-]?key|pre[_-]?shared[_-]?key|authorization|proxy-authorization|cookie|set-cookie)\"?\s*[:=]\s*)(?:\"(?:\\.|[^\"\\])*\"|'[^']*'|[^&\s,;}]+)"#, "$1••••••"),
+            (#"\bsk-[A-Za-z0-9_-]+"#, "••••••"),
+            (#"/Users/[^/\s]+"#, "/Users/[用户]")
+        ]
+        for (pattern, replacement) in secrets {
+            result = result.replacingOccurrences(of: pattern, with: replacement, options: .regularExpression)
+        }
         // UUID-like credentials
         if let regex = try? NSRegularExpression(pattern: #"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"#) {
             result = regex.stringByReplacingMatches(
@@ -108,21 +164,19 @@ enum LogRedactor {
                 withTemplate: "••••••••"
             )
         }
-        // scheme://secret@host
-        if let regex = try? NSRegularExpression(pattern: #"(vless|vmess|trojan|ss)://[^@\s]+@"#) {
-            result = regex.stringByReplacingMatches(
-                in: result,
-                range: NSRange(result.startIndex..., in: result),
-                withTemplate: "$1://••••••@"
-            )
-        }
-        // query tokens
-        if let regex = try? NSRegularExpression(pattern: #"(token|password|pwd|key)=([^&\s]+)"#, options: .caseInsensitive) {
-            result = regex.stringByReplacingMatches(
-                in: result,
-                range: NSRange(result.startIndex..., in: result),
-                withTemplate: "$1=••••••"
-            )
+        // Replace only valid literals, preserving error codes, ports and timings.
+        let pattern = #"(?<![\w.])(?:[0-9]{1,3}\.){3}[0-9]{1,3}(?![\w.])|(?<!\w)[0-9a-fA-F:]*:[0-9a-fA-F:.]*:[0-9a-fA-F:.]+(?:%[\w]+)?"#
+        if let regex = try? NSRegularExpression(pattern: pattern) {
+            for match in regex.matches(in: result, range: NSRange(result.startIndex..., in: result)).reversed() {
+                guard let range = Range(match.range, in: result) else { continue }
+                let literal = String(result[range])
+                let address = literal.components(separatedBy: "%")[0]
+                var v4 = in_addr()
+                var v6 = in6_addr()
+                if inet_pton(AF_INET, address, &v4) == 1 || inet_pton(AF_INET6, address, &v6) == 1 {
+                    result.replaceSubrange(range, with: addressIdentifier(address))
+                }
+            }
         }
         return result
     }
@@ -137,20 +191,29 @@ final class AppLogger: ObservableObject {
 
     private let maxEntries = 2000
     private let logFileURL: URL
+    private let historicalEntryIDs: Set<UUID>
     private var saveTask: Task<Void, Never>?
+    private var writeTask: Task<Void, Never>?
 
-    private init() {
-        let directory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-            .appendingPathComponent("HopWorld", isDirectory: true)
+    init(logFileURL: URL? = nil) {
+        let directory = logFileURL?.deletingLastPathComponent()
+            ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+                .appendingPathComponent("HopWorld", isDirectory: true)
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        logFileURL = directory.appendingPathComponent("app-logs.json")
+        self.logFileURL = logFileURL ?? directory.appendingPathComponent("app-logs.json")
 
-        if let data = try? Data(contentsOf: logFileURL),
+        let savedEntries: [LogEntry]
+        if let data = try? Data(contentsOf: self.logFileURL),
            let saved = try? JSONDecoder.logDecoder.decode([LogEntry].self, from: data) {
-            entries = Array(saved.suffix(maxEntries))
+            savedEntries = saved.suffix(maxEntries).map {
+                LogEntry(id: $0.id, date: $0.date, level: $0.level, category: $0.category,
+                         message: LogRedactor.redact($0.message))
+            }
         } else {
-            entries = []
+            savedEntries = []
         }
+        entries = savedEntries
+        historicalEntryIDs = Set(savedEntries.map(\.id))
     }
 
     func log(_ level: AppLogLevel, category: LogCategory, _ message: String) {
@@ -158,7 +221,9 @@ final class AppLogger: ObservableObject {
         let entry = LogEntry(level: level, category: category, message: LogRedactor.redact(message))
         entries.append(entry)
         if entries.count > maxEntries {
-            entries.removeFirst(entries.count - maxEntries)
+            // Keep recent context, including manual disconnects, alongside older problems.
+            let oldestRoutine = entries.prefix(entries.count - 100).firstIndex { !$0.isProblem }
+            entries.remove(at: oldestRoutine ?? entries.startIndex)
         }
         scheduleSave()
         #if DEBUG
@@ -190,26 +255,60 @@ final class AppLogger: ObservableObject {
     func exportText(_ selectedEntries: [LogEntry]? = nil) -> String {
         let formatter = ISO8601DateFormatter()
         return (selectedEntries ?? entries).map {
-            "\(formatter.string(from: $0.date)) [\($0.level.displayName)][\($0.category.displayName)] \($0.message)"
+            "\(formatter.string(from: $0.date)) [\($0.level.displayName)][\($0.category.displayName)] \(LogRedactor.redact($0.displayMessage))"
         }.joined(separator: "\n")
+    }
+
+    var hasCurrentSessionProblems: Bool {
+        entries.contains { $0.isProblem && !historicalEntryIDs.contains($0.id) }
+    }
+
+    var hasHistoricalEntries: Bool {
+        entries.contains { historicalEntryIDs.contains($0.id) }
+    }
+
+    func recentEntries(problemsOnly: Bool, includeHistory: Bool = true, limit: Int = 100) -> [LogEntry] {
+        Array(entries.reversed().lazy
+            .filter { includeHistory || !self.historicalEntryIDs.contains($0.id) }
+            .filter { !problemsOnly || $0.isProblem }
+            .prefix(max(0, limit)))
+    }
+
+    func flush() async {
+        saveTask?.cancel()
+        saveTask = nil
+        await enqueueWrite(entries).value
     }
 
     private func scheduleSave() {
         saveTask?.cancel()
         let snapshot = entries
-        let file = logFileURL
         saveTask = Task {
             try? await Task.sleep(nanoseconds: 300_000_000)
             guard !Task.isCancelled else { return }
-            await Task.detached(priority: .utility) {
-                do {
-                    let data = try JSONEncoder.logEncoder.encode(snapshot)
-                    try data.write(to: file, options: .atomic)
-                } catch {
-                    // Do not recursively log failures while persisting the log itself.
-                }
-            }.value
+            await enqueueWrite(snapshot).value
         }
+    }
+
+    private func enqueueWrite(_ snapshot: [LogEntry]) -> Task<Void, Never> {
+        let previous = writeTask
+        let file = logFileURL
+        // Cancelling a debounce cannot cancel a write already in progress.
+        let task = Task.detached(priority: .utility) {
+            await previous?.value
+            do {
+                let data = try JSONEncoder.logEncoder.encode(snapshot)
+                let temporary = file.deletingLastPathComponent().appendingPathComponent(".log-\(UUID().uuidString)")
+                defer { try? FileManager.default.removeItem(at: temporary) }
+                guard FileManager.default.createFile(atPath: temporary.path, contents: data,
+                                                     attributes: [.posixPermissions: 0o600]) else { return }
+                guard rename(temporary.path, file.path) == 0 else { return }
+            } catch {
+                // Do not recursively log failures while persisting the log itself.
+            }
+        }
+        writeTask = task
+        return task
     }
 }
 

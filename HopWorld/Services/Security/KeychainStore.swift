@@ -124,14 +124,28 @@ enum KeychainStore {
     }
 
     static func storeNodeCredentials(_ node: inout ProxyNode) {
+        if [.socks5, .http].contains(node.protocolType), node.username == nil, node.password == nil, node.httpHeaders == nil {
+            node.credentialKey = nil
+            return
+        }
         let key = node.credentialKey ?? node.id.uuidString
-        let payload: [String: String?] = [
+        var payload: [String: String?] = [
             "uuid": node.uuid,
             "password": node.password,
+            "username": node.username,
             "method": node.method,
             "publicKey": node.publicKey,
             "shortID": node.shortID
         ]
+        if let headers = node.masqueHeaders, let data = try? JSONEncoder().encode(headers) {
+            payload["masqueHeaders"] = String(data: data, encoding: .utf8)
+        }
+        if let options = node.wireGuardOptions, let data = try? JSONEncoder().encode(options) {
+            payload["wireGuardOptions"] = String(decoding: data, as: UTF8.self)
+        }
+        if let headers = node.httpHeaders, let data = try? JSONEncoder().encode(headers) {
+            payload["httpHeaders"] = String(decoding: data, as: UTF8.self)
+        }
         guard let data = try? JSONSerialization.data(withJSONObject: payload.compactMapValues { $0 }),
               let text = String(data: data, encoding: .utf8)
         else { return }
@@ -145,27 +159,55 @@ enum KeychainStore {
         }
     }
 
-    static func hydrateCredentials(_ node: inout ProxyNode) {
+    static func hydrateCredentials(_ node: inout ProxyNode,
+                                   loadCredential: (String) -> String? = KeychainStore.load(account:)) {
         // V1 still keeps secrets on the node model; avoid Keychain I/O when already hydrated.
         if hasCredentials(node) { return }
 
-        guard let key = node.credentialKey, let text = load(account: key),
+        guard let key = node.credentialKey, let text = loadCredential(key),
               let data = text.data(using: .utf8),
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: String]
         else { return }
 
         if node.uuid == nil { node.uuid = json["uuid"] }
         if node.password == nil { node.password = json["password"] }
+        if node.username == nil { node.username = json["username"] }
+        if let data = json["wireGuardOptions"]?.data(using: .utf8),
+           let options = try? JSONDecoder().decode(WireGuardOptions.self, from: data) {
+            if node.wireGuardOptions == nil { node.wireGuardOptions = options }
+            else if node.wireGuardOptions?.privateKey == nil {
+                node.wireGuardOptions?.privateKey = options.privateKey
+                if node.wireGuardOptions?.preSharedKey == nil { node.wireGuardOptions?.preSharedKey = options.preSharedKey }
+            }
+        }
+        if node.httpHeaders == nil, let data = json["httpHeaders"]?.data(using: .utf8) {
+            node.httpHeaders = try? JSONDecoder().decode([String: String].self, from: data)
+        }
+        if node.masqueHeaders == nil, let data = json["masqueHeaders"]?.data(using: .utf8) {
+            node.masqueHeaders = try? JSONDecoder().decode([String: String].self, from: data)
+        }
         if node.method == nil { node.method = json["method"] }
-        if node.publicKey == nil { node.publicKey = json["publicKey"] }
+        if (node.publicKey ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            node.publicKey = json["publicKey"]?.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
         if node.shortID == nil { node.shortID = json["shortID"] }
     }
 
     private static func hasCredentials(_ node: ProxyNode) -> Bool {
+        if node.security == .reality,
+           (node.publicKey ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return false }
         switch node.protocolType {
+        case .tuic:
+            return node.uuid != nil && node.password != nil
+        case .wireguard:
+            return node.wireGuardOptions?.privateKey != nil
+        case .socks5, .http:
+            return node.username != nil || node.password != nil || node.httpHeaders != nil || node.credentialKey == nil
+        case .masque:
+            return node.username != nil || node.password != nil || node.masqueHeaders != nil || node.credentialKey == nil
         case .vless, .vmess:
             return !(node.uuid ?? "").isEmpty
-        case .trojan, .shadowsocks:
+        case .anytls, .trojan, .shadowsocks, .hysteria2:
             return !(node.password ?? "").isEmpty
         }
     }

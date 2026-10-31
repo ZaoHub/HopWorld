@@ -6,6 +6,8 @@ enum ShareLinkExporter {
         var copy = node
         KeychainStore.hydrateCredentials(&copy)
         switch copy.protocolType {
+        case .anytls, .tuic, .wireguard, .socks5, .http:
+            return RemoteProtocolParser.shareLink(copy)
         case .vless:
             return encodeVLESS(copy)
         case .vmess:
@@ -14,6 +16,41 @@ enum ShareLinkExporter {
             return encodeTrojan(copy)
         case .shadowsocks:
             return encodeShadowsocks(copy)
+        case .hysteria2:
+            guard let password = copy.password, !password.isEmpty else { return nil }
+            var components = URLComponents()
+            components.scheme = "hysteria2"
+            components.host = copy.server
+            components.port = copy.port
+            components.user = password
+            components.fragment = copy.name
+            var query = [URLQueryItem(name: "insecure", value: copy.allowInsecure == true ? "1" : "0")]
+            if let sni = copy.sni { query.append(URLQueryItem(name: "sni", value: sni)) }
+            if let alpn = copy.alpn { query.append(URLQueryItem(name: "alpn", value: alpn)) }
+            if let pin = copy.pinnedCertSHA256 { query.append(URLQueryItem(name: "pinSHA256", value: pin)) }
+            components.queryItems = query
+            return components.string
+        case .masque:
+            guard (try? MasqueParser.validate(copy)) != nil else { return nil }
+            var components = URLComponents()
+            components.scheme = "masque"
+            components.host = copy.server.contains(":") ? "[\(copy.server)]" : copy.server
+            components.port = copy.port
+            components.user = copy.username
+            components.password = copy.password
+            components.fragment = copy.name
+            var query: [String: String] = ["alpn": copy.alpn ?? "h3"]
+            put(&query, "sni", copy.sni)
+            put(&query, "host", copy.host)
+            put(&query, "path", copy.path)
+            put(&query, "pinSHA256", copy.pinnedCertSHA256)
+            if let dns = copy.masqueRemoteDNS, !dns.isEmpty { query["remoteDNS"] = dns.joined(separator: ",") }
+            if let headers = copy.masqueHeaders, !headers.isEmpty,
+               let data = try? JSONSerialization.data(withJSONObject: headers, options: [.sortedKeys]) {
+                query["headers"] = String(data: data, encoding: .utf8)
+            }
+            components.queryItems = query.sorted { $0.key < $1.key }.map { URLQueryItem(name: $0.key, value: $0.value) }
+            return components.string
         }
     }
 
@@ -114,6 +151,7 @@ enum ShareLinkExporter {
         case .xhttp: return "xhttp"
         case .quic: return "quic"
         case .h2, .http: return "h2"
+        case .masque: return "masque"
         }
     }
 

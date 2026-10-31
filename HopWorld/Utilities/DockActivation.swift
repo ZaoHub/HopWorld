@@ -45,6 +45,7 @@ enum DockActivationPolicy {
         guard window.isNormalLevel, !window.isPanel, window.hasTitlebar, !window.isStatusBarWindow else {
             return false
         }
+        guard window.isVisible || window.isMiniaturized || window.title == "跃界" else { return false }
         if window.isMiniaturized { return true }
         if !window.title.isEmpty { return true }
         return window.area > 4
@@ -52,6 +53,7 @@ enum DockActivationPolicy {
 
     private static func isFallbackWindow(_ window: DockWindowTraits) -> Bool {
         guard window.isNormalLevel, !window.isStatusBarWindow else { return false }
+        guard window.isVisible || window.isMiniaturized || window.title == "跃界" else { return false }
         return window.isMiniaturized || !window.title.isEmpty
     }
 
@@ -172,7 +174,7 @@ enum DockReopen {
         let windows = NSApp.windows.map {
             "id=\($0.windowNumber),level=\($0.level.rawValue),panel=\($0 is NSPanel),titled=\($0.styleMask.contains(.titled)),visible=\($0.isVisible),isKey:\($0.isKeyWindow),isMain:\($0.isMainWindow)"
         }.joined(separator: "; ")
-        AppLogger.shared.info("WindowActivation stage=\(stage) active=\(NSApp.isActive) hidden=\(NSApp.isHidden) windows=[\(windows)]")
+        AppLogger.shared.debug("WindowActivation stage=\(stage) active=\(NSApp.isActive) hidden=\(NSApp.isHidden) windows=[\(windows)]")
     }
 
     @discardableResult
@@ -198,7 +200,6 @@ enum DockReopen {
         if let keyIndex = plan.orderFront.last, windows.indices.contains(keyIndex) {
             windows[keyIndex].makeKeyAndOrderFront(nil)
         }
-        NSApp.arrangeInFront(nil)
         trace("raised")
         return true
     }

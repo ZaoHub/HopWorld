@@ -46,6 +46,30 @@ enum ClashYAMLParser {
         let port = Int(proxy["port"] ?? "") ?? 0
         guard !server.isEmpty, (1...65535).contains(port) else { throw ParserError.missingField("server/port") }
 
+        if ["anytls", "tuic", "wireguard", "socks5", "http"].contains(type) { return try RemoteProtocolParser.parseClash(proxy) }
+
+        if type == "masque" {
+            guard proxy["network"] == nil || proxy["network"]?.lowercased() == "masque",
+                  proxy["tls"] == nil || proxy["tls"]?.lowercased() == "true",
+                  !proxy.keys.contains(where: { $0.hasPrefix("warp") || $0 == "private-key" }) else {
+                throw ParserError.unsupportedOption("此处仅支持使用 TLS 的标准 MASQUE CONNECT-IP 节点")
+            }
+            var headers: [String: String] = [:]
+            for (key, value) in proxy {
+                if key.hasPrefix("headers.") { headers[String(key.dropFirst("headers.".count))] = value }
+            }
+            let node = ProxyNode(name: name, protocolType: .masque, server: server, port: port,
+                                 password: proxy["password"], username: proxy["username"],
+                                 masqueHeaders: headers.isEmpty ? nil : headers,
+                                 masqueRemoteDNS: proxy["remote-dns"].map { $0.components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespaces) } },
+                                 transport: .masque, security: .tls, sni: proxy["sni"] ?? proxy["servername"],
+                                 host: proxy["host"], path: proxy["path"], alpn: proxy["alpn"] ?? "h3",
+                                 allowInsecure: proxy["skip-cert-verify"]?.lowercased() == "true",
+                                 pinnedCertSHA256: proxy["pin-sha256"])
+            try MasqueParser.validate(node)
+            return node
+        }
+
         let network = (proxy["network"] ?? "tcp").lowercased()
         guard let transport = mapNetwork(network) else { throw ParserError.unsupportedScheme("Clash network") }
         if type == "vless" || type == "vmess" {
@@ -56,11 +80,14 @@ enum ClashYAMLParser {
         if type == "ss" || type == "shadowsocks" {
             guard !(proxy["cipher"] ?? "").isEmpty else { throw ParserError.missingField("cipher") }
         }
-        let host = proxy["ws-opts.headers.host"] ?? proxy["http-opts.headers.host"] ?? proxy["host"]
-        let path = proxy["ws-opts.path"] ?? proxy["http-opts.path"] ?? proxy["path"]
+        let host = proxy["ws-opts.headers.host"] ?? proxy["h2-opts.host"] ?? proxy["http-opts.headers.host"] ?? proxy["host"]
+        let path = proxy["ws-opts.path"] ?? proxy["h2-opts.path"] ?? proxy["http-opts.path"] ?? proxy["path"]
         let serviceName = proxy["grpc-opts.grpc-service-name"] ?? proxy["grpc-service-name"] ?? proxy["servicename"]
+        let publicKey = ["reality-opts.public-key", "reality-opts.publickey", "reality-opts.public_key",
+                         "reality-opts.password", "public-key", "publickey", "public_key"]
+            .lazy.compactMap { proxy[$0]?.trimmingCharacters(in: .whitespacesAndNewlines) }.first { !$0.isEmpty }
         let security: SecurityType = {
-            if proxy.keys.contains(where: { $0.hasPrefix("reality") || $0.contains("public-key") }) {
+            if publicKey != nil || proxy.keys.contains(where: { $0.hasPrefix("reality") || $0.contains("public-key") }) {
                 return .reality
             }
             if (proxy["tls"] ?? "").lowercased() == "true" {
@@ -70,6 +97,14 @@ enum ClashYAMLParser {
         }()
 
         switch type {
+        case "hysteria2", "hy2":
+            for key in ["obfs", "obfs-password", "ports"] where !(proxy[key] ?? "").isEmpty {
+                throw ParserError.unsupportedOption("暂不支持 Hysteria2 参数：\(key)")
+            }
+            return ProxyNode(name: name, protocolType: .hysteria2, server: server, port: port,
+                             password: proxy["password"], security: .tls, sni: proxy["sni"] ?? proxy["servername"],
+                             alpn: proxy["alpn"], allowInsecure: proxy["skip-cert-verify"]?.lowercased() == "true",
+                             pinnedCertSHA256: proxy["fingerprint"])
         case "vless":
             return ProxyNode(
                 name: name,
@@ -85,8 +120,9 @@ enum ClashYAMLParser {
                 host: host,
                 path: path,
                 serviceName: serviceName,
-                publicKey: proxy["reality-opts.public-key"] ?? proxy["public-key"] ?? proxy["publickey"],
-                shortID: proxy["reality-opts.short-id"] ?? proxy["short-id"] ?? proxy["shortid"],
+                publicKey: publicKey,
+                shortID: proxy["reality-opts.short-id"] ?? proxy["reality-opts.shortid"] ?? proxy["reality-opts.short_id"]
+                    ?? proxy["short-id"] ?? proxy["shortid"] ?? proxy["short_id"],
                 fingerprint: proxy["client-fingerprint"] ?? proxy["fingerprint"],
                 alpn: proxy["alpn"]
             )
@@ -170,6 +206,7 @@ enum ClashYAMLParser {
         var current: [String: String] = [:]
         var parents: [(indent: Int, key: String)] = []
         var itemIndent: Int?
+        var plainScalar: (indent: Int, key: String)?
         for raw in lines.dropFirst(start + 1) {
             let line = stripComment(raw)
             let trimmed = line.trimmingCharacters(in: .whitespaces)
@@ -178,6 +215,13 @@ enum ClashYAMLParser {
             let indent = line.prefix(while: { $0 == " " }).count
             let isItem = trimmed.hasPrefix("- ") || trimmed == "-"
             if indent <= sectionIndent && !isItem { break }
+            // YAML folds more-indented continuation lines into the preceding plain scalar.
+            if let scalar = plainScalar, indent > scalar.indent, !isItem {
+                guard !trimmed.contains(": "), !trimmed.hasSuffix(":") else { throw ParserError.noValidNodes }
+                current[scalar.key, default: ""] += " " + trimmed
+                continue
+            }
+            plainScalar = nil
             if isItem && (itemIndent == nil || indent == itemIndent) {
                 if !current.isEmpty { result.append(current) }
                 current = [:]
@@ -190,6 +234,7 @@ enum ClashYAMLParser {
                     let pair = try parsePair(body)
                     try addValue(pair.value, key: pair.key, into: &current)
                     if pair.value.isEmpty { parents.append((indent + 2, pair.key)) }
+                    else if isPlainScalar(pair.value) { plainScalar = (indent + 2, pair.key) }
                 }
                 continue
             }
@@ -197,7 +242,7 @@ enum ClashYAMLParser {
             if isItem {
                 guard let parent = parents.last, indent >= parent.indent else { throw ParserError.noValidNodes }
                 let key = parents.map(\.key).joined(separator: ".")
-                guard ["alpn", "http-opts.path", "http-opts.headers.Host", "http-opts.headers.host"].contains(key) else { throw ParserError.noValidNodes }
+                guard ["alpn", "h2-opts.host", "http-opts.path", "http-opts.headers.Host", "http-opts.headers.host"].contains(key) else { throw ParserError.noValidNodes }
                 let value = try scalar(String(trimmed.dropFirst()).trimmingCharacters(in: .whitespaces))
                 current[key] = current[key].map { $0 + "," + value } ?? value
                 continue
@@ -207,9 +252,15 @@ enum ClashYAMLParser {
             let key = (parents.map(\.key) + [pair.key]).joined(separator: ".")
             try addValue(pair.value, key: key, into: &current)
             if pair.value.isEmpty { parents.append((indent, pair.key)) }
+            else if isPlainScalar(pair.value) { plainScalar = (indent, key) }
         }
         if !current.isEmpty { result.append(current) }
         return result
+    }
+
+    private static func isPlainScalar(_ value: String) -> Bool {
+        guard let first = value.first else { return false }
+        return !"\"'{[&*!|>".contains(first)
     }
 
     private static func addValue(_ value: String, key: String, into result: inout [String: String]) throws {

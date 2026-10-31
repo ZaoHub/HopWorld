@@ -11,9 +11,12 @@ enum VLESSParser {
         let query = parts.query
         let name = parts.fragment ?? "\(parts.host):\(parts.port)"
 
-        let publicKey = query["pbk"]
-        let shortID = query["sid"]
         var security = SecurityType(rawValue: (query["security"] ?? "none").lowercased()) ?? .none
+        let keyFields = ["pbk", "publicKey", "publickey", "public-key", "public_key"]
+            + (security == .reality ? ["password"] : [])
+        let publicKey = keyFields.lazy.compactMap { query[$0]?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first { !$0.isEmpty }
+        let shortID = query["sid"] ?? query["shortId"] ?? query["shortID"] ?? query["short-id"] ?? query["short_id"]
         if let publicKey, !publicKey.isEmpty {
             security = .reality
         }

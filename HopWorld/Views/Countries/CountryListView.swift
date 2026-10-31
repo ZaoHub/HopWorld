@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// 国家页做成机场出发信息板：国家是目的地，节点是航线，延迟是飞行时间。
@@ -31,36 +32,37 @@ struct CountryListView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: .windowBackgroundColor).ignoresSafeArea())
         .onAppear { reconcileExpansion() }
-        .onChange(of: appState.countryGroups.map(\.code)) { _, _ in
+        .onChange(of: appState.countryGroups.map(\.code)) { _ in
             if region != .all, !shownRegions.contains(region) {
                 region = .all
             }
             reconcileExpansion()
         }
-        .onChange(of: region) { _, _ in reconcileExpansion() }
-        .onChange(of: query) { _, _ in reconcileExpansion() }
+        .onChange(of: region) { _ in reconcileExpansion() }
+        .onChange(of: query) { _ in reconcileExpansion() }
     }
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .center, spacing: 14) {
-                Image(systemName: "airplane.departure")
-                    .font(.system(size: 22, weight: .semibold))
-                    .foregroundStyle(palette.accent)
-
-                VStack(alignment: .leading, spacing: 3) {
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 6) {
                     Text("DEPARTURES · 出发信息板")
                         .font(.system(size: 11, weight: .bold, design: .monospaced))
-                        .tracking(2.2)
                         .foregroundStyle(palette.accent)
-                    Text("目的地")
-                        .font(.system(size: 30, weight: .bold))
-                        .foregroundStyle(palette.text)
+                    HStack(spacing: 8) {
+                        Image(systemName: "airplane.departure")
+                            .font(.system(size: 24, weight: .semibold))
+                            .foregroundStyle(palette.text)
+                        Text("目的地")
+                            .font(.system(size: 26, weight: .bold))
+                            .foregroundStyle(palette.text)
+                            .fixedSize()
+                    }
                 }
 
-                Spacer(minLength: 12)
+                Spacer(minLength: 8)
 
-                VStack(alignment: .trailing, spacing: 4) {
+                VStack(alignment: .trailing, spacing: 6) {
                     TimelineView(.periodic(from: .now, by: 1)) { context in
                         Text(context.date, format: .dateTime.hour().minute().second())
                             .font(.system(size: 17, weight: .semibold, design: .monospaced))
@@ -88,9 +90,9 @@ struct CountryListView: View {
                     .frame(width: 220)
             }
         }
-        .padding(.horizontal, 22)
-        .padding(.top, 18)
-        .padding(.bottom, 14)
+        .padding(.horizontal, 16)
+        .padding(.top, 14)
+        .padding(.bottom, 8)
     }
 
     /// 整页一块信息板：每个国家一行，点击就地展开它的航线。
@@ -321,7 +323,7 @@ struct CountryListView: View {
         if group.name.localizedCaseInsensitiveContains(needle) { return true }
         if group.code.localizedCaseInsensitiveContains(needle) { return true }
         return group.nodes.contains {
-            $0.displayTitle.localizedCaseInsensitiveContains(needle) ||
+            appState.settings.nodeDisplayTitle($0).localizedCaseInsensitiveContains(needle) ||
             $0.name.localizedCaseInsensitiveContains(needle)
         }
     }
@@ -343,7 +345,7 @@ struct CountryListView: View {
             group.code.localizedCaseInsensitiveContains(needle)
         if countryHit { return ordered }
         return ordered.filter {
-            $0.displayTitle.localizedCaseInsensitiveContains(needle) ||
+            appState.settings.nodeDisplayTitle($0).localizedCaseInsensitiveContains(needle) ||
             $0.name.localizedCaseInsensitiveContains(needle)
         }
     }
@@ -372,7 +374,7 @@ struct CountryListView: View {
             let leftLatency = lhs.lastLatency ?? Int.max
             let rightLatency = rhs.lastLatency ?? Int.max
             if leftLatency != rightLatency { return leftLatency < rightLatency }
-            return lhs.displayTitle.localizedStandardCompare(rhs.displayTitle) == .orderedAscending
+            return appState.settings.nodeDisplayTitle(lhs).localizedStandardCompare(appState.settings.nodeDisplayTitle(rhs)) == .orderedAscending
         }
     }
 
@@ -472,7 +474,6 @@ private struct BoardPalette {
     var boardTop: Color
     var boardBottom: Color
     var panel: Color
-    var panelHover: Color
     var panelSelected: Color
     var chip: Color
     var stripe: Color
@@ -494,7 +495,6 @@ private struct BoardPalette {
             boardTop = Color(red: 0.045, green: 0.055, blue: 0.085)
             boardBottom = Color(red: 0.070, green: 0.085, blue: 0.125)
             panel = Color(red: 0.100, green: 0.120, blue: 0.170)
-            panelHover = Color(red: 0.125, green: 0.148, blue: 0.205)
             panelSelected = Color(red: 0.170, green: 0.150, blue: 0.110)
             chip = Color.white.opacity(0.06)
             stripe = Color.white.opacity(0.045)
@@ -509,7 +509,6 @@ private struct BoardPalette {
             boardTop = Color(red: 0.918, green: 0.930, blue: 0.952)
             boardBottom = Color(red: 0.862, green: 0.878, blue: 0.910)
             panel = .white
-            panelHover = Color(red: 0.975, green: 0.982, blue: 1.0)
             panelSelected = Color(red: 1.0, green: 0.950, blue: 0.860)
             chip = Color.black.opacity(0.045)
             stripe = Color.black.opacity(0.035)
@@ -637,7 +636,7 @@ private struct StatusBeacon: View {
                 value: dim
             )
             .onAppear { dim = pulsing }
-            .onChange(of: pulsing) { _, new in dim = new }
+            .onChange(of: pulsing) { new in dim = new }
     }
 }
 
@@ -662,8 +661,6 @@ private struct CountryBoardRow: View {
     var isTesting: Bool
     var onToggle: () -> Void
 
-    @State private var hovered = false
-
     var body: some View {
         VStack(spacing: 0) {
             mainRow
@@ -672,8 +669,7 @@ private struct CountryBoardRow: View {
                     .transition(.opacity)
             }
         }
-        .background(rowFill)
-        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .background(rowFill, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .strokeBorder(isExpanded ? palette.accent.opacity(0.7) : Color.clear, lineWidth: 1)
@@ -691,7 +687,6 @@ private struct CountryBoardRow: View {
 
     private var rowFill: Color {
         if isExpanded { return Color(nsColor: .windowBackgroundColor) }
-        if hovered { return palette.panelHover }
         return striped ? palette.stripe : Color.clear
     }
 
@@ -735,7 +730,7 @@ private struct CountryBoardRow: View {
                         .frame(width: 56, alignment: .trailing)
                 }
 
-                Text(group.bestLatency.map { LatencyFormat.seconds($0) } ?? "—")
+                Text(group.bestLatency.map { LatencyFormat.display($0) } ?? "—")
                     .font(.system(size: 12, design: .monospaced))
                     .foregroundStyle(palette.text)
                     .frame(width: 64, alignment: .trailing)
@@ -761,8 +756,7 @@ private struct CountryBoardRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .onHover { hovered = $0 }
-        .animation(.easeOut(duration: 0.12), value: hovered)
+        .modifier(WarmCardHover())
     }
 
     private var expandedArea: some View {
@@ -848,6 +842,7 @@ private struct CountryBoardRow: View {
 }
 
 private struct FlightRow: View {
+    @EnvironmentObject private var appState: AppState
     var node: ProxyNode
     var palette: BoardPalette
     var striped: Bool
@@ -856,8 +851,6 @@ private struct FlightRow: View {
     var isSelected: Bool
     var onSelect: () -> Void
     var onConnect: () -> Void
-
-    @State private var hovered = false
 
     var body: some View {
         HStack(spacing: 10) {
@@ -869,10 +862,19 @@ private struct FlightRow: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 5) {
-                    Text(node.displayTitle)
+                    Text(appState.settings.nodeDisplayTitle(node))
                         .font(.system(size: 13, weight: isCurrent || isSelected ? .semibold : .medium))
                         .foregroundStyle(palette.text)
                         .lineLimit(1)
+                    ExitMetadataLabels(city: node.exitMetadata?.city,
+                                       networkOperator: node.exitMetadata?.networkOperator,
+                                       asn: node.exitMetadata?.asn,
+                                       countryCode: node.exitMetadata?.countryCode ?? node.countryCode,
+                                       localizedCity: node.exitMetadata?.localizedCity)
+                        .font(.system(size: 11))
+                        .foregroundStyle(palette.subtext)
+                        .padding(.leading, 8)
+                    NodeGroupLabel(name: node.groupName(subscriptions: appState.subscriptions))
                     if node.isFavorite {
                         Image(systemName: "star.fill")
                             .font(.system(size: 9))
@@ -880,7 +882,7 @@ private struct FlightRow: View {
                     }
                     NodeRowLifecycleBadges(node: node, compact: true)
                 }
-                Text("\(node.protocolType.displayName) · \(node.server):\(node.port, format: .number.grouping(.never)) · 最后可用：\(node.lastAvailableText)")
+                Text("\(node.protocolType.displayName) · \(node.server):\(node.port, format: .number.grouping(.never)) \(node.exitMetadata?.networkType?.displayName ?? "未知") · 最后可用：\(node.lastAvailableText)")
                     .font(.system(size: 11, design: .monospaced))
                     .foregroundStyle(palette.subtext)
                     .lineLimit(1)
@@ -903,8 +905,6 @@ private struct FlightRow: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 9)
-        .background(rowFill)
-        .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 7, style: .continuous)
                 .strokeBorder(
@@ -922,18 +922,16 @@ private struct FlightRow: View {
                     .padding(.leading, 1.5)
             }
         }
+        .modifier(WarmCardHover(cornerRadius: 7, fill: rowFill))
         .contentShape(Rectangle())
         // 双击手势写在前（内层优先识别）；单击仅选中，双击才连接。
         .onTapGesture(count: 2, perform: onConnect)
         .onTapGesture(perform: onSelect)
-        .onHover { hovered = $0 }
-        .animation(.easeOut(duration: 0.12), value: hovered)
     }
 
     private var rowFill: Color {
         if isCurrent { return palette.panelSelected }
         if isSelected { return palette.accent.opacity(0.18) }
-        if hovered { return palette.panelHover }
         return striped ? palette.stripe : Color.clear
     }
 
@@ -958,6 +956,7 @@ struct FleetPalette {
     var deckLine: Color
     var card: Color
     var cardBorder: Color
+    var rowSurface: Color
     var stripe: Color
     var text: Color
     var subtext: Color
@@ -973,6 +972,7 @@ struct FleetPalette {
             deckLine = Color.white.opacity(0.035)
             card = Color.white.opacity(0.055)
             cardBorder = Color.white.opacity(0.10)
+            rowSurface = Color(red: 0.11, green: 0.12, blue: 0.19)
             stripe = Color.white.opacity(0.035)
             text = Color(red: 0.92, green: 0.93, blue: 0.97)
             subtext = Color(red: 0.60, green: 0.63, blue: 0.71)
@@ -985,6 +985,7 @@ struct FleetPalette {
             deckLine = Color.black.opacity(0.035)
             card = .white
             cardBorder = Color.black.opacity(0.08)
+            rowSurface = .white
             stripe = Color.black.opacity(0.028)
             text = Color(red: 0.11, green: 0.13, blue: 0.20)
             subtext = Color(red: 0.43, green: 0.46, blue: 0.54)
@@ -1050,13 +1051,20 @@ private struct FleetBayHeader: View {
 struct NodeListView: View {
     @EnvironmentObject private var appState: AppState
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var search = ""
     @State private var sort: NodeSort = .latency
     @State private var selectedIDs: Set<UUID> = []
     @State private var isSelectionMode = false
     @State private var confirmDeleteSelection = false
     @State private var confirmRemoveDuplicates = false
+    @State private var confirmCleanupNodes = false
+    @State private var cleanupResultMessage: String?
+    @State private var showCleanupResult = false
     @State private var showingLatencyTierHelp = false
+    @State private var highlightedNodeID: UUID?
+    @State private var highlightActive = false
+    @State private var locationRequestID: UUID?
 
     /// Restored from settings so leaving/returning to「节点」keeps the last chips.
     /// Scope (status/country) and source (subscription) are independent and can combine.
@@ -1081,7 +1089,7 @@ struct NodeListView: View {
         let raw = NodeListFilter.encode(scope: scope, source: source)
         guard appState.settings.nodeListCategoryRaw != raw else { return }
         selectedIDs = []
-        appState.updateSettings { $0.nodeListCategoryRaw = raw }
+        appState.updateSettingsFromView { $0.nodeListCategoryRaw = raw }
     }
 
     enum NodeSort: String, CaseIterable {
@@ -1116,59 +1124,109 @@ struct NodeListView: View {
             filterDeck
 
             ScrollViewReader { proxy in
-                ScrollView {
-                    LazyVStack(spacing: 6, pinnedViews: [.sectionHeaders]) {
-                        if scope == .all && source == .all && search.isEmpty {
-                            ForEach(Array(subscriptionSections.enumerated()), id: \.element.id) { bayIndex, section in
-                                Section {
-                                    if section.nodes.isEmpty {
-                                        Text("暂无节点，请到订阅页更新")
-                                            .font(.system(size: 12))
-                                            .foregroundStyle(palette.subtext)
-                                            .frame(maxWidth: .infinity, alignment: .leading)
-                                            .padding(.horizontal, 12)
-                                            .padding(.vertical, 6)
-                                    } else {
-                                        ForEach(Array(sorted(section.nodes).enumerated()), id: \.element.id) { offset, node in
-                                            nodeRow(
-                                                for: node,
-                                                sequenceNumber: section.startingNumber + offset,
-                                                striped: offset % 2 == 1
-                                            )
-                                            .id(node.id)
+                let showsSections = scope == .all && source == .all && search.isEmpty
+                let rows = showsSections ? activeNodes : filtered
+                let locationTargetID = appState.focusNodeID.flatMap { id in
+                    search.isEmpty && rows.contains(where: { $0.id == id }) ? id : nil
+                }
+                Group {
+                    if rows.isEmpty {
+                        emptyNodeList
+                    } else {
+                        // ForEach already supplies row IDs; adding .id here forces offscreen row construction.
+                        List {
+                            if showsSections {
+                                ForEach(Array(subscriptionSections.enumerated()), id: \.element.id) { bayIndex, section in
+                                    Section {
+                                        if section.nodes.isEmpty {
+                                            Text("暂无节点，请到订阅页更新")
+                                                .font(.system(size: 12))
+                                                .foregroundStyle(palette.subtext)
+                                                .frame(maxWidth: .infinity, alignment: .leading)
+                                                .padding(.horizontal, 12)
+                                                .padding(.vertical, 6)
+                                        } else {
+                                            ForEach(Array(sorted(section.nodes).enumerated()), id: \.element.id) { offset, node in
+                                                nodeRow(
+                                                    for: node,
+                                                    sequenceNumber: section.startingNumber + offset,
+                                                    striped: offset % 2 == 1
+                                                )
+                                            }
                                         }
+                                    } header: {
+                                        FleetBayHeader(
+                                            index: bayIndex + 1,
+                                            title: section.title,
+                                            count: section.nodes.count,
+                                            palette: palette
+                                        )
                                     }
-                                } header: {
-                                    FleetBayHeader(
-                                        index: bayIndex + 1,
-                                        title: section.title,
-                                        count: section.nodes.count,
-                                        palette: palette
-                                    )
+                                }
+                            } else {
+                                ForEach(Array(rows.enumerated()), id: \.element.id) { offset, node in
+                                    nodeRow(for: node, sequenceNumber: offset + 1, striped: offset % 2 == 1)
                                 }
                             }
-                        } else {
-                            filteredNodeListContent
                         }
+                        // A fresh table avoids AppKit measuring every inserted row when expanding a filter.
+                        .id(appState.settings.nodeListCategoryRaw)
+                        .listStyle(.plain)
+                        .scrollContentBackground(.hidden)
                     }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 10)
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background { FleetBackdrop(palette: palette) }
-                .onChange(of: appState.focusNodeID) { _, id in
+                .onChange(of: appState.focusNodeID) { id in
                     guard let id else { return }
+                    if !rows.contains(where: { $0.id == id }) {
+                        persistFilter(scope: .all, source: .all)
+                    }
                     selectedIDs = [id]
                     search = ""
+                }
+                .task(id: locationTargetID) {
+                    guard let id = locationTargetID else { return }
+                    // Let the filtered table finish registering its rows before scrolling.
                     DispatchQueue.main.async {
-                        withAnimation {
+                        guard appState.focusNodeID == id else { return }
+                        withAnimation(nil) {
                             proxy.scrollTo(id, anchor: .center)
                         }
+                        highlightActive = false
+                        highlightedNodeID = id
+                        locationRequestID = UUID()
                         appState.focusNodeID = nil
+                    }
+                }
+                .task(id: locationRequestID) {
+                    guard let requestID = locationRequestID else { return }
+                    defer {
+                        if locationRequestID == requestID {
+                            highlightActive = false
+                            highlightedNodeID = nil
+                        }
+                    }
+                    do {
+                        try await Task.sleep(for: .milliseconds(350))
+                        if reduceMotion {
+                            highlightActive = true
+                            try await Task.sleep(for: .seconds(1.8))
+                        } else {
+                            for step in 0..<6 {
+                                withAnimation(.easeInOut(duration: 0.2)) {
+                                    highlightActive = step.isMultiple(of: 2)
+                                }
+                                try await Task.sleep(for: .milliseconds(300))
+                            }
+                        }
+                    } catch {
+                        // A new location request or leaving the page ends the previous highlight.
                     }
                 }
             }
         }
-        .onChange(of: appState.preferredNodeCategory) { _, value in
+        .onChange(of: appState.preferredNodeCategory) { value in
             guard let value else { return }
             switch value {
             case "all": setScope(.all)
@@ -1195,12 +1253,12 @@ struct NodeListView: View {
                 appState.preferredNodeCategory = nil
             }
         }
-        .onChange(of: appState.countryGroups.map(\.code)) { _, codes in
+        .onChange(of: appState.countryGroups.map(\.code)) { codes in
             if case .country(let code) = scope, !codes.contains(code) {
                 setScope(.all)
             }
         }
-        .onChange(of: appState.subscriptions.map(\.id)) { _, ids in
+        .onChange(of: appState.subscriptions.map(\.id)) { ids in
             if case .subscription(let id) = source, !ids.contains(id) {
                 setSource(.all)
             }
@@ -1230,6 +1288,72 @@ struct NodeListView: View {
         } message: {
             Text("将按协议/服务器/端口/凭证等指纹去重，保留收藏、当前连接与延迟更好的节点。")
         }
+        .alert("清除长期不可用节点", isPresented: $confirmCleanupNodes) {
+            Button("取消", role: .cancel) {}
+            Button("确定清除", role: .destructive) {
+                let ids = cleanupSubscriptionIDs
+                var results: [String] = []
+                var total = 0
+                for id in ids {
+                    guard let sub = appState.subscription(for: id) else { continue }
+                    let before = Set(appState.nodes.filter { $0.subscriptionID == id }.map(\.id))
+                    appState.cleanupUnavailableNodes(subscriptionID: id)
+                    let remaining = Set(appState.nodes.map(\.id))
+                    let removed = before.subtracting(remaining).count
+                    total += removed
+                    let favorites = appState.protectedCleanupFavoriteCount(subscriptionID: id)
+                    results.append("\(sub.name)：清除 \(removed) 个节点，保留 \(favorites) 个达到期限的收藏节点")
+                }
+                selectedIDs.formIntersection(Set(appState.nodes.map(\.id)))
+                cleanupResultMessage = (results + ["合计清除 \(total) 个节点", "收藏节点会一直保留；如需移除，请在节点列表中手动删除。"]).joined(separator: "\n")
+                DispatchQueue.main.async { showCleanupResult = true }
+            }
+        } message: {
+            Text(confirmCleanupNodes ? cleanupConfirmationMessage : "")
+        }
+        .alert("节点清理结果", isPresented: $showCleanupResult) {
+            Button("好的", role: .cancel) { cleanupResultMessage = nil }
+        } message: {
+            Text(cleanupResultMessage ?? "")
+        }
+    }
+
+    private var cleanupConfirmationMessage: String {
+        let groups = cleanupSubscriptionIDs.compactMap { id -> String? in
+            guard let sub = appState.subscription(for: id) else { return nil }
+            return "\(sub.name)：\(appState.unavailableCleanupCandidates(subscriptionID: id).count) 个节点"
+        }.joined(separator: "\n")
+        return "将清除以下订阅组中符合期限的长期不可用节点：\n\n\(groups)\n\n共 \(cleanupNodeCount) 个节点。另有 \(protectedCleanupFavoriteCount) 个收藏节点已达到期限，仍会一直保留，除非在节点列表中手动删除。保留订阅、未测试、配置失败及当前连接节点。清理整个订阅组，不受搜索、国家、状态或多选限制。删除后无法撤销，确定继续吗？"
+    }
+
+    private var cleanupSubscriptionIDs: [UUID] {
+        if case .subscription(let id) = source { return [id] }
+        let ids = Set(nodesMatchingSource.compactMap(\.subscriptionID))
+        return appState.subscriptions.filter { ids.contains($0.id) }.map(\.id)
+    }
+
+    private var protectedCleanupFavoriteCount: Int {
+        cleanupSubscriptionIDs.reduce(0) {
+            $0 + appState.protectedCleanupFavoriteCount(subscriptionID: $1)
+        }
+    }
+
+    private var cleanupNodeCount: Int {
+        cleanupSubscriptionIDs.reduce(0) {
+            $0 + appState.unavailableCleanupCandidates(subscriptionID: $1).count
+        }
+    }
+
+    private var cleanupNodesButton: some View {
+        Button("清除节点") {
+            if cleanupNodeCount > 0 {
+                confirmCleanupNodes = true
+            } else {
+                cleanupResultMessage = "当前没有可清理的节点。另有 \(protectedCleanupFavoriteCount) 个收藏节点已达到不可用期限，仍会一直保留；如需移除，请在节点列表中手动删除。更新或测试进行中时请稍后再试。"
+                showCleanupResult = true
+            }
+        }
+        .help("按当前订阅范围清理长期不可用节点，保留收藏和当前连接节点")
     }
 
     // MARK: - 机队页眉：标题 + 读数 + 时钟
@@ -1247,28 +1371,44 @@ struct NodeListView: View {
                     Text("节点")
                         .font(.system(size: 26, weight: .bold))
                         .foregroundStyle(palette.text)
+                        .fixedSize()
+                    HStack(spacing: 7) {
+                        Circle()
+                            .fill(statusDot)
+                            .frame(width: 8, height: 8)
+                        Text("\(nodeCountSummary) · \(connectionStatus.displayName)")
+                            .font(.system(size: 12, weight: .medium, design: .monospaced))
+                            .monospacedDigit()
+                            .foregroundStyle(palette.text)
+                            .lineLimit(1)
+                    }
+                    .padding(.horizontal, 11)
+                    .padding(.vertical, 6)
+                    .background(palette.card, in: Capsule())
+                    .overlay { Capsule().strokeBorder(palette.cardBorder, lineWidth: 1) }
+                    .help("可用：节点延迟测试通过；应用连通：最近一次应用探测至少一个目标通过的节点数")
                 }
-                HStack(spacing: 7) {
-                    Circle()
-                        .fill(statusDot)
-                        .frame(width: 8, height: 8)
-                    Text("\(nodeCountSummary) · \(connectionStatus.displayName)")
-                        .font(.system(size: 12, weight: .medium, design: .monospaced))
-                        .monospacedDigit()
-                        .foregroundStyle(palette.text)
-                        .lineLimit(1)
-                }
-                .padding(.horizontal, 11)
-                .padding(.vertical, 6)
-                .background(palette.card, in: Capsule())
-                .overlay { Capsule().strokeBorder(palette.cardBorder, lineWidth: 1) }
             }
             Spacer(minLength: 8)
-            TimelineView(.periodic(from: .now, by: 1)) { context in
-                Text(context.date, format: .dateTime.hour().minute().second())
-                    .font(.system(size: 17, weight: .semibold, design: .monospaced))
-                    .monospacedDigit()
-                    .foregroundStyle(palette.text)
+            VStack(alignment: .trailing, spacing: 6) {
+                TimelineView(.periodic(from: .now, by: 1)) { context in
+                    Text(context.date, format: .dateTime.hour().minute().second())
+                        .font(.system(size: 17, weight: .semibold, design: .monospaced))
+                        .monospacedDigit()
+                        .foregroundStyle(palette.text)
+                }
+                Button {
+                    appState.focusNodeID = connectedNodeID
+                } label: {
+                    Image(systemName: "location.fill")
+                        .font(.system(size: 13, weight: .semibold))
+                        .frame(width: 28, height: 24)
+                }
+                .buttonStyle(.bordered)
+                .tint(palette.accent)
+                .disabled(connectedNodeID == nil)
+                .accessibilityLabel("定位当前已连接节点")
+                .help(connectedNodeID == nil ? "当前没有已连接节点" : "定位当前已连接节点")
             }
         }
         .padding(.horizontal, 16)
@@ -1285,28 +1425,30 @@ struct NodeListView: View {
         }
     }
 
+    private var connectedNodeID: UUID? {
+        guard connectionStatus == .connected,
+              let id = appState.connection.state.currentNodeID,
+              activeNodes.contains(where: { $0.id == id }) else { return nil }
+        return id
+    }
+
     // MARK: - 筛选甲板：订阅 / 状态 / 国家 / 搜索 / 排序
 
     private var filterDeck: some View {
         VStack(alignment: .leading, spacing: 8) {
             subscriptionFilterBar
             categoryBar
-            HStack(spacing: 8) {
-                actionRow
-                    .onChange(of: isSelectionMode) { _, enabled in
-                        if !enabled { selectedIDs = [] }
-                    }
-                TextField("搜索节点", text: $search)
-                    .textFieldStyle(.roundedBorder)
-                    .frame(minWidth: 120)
-                Picker("排序", selection: $sort) {
-                    ForEach(NodeSort.allCases, id: \.self) { item in
-                        Text(item.title).tag(item)
-                    }
+            if isSelectionMode {
+                actionControls
+                searchAndSortControls
+            } else {
+                HStack(spacing: 8) {
+                    actionControls.fixedSize()
+                    searchAndSortControls
                 }
-                .frame(width: 120)
             }
         }
+        .fixedSize(horizontal: false, vertical: true)
         .padding(12)
         .background(palette.card, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         .overlay {
@@ -1315,24 +1457,29 @@ struct NodeListView: View {
         }
         .padding(.horizontal, 12)
         .padding(.bottom, 8)
+        .onChange(of: isSelectionMode) { enabled in
+            if !enabled { selectedIDs = [] }
+        }
+    }
+
+    private var searchAndSortControls: some View {
+        HStack(spacing: 8) {
+            TextField("搜索节点", text: $search)
+                .textFieldStyle(.roundedBorder)
+                .frame(minWidth: 120)
+            Picker("排序", selection: $sort) {
+                ForEach(NodeSort.allCases, id: \.self) { item in
+                    Text(item.title).tag(item)
+                }
+            }
+            .frame(width: 120)
+        }
     }
 
     // MARK: - 操作条：选择 / 导入 / 测试
 
-    private var actionRow: some View {
-        Group {
-            if isSelectionMode {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    actionControls
-                }
-            } else {
-                actionControls.fixedSize()
-            }
-        }
-    }
-
     private var actionControls: some View {
-        HStack(spacing: 8) {
+        WrappingFlow(spacing: 8) {
             Toggle("选择", isOn: $isSelectionMode)
                 .toggleStyle(.button)
                 .tint(palette.accent)
@@ -1347,9 +1494,12 @@ struct NodeListView: View {
                     .buttonStyle(.bordered)
                     .controlSize(.small)
                     .help("按节点指纹去重")
+                cleanupNodesButton
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
             }
 
-            Divider().frame(height: 16)
+            Rectangle().fill(palette.line).frame(width: 1, height: 16)
 
             Button(importButtonTitle) { appState.showImportLinks = true }
                 .buttonStyle(.bordered)
@@ -1374,7 +1524,7 @@ struct NodeListView: View {
                 .buttonStyle(.borderedProminent)
                 .tint(palette.accent)
                 .controlSize(.small)
-                .disabled(nodesForCurrentTest.isEmpty)
+                .disabled(!matchingNodes.contains { $0.enabled && !$0.pendingRemoval })
             }
         }
     }
@@ -1384,18 +1534,19 @@ struct NodeListView: View {
     }
 
     private var selectionToolbar: some View {
-        HStack(spacing: 8) {
+        Group {
             Text(selectedIDs.isEmpty ? "未选中" : "已选 \(selectedIDs.count)")
                 .font(.caption)
                 .foregroundStyle(.secondary)
-                .frame(minWidth: 64, alignment: .leading)
+                .frame(minWidth: 64, minHeight: 20, alignment: .leading)
 
             Button("全选") { selectAllVisible() }
             Button("反选") { invertVisibleSelection() }
             Button("删除重复") { confirmRemoveDuplicates = true }
                 .help("按节点指纹去重")
+            cleanupNodesButton
 
-            Divider().frame(height: 16)
+            Rectangle().fill(palette.line).frame(width: 1, height: 16)
 
             Button("收藏") {
                 appState.setFavorites(selectedIDs, isFavorite: true)
@@ -1431,8 +1582,6 @@ struct NodeListView: View {
                 confirmDeleteSelection = true
             }
             .disabled(selectedIDs.isEmpty)
-
-            Spacer()
         }
         .buttonStyle(.bordered)
         .controlSize(.small)
@@ -1443,8 +1592,6 @@ struct NodeListView: View {
         NodeRow(
             node: node,
             sequenceNumber: sequenceNumber,
-            subscriptionName: subscriptionName(for: node),
-            showSubscription: shouldShowSubscriptionBadge,
             isSelected: selectedIDs.contains(node.id),
             isCurrent: isCurrentNode(node),
             isConnecting: isConnectingNode(node),
@@ -1463,34 +1610,43 @@ struct NodeListView: View {
                 appState.requestConnect(to: node)
             }
         )
-        .contextMenu {
-            Button("查看") {
-                appState.viewingNodeID = node.id
+        .overlay {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .strokeBorder(palette.accent, lineWidth: 2)
+                .background(palette.accent.opacity(0.15), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .opacity(highlightedNodeID == node.id && highlightActive ? 1 : 0)
+                .allowsHitTesting(false)
+        }
+        .overlay {
+            NodeRowContextMenu(items: { nodeMenuItems(for: node) }) {
+                if !isSelectionMode { selectedIDs = [node.id] }
             }
-            Button("连接") {
-                appState.requestConnect(to: node)
-            }
-            Divider()
-            if isSelectionMode {
-                Button(selectedIDs.contains(node.id) ? "取消选中" : "选中") {
-                    toggleSelection(node.id)
-                }
-            }
-            Button(node.isFavorite ? "取消收藏" : "收藏") {
-                appState.toggleFavorite(node.id)
-            }
-            Button(appState.isPinned(node.id) ? "取消置顶" : "置顶") {
-                appState.togglePin(node.id)
-            }
-            Button("测试") {
-                Task { await appState.testNodes([node]) }
-            }
-            Divider()
-            Button("删除", role: .destructive) {
+        }
+        .listRowInsets(EdgeInsets(top: 8, leading: 8, bottom: 8, trailing: 8))
+        .listRowSeparator(.hidden)
+        .listRowBackground(Color.clear)
+    }
+
+    private func nodeMenuItems(for node: ProxyNode) -> [NodeRowContextMenu.Item] {
+        var items: [NodeRowContextMenu.Item] = [
+            .action("查看") { appState.viewingNodeID = node.id },
+            .action("连接") { appState.requestConnect(to: node) },
+            .separator
+        ]
+        if isSelectionMode {
+            items.append(.action(selectedIDs.contains(node.id) ? "取消选中" : "选中") { toggleSelection(node.id) })
+        }
+        items += [
+            .action(node.isFavorite ? "取消收藏" : "收藏") { appState.toggleFavorite(node.id) },
+            .action(appState.isPinned(node.id) ? "取消置顶" : "置顶") { appState.togglePin(node.id) },
+            .action("测试") { Task { await appState.testNodes([node]) } },
+            .separator,
+            .action("删除") {
                 selectedIDs.remove(node.id)
                 appState.deleteNode(node.id)
             }
-        }
+        ]
+        return items
     }
 
     private func isCurrentNode(_ node: ProxyNode) -> Bool {
@@ -1606,9 +1762,9 @@ struct NodeListView: View {
                             .help("向当前选中的订阅添加分享链接")
                         }
                     }
+                    .background(SubscriptionGroupDragScroll())
                 }
-            } else {
-                Spacer(minLength: 0)
+                .help("按住并左右拖动，或使用触控板横向滚动订阅分组")
             }
         }
     }
@@ -1720,9 +1876,10 @@ struct NodeListView: View {
     private var subscriptionFilterItems: [SubscriptionFilterItem] {
         var items: [SubscriptionFilterItem] = []
         let scoped = nodesMatchingScope
+        let counts = scoped.reduce(into: [UUID?: Int]()) { $0[$1.subscriptionID, default: 0] += 1 }
 
         for sub in appState.subscriptions {
-            let count = scoped.filter { $0.subscriptionID == sub.id }.count
+            let count = counts[sub.id] ?? 0
             items.append(
                 SubscriptionFilterItem(
                     id: sub.id.uuidString,
@@ -1750,7 +1907,7 @@ struct NodeListView: View {
             )
         }
 
-        let manualCount = scoped.filter { $0.subscriptionID == nil }.count
+        let manualCount = counts[nil] ?? 0
         if manualCount > 0 {
             items.append(
                 SubscriptionFilterItem(
@@ -1773,15 +1930,17 @@ struct NodeListView: View {
     }
 
     private var subscriptionSections: [SubscriptionSection] {
+        let active = activeNodes
+        let bySubscription = Dictionary(grouping: active, by: \.subscriptionID)
         var sections: [SubscriptionSection] = []
 
         for sub in appState.subscriptions {
-            let nodes = activeNodes.filter { $0.subscriptionID == sub.id }
+            let nodes = bySubscription[sub.id] ?? []
             sections.append(SubscriptionSection(id: sub.id.uuidString, title: sub.name, nodes: nodes))
         }
 
         let knownIDs = Set(appState.subscriptions.map(\.id))
-        let orphans = activeNodes.filter { node in
+        let orphans = active.filter { node in
             guard let sid = node.subscriptionID else { return false }
             return !knownIDs.contains(sid)
         }
@@ -1790,7 +1949,7 @@ struct NodeListView: View {
             sections.append(SubscriptionSection(id: "orphan-\(name)", title: name, nodes: nodes))
         }
 
-        let manual = activeNodes.filter { $0.subscriptionID == nil }
+        let manual = bySubscription[nil] ?? []
         if !manual.isEmpty {
             sections.append(SubscriptionSection(id: "manual", title: "手动导入", nodes: manual))
         }
@@ -1804,26 +1963,39 @@ struct NodeListView: View {
     }
 
     private var emptyFilterTitle: String {
-        switch (scope, source) {
-        case (_, .subscription(let id)):
+        if !search.isEmpty { return "没有匹配的节点" }
+        switch scope {
+        case .all: return "暂无节点"
+        case .available: return "暂无可用节点"
+        case .untested: return "暂无未测试节点"
+        case .unavailable: return "暂无不可用节点"
+        case .failed: return "暂无失败节点"
+        case .favorites: return "暂无收藏节点"
+        case .country: return "暂无该国家的节点"
+        }
+    }
+
+    private var emptyFilterSourceName: String? {
+        switch source {
+        case .all: return nil
+        case .subscription(let id):
             return appState.subscriptions.first(where: { $0.id == id })?.name ?? "该订阅"
-        case (.available, _): return "暂无可用节点"
-        case (.untested, _): return "暂无未测试节点"
-        case (.unavailable, _): return "暂无不可用节点"
-        case (.failed, _): return "暂无失败节点"
-        case (.favorites, _): return "暂无收藏节点"
-        default: return "暂无节点"
+        case .manual: return "手动导入"
+        case .namedSource(let name): return name
         }
     }
 
     private var emptyFilterDescription: String {
-        if source != .all && scope != .all {
-            return "当前订阅下没有该状态的节点，试试切换状态或订阅"
+        if !search.isEmpty {
+            return "当前筛选范围内没有匹配结果，请调整关键词或清除搜索。"
+        }
+        if scope != .all {
+            return "当前筛选范围内没有此类节点，可切换到「全部」查看其他节点。"
         }
         if case .subscription = source {
-            return "更新订阅后，节点会出现在这里"
+            return "此分组暂时没有节点，可添加节点或前往订阅页更新订阅。"
         }
-        return "试试切换到「全部」或更新订阅"
+        return "导入节点链接，或到订阅页添加并更新订阅。"
     }
 
     private func scopeChip(_ value: NodeListFilter.Scope, label: String, count: Int) -> some View {
@@ -1868,14 +2040,7 @@ struct NodeListView: View {
     }
 
     private func subscriptionName(for node: ProxyNode) -> String {
-        if let id = node.subscriptionID,
-           let sub = appState.subscriptions.first(where: { $0.id == id }) {
-            return sub.name
-        }
-        if let source = node.sourceName, !source.isEmpty {
-            return source
-        }
-        return "手动导入"
+        node.groupName(subscriptions: appState.subscriptions)
     }
 
     /// Nodes matching only the subscription row (for status chip counts).
@@ -1930,24 +2095,11 @@ struct NodeListView: View {
         }
     }
 
-    private var shouldShowSubscriptionBadge: Bool {
-        source == .all
-    }
-
     private var nodeCountSummary: String {
         let list = scope == .all && source == .all && search.isEmpty ? activeNodes : categorizedNodes
-        let total = list.count
-        guard total > 0 else { return "0" }
-
-        let allTested = list.allSatisfy {
-            $0.lastTestStatus != .untested && $0.lastTestStatus != .testing
-        }
-        guard allTested else {
-            return "共 \(total)"
-        }
-
         let available = list.filter { $0.lastTestStatus.isUsable }.count
-        return "\(available)/\(total)"
+        let appConnected = list.filter(\.hasAppProbeSuccess).count
+        return "可用 \(available) · 应用连通 \(appConnected)"
     }
 
     /// Nodes covered by the current filter (and search), used for scoped testing.
@@ -2010,7 +2162,7 @@ struct NodeListView: View {
                 }
                 return (lhs.lastLatency ?? Int.max) < (rhs.lastLatency ?? Int.max)
             case .name:
-                return lhs.displayTitle.localizedStandardCompare(rhs.displayTitle) == .orderedAscending
+                return appState.settings.nodeDisplayTitle(lhs).localizedStandardCompare(appState.settings.nodeDisplayTitle(rhs)) == .orderedAscending
             case .country:
                 return (lhs.countryName ?? "") < (rhs.countryName ?? "")
             case .recent:
@@ -2038,46 +2190,212 @@ struct NodeListView: View {
         }
     }
 
-    private var filtered: [ProxyNode] {
+    private var matchingNodes: [ProxyNode] {
         var list = categorizedNodes
         if !search.isEmpty {
             list = list.filter {
-                $0.displayTitle.localizedCaseInsensitiveContains(search) ||
+                appState.settings.nodeDisplayTitle($0).localizedCaseInsensitiveContains(search) ||
                 $0.name.localizedCaseInsensitiveContains(search) ||
                 ($0.countryName?.localizedCaseInsensitiveContains(search) ?? false) ||
                 $0.server.localizedCaseInsensitiveContains(search) ||
                 subscriptionName(for: $0).localizedCaseInsensitiveContains(search)
             }
         }
-        return sorted(list)
+        return list
     }
 
-    @ViewBuilder
-    private var filteredNodeListContent: some View {
-        // Capture the filtered/sorted array once. Referencing the computed property
-        // separately for isEmpty and ForEach otherwise performs the full sort twice.
-        let rows = filtered
-        if rows.isEmpty {
-            ContentUnavailableView(
-                emptyFilterTitle,
-                systemImage: "tray",
-                description: Text(emptyFilterDescription)
-            )
-        } else {
-            ForEach(Array(rows.enumerated()), id: \.element.id) { offset, node in
-                nodeRow(for: node, sequenceNumber: offset + 1, striped: offset % 2 == 1)
-                    .id(node.id)
+    private var filtered: [ProxyNode] { sorted(matchingNodes) }
+
+    private var emptyNodeList: some View {
+        UnavailablePlaceholder(
+            emptyFilterTitle,
+            systemImage: search.isEmpty ? "tray" : "magnifyingglass",
+            description: {
+                VStack(spacing: 8) {
+                    if let name = emptyFilterSourceName {
+                        Text("当前分组：\(name)")
+                            .font(.callout.weight(.medium))
+                            .foregroundStyle(palette.text)
+                    }
+                    Text(emptyFilterDescription)
+                        .foregroundStyle(palette.subtext)
+                }
+            },
+            actions: {
+                if !search.isEmpty {
+                    Button("清除搜索") { search = "" }
+                } else if scope != .all {
+                    Button("查看全部节点") { setScope(.all) }
+                } else if source != .all {
+                    Button("查看全部分组") { setSource(.all) }
+                }
+                Button(importButtonTitle) { appState.showImportLinks = true }
+                    .buttonStyle(.borderedProminent)
+                    .tint(palette.accent)
             }
-        }
+        )
+        .multilineTextAlignment(.center)
+        .frame(maxWidth: 520)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
 }
 
+private struct SubscriptionGroupDragScroll: NSViewRepresentable {
+    func makeNSView(context: Context) -> DragAnchor { DragAnchor() }
+    func updateNSView(_ nsView: DragAnchor, context: Context) {}
+
+    static func dismantleNSView(_ nsView: DragAnchor, coordinator: ()) {
+        nsView.detach()
+    }
+
+    final class DragAnchor: NSView, NSGestureRecognizerDelegate {
+        private weak var scrollView: NSScrollView?
+        private var startX: CGFloat = 0
+        private lazy var pan: NSPanGestureRecognizer = {
+            let gesture = NSPanGestureRecognizer(target: self, action: #selector(dragged(_:)))
+            // Delay chip clicks until we know this press is not a drag.
+            gesture.delaysPrimaryMouseButtonEvents = true
+            gesture.delegate = self
+            return gesture
+        }()
+
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            guard let enclosingScrollView, enclosingScrollView !== scrollView else { return }
+            detach()
+            scrollView = enclosingScrollView
+            enclosingScrollView.addGestureRecognizer(pan)
+        }
+
+        func detach() {
+            scrollView?.removeGestureRecognizer(pan)
+            scrollView = nil
+        }
+
+        func gestureRecognizerShouldBegin(_ gestureRecognizer: NSGestureRecognizer) -> Bool {
+            guard let scrollView, let document = scrollView.documentView else { return false }
+            return document.bounds.width > scrollView.contentView.bounds.width
+        }
+
+        @objc private func dragged(_ gesture: NSPanGestureRecognizer) {
+            guard let scrollView, let document = scrollView.documentView else { return }
+            let clip = scrollView.contentView
+            if gesture.state == .began { startX = clip.bounds.minX }
+            guard gesture.state == .began || gesture.state == .changed || gesture.state == .ended else { return }
+            let maximum = max(document.bounds.minX, document.bounds.maxX - clip.bounds.width)
+            let x = min(maximum, max(document.bounds.minX, startX - gesture.translation(in: scrollView).x))
+            clip.scroll(to: NSPoint(x: x, y: clip.bounds.minY))
+            scrollView.reflectScrolledClipView(clip)
+        }
+    }
+}
+
+struct NodeGroupLabel: View {
+    let name: String
+
+    var body: some View {
+        Text(name)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+            .truncationMode(.tail)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(.primary.opacity(0.06), in: Capsule())
+            .frame(maxWidth: 180, alignment: .leading)
+            .fixedSize(horizontal: true, vertical: false)
+            .layoutPriority(1)
+            .help("所属组：\(name)")
+            .accessibilityLabel("所属组：\(name)")
+    }
+}
+
+// A SwiftUI List row contextMenu adds a rectangular system outline outside the card.
+private struct NodeRowContextMenu: NSViewRepresentable {
+    enum Item {
+        case action(String, () -> Void)
+        case separator
+    }
+
+    let items: () -> [Item]
+    var onOpen: () -> Void
+
+    func makeNSView(context: Context) -> MenuButton {
+        let button = MenuButton()
+        button.isTransparent = true
+        button.isBordered = false
+        button.title = ""
+        button.target = button
+        button.action = #selector(MenuButton.showMenu)
+        button.setAccessibilityLabel("节点操作菜单")
+        return button
+    }
+
+    func updateNSView(_ button: MenuButton, context: Context) {
+        button.items = items
+        button.onOpen = onOpen
+    }
+
+    final class MenuButton: NSButton {
+        var items: () -> [Item] = { [] }
+        var onOpen: () -> Void = {}
+
+        override var intrinsicContentSize: NSSize {
+            NSSize(width: NSView.noIntrinsicMetric, height: NSView.noIntrinsicMetric)
+        }
+
+        override func hitTest(_ point: NSPoint) -> NSView? {
+            guard let event = NSApp.currentEvent,
+                  event.type == .rightMouseDown || (event.type == .leftMouseDown && event.modifierFlags.contains(.control)) else { return nil }
+            return super.hitTest(point)
+        }
+
+        override func rightMouseDown(with event: NSEvent) {
+            onOpen()
+            NSMenu.popUpContextMenu(makeMenu(), with: event, for: self)
+        }
+
+        override func mouseDown(with event: NSEvent) {
+            if event.modifierFlags.contains(.control) { rightMouseDown(with: event) }
+            else { super.mouseDown(with: event) }
+        }
+
+        @objc func showMenu() {
+            onOpen()
+            makeMenu().popUp(positioning: nil, at: NSPoint(x: bounds.midX, y: bounds.midY), in: self)
+        }
+
+        private func makeMenu() -> NSMenu {
+            let menu = NSMenu()
+            for entry in items() {
+                switch entry {
+                case .separator: menu.addItem(.separator())
+                case let .action(title, handler):
+                    let action = MenuAction(handler)
+                    let item = NSMenuItem(title: title, action: #selector(MenuAction.invokeMenuAction), keyEquivalent: "")
+                    item.target = action
+                    item.representedObject = action
+                    menu.addItem(item)
+                }
+            }
+            return menu
+        }
+    }
+
+    private final class MenuAction: NSObject {
+        let handler: () -> Void
+        init(_ handler: @escaping () -> Void) { self.handler = handler }
+        @objc func invokeMenuAction() { handler() }
+    }
+}
+
 struct NodeRow: View {
+    @EnvironmentObject private var appState: AppState
     let node: ProxyNode
     var sequenceNumber: Int? = nil
-    var subscriptionName: String? = nil
-    var showSubscription: Bool = true
     var isSelected: Bool = false
     var isCurrent: Bool = false
     var isConnecting: Bool = false
@@ -2094,8 +2412,6 @@ struct NodeRow: View {
     init(
         node: ProxyNode,
         sequenceNumber: Int? = nil,
-        subscriptionName: String? = nil,
-        showSubscription: Bool = true,
         isSelected: Bool = false,
         isCurrent: Bool = false,
         isConnecting: Bool = false,
@@ -2108,8 +2424,6 @@ struct NodeRow: View {
     ) {
         self.node = node
         self.sequenceNumber = sequenceNumber
-        self.subscriptionName = subscriptionName
-        self.showSubscription = showSubscription
         self.isSelected = isSelected
         self.isCurrent = isCurrent
         self.isConnecting = isConnecting
@@ -2144,12 +2458,12 @@ struct NodeRow: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 7)
-        .background(rowFill)
-        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .strokeBorder(rowBorder, lineWidth: 1)
         }
+        .modifier(WarmCardHover(fill: rowFill, baseFill: palette.rowSurface))
+        .shadow(color: .black.opacity(palette.scheme == .dark ? 0.16 : 0.06), radius: 3, y: 2)
         .contentShape(Rectangle())
         .onTapGesture(count: 2) {
             onConnect?()
@@ -2173,7 +2487,8 @@ struct NodeRow: View {
     private var rowBorder: Color {
         if isCurrent { return Color.green.opacity(0.55) }
         if isSelected { return palette.accent.opacity(0.6) }
-        return Color.clear
+        if isConnecting { return Color.orange.opacity(0.55) }
+        return palette.text.opacity(0.16)
     }
 
     private var connectionRail: some View {
@@ -2209,15 +2524,41 @@ struct NodeRow: View {
     }
 
     private var titleRow: some View {
-        HStack(spacing: 4) {
+        let displayedCity = ExitMetadataLocalization.city(
+            node.exitMetadata?.city,
+            countryCode: node.exitMetadata?.countryCode ?? node.countryCode,
+            localizedCity: node.exitMetadata?.localizedCity,
+            showChinese: appState.settings.showChineseNodeMetadata
+        )
+        return HStack(spacing: 4) {
             if isPinned {
                 Image(systemName: "pin.fill")
                     .foregroundStyle(.orange)
                     .font(.caption2)
             }
-            Text(node.displayTitle)
+            if let countryName = appState.settings.nodeCountryLabel(node, displayedCity: displayedCity) {
+                Text(countryName)
+                    .font(.caption)
+                    .foregroundStyle(palette.subtext)
+                    .fixedSize(horizontal: true, vertical: false)
+                    .padding(.trailing, 4)
+                    .help("国家/地区：\(countryName)")
+                    .accessibilityLabel("国家/地区：\(countryName)")
+            }
+            Text(appState.settings.nodeDisplayTitle(node))
                 .font(.body.weight(titleFontWeight))
                 .foregroundStyle(palette.text)
+                .lineLimit(1)
+                .help(appState.settings.nodeDisplayTitle(node))
+            ExitMetadataLabels(city: node.exitMetadata?.city,
+                               networkOperator: node.exitMetadata?.networkOperator,
+                               asn: node.exitMetadata?.asn,
+                               countryCode: node.exitMetadata?.countryCode ?? node.countryCode,
+                               localizedCity: node.exitMetadata?.localizedCity)
+                .font(.caption)
+                .foregroundStyle(palette.subtext)
+                .padding(.leading, 8)
+            NodeGroupLabel(name: node.groupName(subscriptions: appState.subscriptions))
             if node.isFavorite {
                 Image(systemName: "star.fill")
                     .foregroundStyle(.yellow)
@@ -2266,11 +2607,7 @@ struct NodeRow: View {
     }
 
     private var subtitle: String {
-        let endpoint = "\(node.protocolType.displayName) · \(node.server):\(node.port)"
-        if showSubscription, let subscriptionName, !subscriptionName.isEmpty {
-            return "\(subscriptionName) · \(endpoint)"
-        }
-        return endpoint
+        "\(node.protocolType.displayName) · \(node.server):\(node.port) \(node.exitMetadata?.networkType?.displayName ?? "未知")"
     }
 
     private var statusColor: Color {

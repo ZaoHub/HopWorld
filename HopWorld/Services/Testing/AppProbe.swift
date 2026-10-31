@@ -8,10 +8,12 @@ enum AppProbeTarget: Hashable, Identifiable, Codable, Sendable {
     case github
     case youtube
     case twitter
+    case claude
+    case tiktok
 
     case application(path: String, name: String, url: URL?)
 
-    static let allCases: [Self] = [.google, .cloudflare, .chatgpt, .github, .youtube, .twitter]
+    static let allCases: [Self] = [.google, .cloudflare, .chatgpt, .github, .youtube, .twitter, .claude, .tiktok]
     var id: String {
         switch self {
         case .application(let path, _, _): return path
@@ -28,6 +30,8 @@ enum AppProbeTarget: Hashable, Identifiable, Codable, Sendable {
         case .github: return "GitHub"
         case .youtube: return "YouTube"
         case .twitter: return "X / Twitter"
+        case .claude: return "Claude"
+        case .tiktok: return "TikTok"
         }
     }
 
@@ -67,16 +71,115 @@ enum AppProbeTarget: Hashable, Identifiable, Codable, Sendable {
                 URL(string: "https://x.com/")!,
                 URL(string: "https://api.x.com/")!
             ]
+        case .claude:
+            return [
+                URL(string: "https://claude.ai/cdn-cgi/trace")!,
+                URL(string: "https://claude.ai/")!
+            ]
+        case .tiktok:
+            return [
+                URL(string: "https://www.tiktok.com/")!,
+                URL(string: "https://www.tiktok.com/explore")!
+            ]
         }
     }
 
     var probeURL: URL { probeURLs[0] }
+
+    /// 概览「应用代理」卡片副标题（服务商）。
+    var provider: String {
+        switch self {
+        case .application: return "自定义应用"
+        case .google: return "Google"
+        case .cloudflare: return "Cloudflare"
+        case .chatgpt: return "OpenAI"
+        case .github: return "GitHub"
+        case .youtube: return "Google"
+        case .twitter: return "X"
+        case .claude: return "Anthropic"
+        case .tiktok: return "ByteDance"
+        }
+    }
+}
+
+/// 网络健康中心「应用」页可诊断的 AI 应用；由「应用连通」中启用的目标决定。
+enum HealthApplication: String, CaseIterable, Identifiable, Codable, Sendable {
+    case codex, claude, cursor
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .codex: return "Codex"
+        case .claude: return "Claude"
+        case .cursor: return "Cursor"
+        }
+    }
+
+    var bundleIdentifiers: Set<String> {
+        switch self {
+        case .codex: return ["com.openai.codex"]
+        case .claude: return ["com.anthropic.claudefordesktop"]
+        case .cursor: return ["com.todesktop.230313mzl4w4u92"]
+        }
+    }
+
+    init?(target: AppProbeTarget) {
+        switch target {
+        case .chatgpt: self = .codex
+        case .claude: self = .claude
+        case .application(let path, let name, let url):
+            let identifier = Bundle(path: path)?.bundleIdentifier ?? ""
+            if let match = Self.allCases.first(where: { $0.bundleIdentifiers.contains(identifier) }) {
+                self = match
+                return
+            }
+            let text = [name, identifier, url?.host ?? ""].joined(separator: " ").lowercased()
+            if text.contains("codex") || text.contains("chatgpt") || text.contains("openai") { self = .codex }
+            else if text.contains("claude") || text.contains("anthropic") { self = .claude }
+            else if text.contains("cursor") { self = .cursor }
+            else { return nil }
+        default:
+            return nil
+        }
+    }
+
+    func matches(_ application: ProxyApplication) -> Bool {
+        if self == .claude, application.isClaude { return true }
+        guard application.isBundle, let identifier = Bundle(path: application.path)?.bundleIdentifier else { return false }
+        return bundleIdentifiers.contains(identifier)
+    }
+}
+
+enum ClaudeModelAccess: Sendable {
+    case available, regionBlocked, unreachable
+}
+
+extension AppSettings {
+    /// 「应用连通」启用目标中可映射到 Codex / Claude / Cursor 的应用，按目标顺序去重。
+    var healthApplications: [HealthApplication] {
+        var seen = Set<HealthApplication>()
+        return automaticAppProbeTargets.compactMap(HealthApplication.init(target:)).filter { seen.insert($0).inserted }
+    }
+
+    func healthTargets(for application: HealthApplication) -> [AppProbeTarget] {
+        automaticAppProbeTargets.filter { HealthApplication(target: $0) == application }
+    }
 }
 
 enum AppProbePhase: Equatable, Sendable {
     case idle
     case running
     case done
+}
+
+struct AppProbeBatchProgress {
+    var isRunning = false
+    var completed = 0
+    var total = 0
+    var connected = 0
+    var failed = 0
+    var statusText = ""
 }
 
 struct AppProbeResult: Identifiable, Equatable, Sendable {
@@ -110,21 +213,17 @@ enum AppProbeRunner {
         timeout: TimeInterval = 4,
         onUpdate: @MainActor @escaping (AppProbeResult) -> Void
     ) async {
-        await withTaskGroup(of: AppProbeResult.self) { group in
-            for target in targets {
-                group.addTask {
-                    await probeOne(
-                        target: target,
-                        proxyHost: proxyHost,
-                        httpPort: httpPort,
-                        socksPort: socksPort,
-                        timeout: timeout
-                    )
-                }
-            }
-            for await result in group {
-                await onUpdate(result)
-            }
+        // Refill a bounded pool instead of spawning a process for every configured app at once.
+        await BatchProbeScheduler.run(targets, concurrency: 8) { target in
+            await probeOne(
+                target: target,
+                proxyHost: proxyHost,
+                httpPort: httpPort,
+                socksPort: socksPort,
+                timeout: timeout
+            )
+        } onResult: { result in
+            onUpdate(result)
         }
     }
 
@@ -135,6 +234,7 @@ enum AppProbeRunner {
         socksPort: Int?,
         timeout: TimeInterval
     ) async -> AppProbeResult {
+        guard !target.probeURLs.isEmpty else { return .placeholder(target) }
         var bestMs: Int?
         for url in target.probeURLs {
             if let ms = await ProxyHTTPTester.measure(
@@ -180,7 +280,7 @@ enum AppProbeSource: String, Codable, CaseIterable, Identifiable, Sendable {
     var displayName: String {
         switch self {
         case .defaults: return "默认应用"
-        case .rules: return "规则代理应用"
+        case .rules: return "按应用代理名单"
         case .custom: return "自定义应用"
         }
     }
@@ -190,7 +290,20 @@ extension AppSettings {
     var effectiveAppProbeSource: AppProbeSource {
         appProbeSource ?? (proxyApplications.isEmpty ? .defaults : .rules)
     }
+    /// 当前来源的全部目标（含概览「应用代理」中停用的），按用户排序。
+    var allAppProbeTargets: [AppProbeTarget] {
+        let targets = unorderedAppProbeTargets
+        let order = appProbeOrder[effectiveAppProbeSource.rawValue] ?? []
+        return targets.enumerated().sorted {
+            let left = order.firstIndex(of: $0.element.id) ?? (order.count + $0.offset)
+            let right = order.firstIndex(of: $1.element.id) ?? (order.count + $1.offset)
+            return left < right
+        }.map(\.element)
+    }
     var automaticAppProbeTargets: [AppProbeTarget] {
+        allAppProbeTargets.filter { !appProbeDisabledTargetIDs.contains($0.id) && !$0.probeURLs.isEmpty }
+    }
+    private var unorderedAppProbeTargets: [AppProbeTarget] {
         switch effectiveAppProbeSource {
         case .defaults: return AppProbeTarget.allCases
         case .rules: return ruleAppProbeTargets
@@ -202,16 +315,22 @@ extension AppSettings {
     }
     var ruleAppProbeTargets: [AppProbeTarget] {
         proxyApplications.map { application -> AppProbeTarget in
-            if let configured = installedAppProbes.first(where: { $0.id == application.id }) {
-                return configured.target ?? .application(path: application.path, name: application.name, url: nil)
+            if let configured = installedAppProbes.first(where: { $0.id == application.id }),
+               let target = configured.target {
+                return target
             }
             let identifier = Bundle(path: application.path)?.bundleIdentifier ?? ""
             let name = (application.name + " " + identifier).lowercased()
             let service: AppProbeTarget?
             if name.contains("chatgpt") || name.contains("openai") || name.contains("codex") { service = .chatgpt }
+            else if name.contains("cursor") {
+                return .application(path: application.path, name: application.name, url: URL(string: "https://cursor.com/"))
+            }
             else if name.contains("github") { service = .github }
             else if name.contains("youtube") { service = .youtube }
             else if name.contains("twitter") { service = .twitter }
+            else if name.contains("claude") || name.contains("anthropic") { service = .claude }
+            else if name.contains("tiktok") { service = .tiktok }
             else if name.contains("cloudflare") { service = .cloudflare }
             else if name.contains("chrome") || name.contains("safari") || name.contains("firefox") { service = .google }
             else { service = nil }

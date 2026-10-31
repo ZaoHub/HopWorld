@@ -43,6 +43,8 @@ final class LibrarySafetyTests: XCTestCase {
             XCTAssertNil(data.range(of: Data("secret-token".utf8)))
             let attributes = try FileManager.default.attributesOfItem(atPath: directory.appendingPathComponent(name).path)
             XCTAssertEqual((attributes[.posixPermissions] as? NSNumber)?.intValue, 0o600)
+            XCTAssertEqual(attributes[.protectionKey] as? FileProtectionType,
+                           .completeUntilFirstUserAuthentication)
         }
         let reread = try SecureLibraryStore(directory: directory) { _ in key }.load()
         XCTAssertEqual(reread.nodes, snapshot.nodes)
@@ -182,7 +184,126 @@ final class LibrarySafetyTests: XCTestCase {
             proposed: snapshot.nodes,
             current: tested
         )
-        XCTAssertNotNil(committed)
+        XCTAssertEqual(committed?.first?.lastLatency, 120)
+        XCTAssertEqual(committed?.first?.lastTestStatus, .fast)
+        XCTAssertEqual(committed?.first?.lastTestDate, tested[0].lastTestDate)
+    }
+
+    func testRefreshPreservesConcurrentApplicationProbesAndExitCountry() throws {
+        let snapshot = fixture()
+        let id = try XCTUnwrap(snapshot.subscriptions.first?.id)
+        var current = snapshot.nodes
+        current[0].lastAppProbePassedIDs = ["Google", "GitHub"]
+        current[0].lastAppProbeOkCount = 2
+        current[0].lastAppProbeLatency = 85
+        current[0].lastAppProbeDate = Date()
+        current[0].countryCode = "JP"
+        current[0].countryName = "日本"
+        current[0].exitMetadata = NodeExitMetadata(ip: "203.0.113.42", city: "Tokyo",
+                                                 networkOperator: "Google LLC", asn: "AS15169")
+        let committed = try XCTUnwrap(SubscriptionMerger.commitRefresh(
+            subscriptionID: id, baseline: snapshot.nodes, proposed: snapshot.nodes, current: current
+        ))
+        XCTAssertEqual(committed[0].lastAppProbePassedIDs, current[0].lastAppProbePassedIDs)
+        XCTAssertEqual(committed[0].lastAppProbeOkCount, 2)
+        XCTAssertEqual(committed[0].lastAppProbeLatency, 85)
+        XCTAssertEqual(committed[0].lastAppProbeDate, current[0].lastAppProbeDate)
+        XCTAssertEqual(committed[0].countryCode, "JP")
+        XCTAssertEqual(committed[0].countryName, "日本")
+        XCTAssertEqual(committed[0].exitMetadata, current[0].exitMetadata)
+    }
+
+    func testConfigurationUpdateInvalidatesOldMeasurements() {
+        var old = fixture().nodes[0]
+        old.lastTestStatus = .fast
+        old.lastLatency = 100
+        old.lastTestDate = Date()
+        old.lastAppProbePassedIDs = ["Google"]
+        old.lastAppProbeOkCount = 1
+        old.lastAppProbeDate = Date()
+        old.exitMetadata = NodeExitMetadata(ip: "203.0.113.42", city: "Tokyo", asn: "AS15169")
+        var incoming = old
+        incoming.password = "updated-secret"
+        let plan = SubscriptionMerger.buildPlan(mode: .merge, oldNodes: [old], newNodes: [incoming], missingLimit: 3)
+        XCTAssertEqual(plan.resultingNodes.count, 1)
+        XCTAssertEqual(plan.resultingNodes[0].id, old.id)
+        XCTAssertEqual(plan.resultingNodes[0].lastTestStatus, .untested)
+        XCTAssertNil(plan.resultingNodes[0].lastLatency)
+        XCTAssertNil(plan.resultingNodes[0].lastAppProbeDate)
+        XCTAssertNil(plan.resultingNodes[0].lastAppProbePassedIDs)
+        XCTAssertNil(plan.resultingNodes[0].exitMetadata)
+    }
+
+    func testRefreshKeepsNodeConnectedDuringDownloadUntilDisconnect() throws {
+        let snapshot = fixture()
+        let id = try XCTUnwrap(snapshot.subscriptions.first?.id)
+        let node = snapshot.nodes[0]
+        let committed = try XCTUnwrap(SubscriptionMerger.commitRefresh(
+            subscriptionID: id, baseline: snapshot.nodes, proposed: [], current: snapshot.nodes,
+            preserveNodeIDs: [node.id]
+        ))
+        XCTAssertEqual(committed.count, 1)
+        XCTAssertEqual(committed[0].id, node.id)
+        XCTAssertTrue(committed[0].pendingRemoval)
+    }
+}
+
+final class NodeCredentialHydrationTests: XCTestCase {
+    private let record = #"{"uuid":"22222222-2222-4222-8222-222222222222","publicKey":"stored-public-key","shortID":"aabb"}"#
+
+    private func realityNode(publicKey: String? = nil) -> ProxyNode {
+        ProxyNode(name: "REALITY fixture", protocolType: .vless, server: "example.com", port: 443,
+                  credentialKey: "fixture-credentials", uuid: "11111111-1111-4111-8111-111111111111",
+                  security: .reality, publicKey: publicKey, shortID: "0011")
+    }
+
+    func testExistingUUIDDoesNotPreventRestoringMissingRealityKey() {
+        for publicKey in [nil, "", " \n "] as [String?] {
+            var node = realityNode(publicKey: publicKey)
+            let originalUUID = node.uuid
+            var reads = 0
+            KeychainStore.hydrateCredentials(&node, loadCredential: { account in
+                XCTAssertEqual(account, "fixture-credentials")
+                reads += 1
+                return self.record
+            })
+            XCTAssertEqual(reads, 1)
+            XCTAssertEqual(node.publicKey, "stored-public-key")
+            XCTAssertEqual(node.uuid, originalUUID)
+            XCTAssertEqual(node.shortID, "0011")
+        }
+    }
+
+    func testHydrationKeepsExistingRealityParameters() {
+        var node = realityNode(publicKey: "current-public-key")
+        KeychainStore.hydrateCredentials(&node, loadCredential: { _ in
+            XCTFail("A complete node must not read credentials")
+            return self.record
+        })
+        node.uuid = nil
+        KeychainStore.hydrateCredentials(&node, loadCredential: { _ in self.record })
+        XCTAssertEqual(node.uuid, "22222222-2222-4222-8222-222222222222")
+        XCTAssertEqual(node.publicKey, "current-public-key")
+        XCTAssertEqual(node.shortID, "0011")
+    }
+
+    func testConfigurationValidationRestoresCredentialsOnALocalCopy() {
+        for publicKey in [nil, "", " \n "] as [String?] {
+            let node = realityNode(publicKey: publicKey)
+            let (valid, error) = NodeConfigChecker.validate(node, loadCredential: { _ in self.record })
+            XCTAssertTrue(valid)
+            XCTAssertNil(error)
+            XCTAssertEqual(node.publicKey, publicKey)
+        }
+    }
+
+    func testMissingOrMalformedStoredRealityKeyStillFailsValidation() {
+        for record in [nil, "{}", "invalid JSON", #"{"publicKey":""}"#, #"{"publicKey":"  "}"#] as [String?] {
+            let node = realityNode()
+            let (valid, error) = NodeConfigChecker.validate(node, loadCredential: { _ in record })
+            XCTAssertFalse(valid)
+            XCTAssertEqual(error, "REALITY 缺少 publicKey")
+        }
     }
 }
 

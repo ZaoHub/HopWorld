@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DEST="$ROOT/HopWorld/Resources"
 SUPPORT="$HOME/Library/Application Support/HopWorld"
-VERSION="${XRAY_VERSION:-26.3.27}"
+VERSION="${XRAY_VERSION:-26.10.21}"
 ARCH="$(uname -m)"
 
 case "$ARCH" in

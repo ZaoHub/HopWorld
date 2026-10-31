@@ -5,6 +5,13 @@ enum ProxyProtocolType: String, Codable, CaseIterable, Hashable, Sendable {
     case vmess
     case trojan
     case shadowsocks
+    case hysteria2
+    case masque
+    case tuic
+    case anytls
+    case wireguard
+    case socks5
+    case http
 
     var displayName: String {
         switch self {
@@ -12,6 +19,13 @@ enum ProxyProtocolType: String, Codable, CaseIterable, Hashable, Sendable {
         case .vmess: return "VMess"
         case .trojan: return "Trojan"
         case .shadowsocks: return "Shadowsocks"
+        case .hysteria2: return "Hysteria2"
+        case .masque: return "MASQUE"
+        case .tuic: return "TUIC"
+        case .anytls: return "AnyTLS"
+        case .wireguard: return "WireGuard"
+        case .socks5: return "SOCKS5"
+        case .http: return "HTTP"
         }
     }
 }
@@ -25,6 +39,7 @@ enum TransportType: String, Codable, CaseIterable, Hashable, Sendable {
     case quic
     case h2
     case http
+    case masque
 
     var displayName: String { rawValue.uppercased() }
 }
@@ -179,6 +194,29 @@ enum NodeTestStatus: String, Codable, CaseIterable, Hashable, Sendable {
     }
 }
 
+struct TuicOptions: Codable, Hashable, Sendable {
+    var congestionControl: String?
+    var udpRelayMode: String?
+    var udpOverStream: Bool?
+    var zeroRTTHandshake: Bool?
+    var heartbeat: String?
+    var certificate: String?
+    var publicKeySHA256: [String]?
+    var disableSNI: Bool?
+}
+
+struct WireGuardOptions: Codable, Hashable, Sendable {
+    var privateKey: String?
+    var addresses: [String]
+    var peerPublicKey: String
+    var preSharedKey: String?
+    var allowedIPs: [String]?
+    var reserved: [Int]?
+    var mtu: Int?
+    var keepAlive: Int?
+    var remoteDNS: [String]?
+}
+
 struct ProxyNode: Identifiable, Codable, Hashable, Sendable {
     let id: UUID
 
@@ -192,6 +230,12 @@ struct ProxyNode: Identifiable, Codable, Hashable, Sendable {
 
     var uuid: String?
     var password: String?
+    var username: String?
+    var masqueHeaders: [String: String]?
+    var masqueRemoteDNS: [String]?
+    var tuicOptions: TuicOptions?
+    var wireGuardOptions: WireGuardOptions?
+    var httpHeaders: [String: String]?
     var method: String?
     var alterId: Int?
     var flow: String?
@@ -209,6 +253,8 @@ struct ProxyNode: Identifiable, Codable, Hashable, Sendable {
     var fingerprint: String?
     var spiderX: String?
     var alpn: String?
+    var allowInsecure: Bool?
+    var pinnedCertSHA256: String?
 
     /// Xray FinalMask（分享链接 `fm=`），原始 JSON 字符串，写入 `streamSettings.finalmask`。
     var finalMaskJSON: String?
@@ -216,6 +262,7 @@ struct ProxyNode: Identifiable, Codable, Hashable, Sendable {
     var countryCode: String?
     var countryName: String?
     var city: String?
+    var exitMetadata: NodeExitMetadata? = nil
 
     var subscriptionID: UUID?
     var sourceName: String?
@@ -226,12 +273,14 @@ struct ProxyNode: Identifiable, Codable, Hashable, Sendable {
     var lastAvailableAt: Date?
     var unavailableSince: Date?
     var lastTestStatus: NodeTestStatus
+    var lastTestErrorMessage: String? = nil
 
     /// 最近一次「应用连通」探测通过数；`nil` = 从未探测。
     var lastAppProbeOkCount: Int?
     /// 通过目标中的最佳延迟（ms）。
     var lastAppProbeLatency: Int?
     var lastAppProbeDate: Date?
+    var lastAppProbePassedIDs: Set<String>? = nil
 
     var enabled: Bool
     var isFavorite: Bool
@@ -250,6 +299,12 @@ struct ProxyNode: Identifiable, Codable, Hashable, Sendable {
         credentialKey: String? = nil,
         uuid: String? = nil,
         password: String? = nil,
+        username: String? = nil,
+        masqueHeaders: [String: String]? = nil,
+        masqueRemoteDNS: [String]? = nil,
+        tuicOptions: TuicOptions? = nil,
+        wireGuardOptions: WireGuardOptions? = nil,
+        httpHeaders: [String: String]? = nil,
         method: String? = nil,
         alterId: Int? = nil,
         flow: String? = nil,
@@ -265,6 +320,8 @@ struct ProxyNode: Identifiable, Codable, Hashable, Sendable {
         fingerprint: String? = nil,
         spiderX: String? = nil,
         alpn: String? = nil,
+        allowInsecure: Bool? = nil,
+        pinnedCertSHA256: String? = nil,
         finalMaskJSON: String? = nil,
         countryCode: String? = nil,
         countryName: String? = nil,
@@ -295,6 +352,12 @@ struct ProxyNode: Identifiable, Codable, Hashable, Sendable {
         self.credentialKey = credentialKey
         self.uuid = uuid
         self.password = password
+        self.username = username
+        self.masqueHeaders = masqueHeaders
+        self.masqueRemoteDNS = masqueRemoteDNS
+        self.tuicOptions = tuicOptions
+        self.wireGuardOptions = wireGuardOptions
+        self.httpHeaders = httpHeaders
         self.method = method
         self.alterId = alterId
         self.flow = flow
@@ -310,6 +373,8 @@ struct ProxyNode: Identifiable, Codable, Hashable, Sendable {
         self.fingerprint = fingerprint
         self.spiderX = spiderX
         self.alpn = alpn
+        self.allowInsecure = allowInsecure
+        self.pinnedCertSHA256 = pinnedCertSHA256
         self.finalMaskJSON = finalMaskJSON
         self.countryCode = countryCode
         self.countryName = countryName
@@ -333,16 +398,33 @@ struct ProxyNode: Identifiable, Codable, Hashable, Sendable {
         self.note = note
     }
 
+    /// MASQUE uses HTTP/3 unless ALPN selects HTTP/2 without HTTP/3.
+    var usesUDPTransport: Bool {
+        if [.hysteria2, .tuic, .wireguard].contains(protocolType) { return true }
+        guard protocolType == .masque else { return false }
+        let protocols = (alpn ?? "h3").split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
+        return !protocols.contains("h2") || protocols.contains("h3")
+    }
+
+    var transportDisplayName: String {
+        switch protocolType {
+        case .tuic, .hysteria2: return "QUIC / UDP"
+        case .wireguard: return "UDP"
+        case .masque: return usesUDPTransport ? "MASQUE / HTTP/3" : "MASQUE / HTTP/2"
+        default: return transport.displayName
+        }
+    }
+
     /// 应用连通至少有一个目标通过且有延迟。
     var hasAppProbeSuccess: Bool {
         (lastAppProbeOkCount ?? 0) > 0 && lastAppProbeLatency != nil
     }
 
-    /// 应用连通分档：通过数越高越靠前（6=全部 … 1=至少一个；0/未测最后）。
+    /// 应用连通通过数，供状态统计使用。
     var appProbePassTier: Int {
         let ok = lastAppProbeOkCount ?? 0
         guard ok > 0, lastAppProbeLatency != nil else { return 0 }
-        // 当前共 6 个探测目标；更高通过数映射为更大的 tier。
+        // 保留实际通过数，不限制应用数量。
         return ok
     }
 
@@ -351,25 +433,26 @@ struct ProxyNode: Identifiable, Codable, Hashable, Sendable {
     static func autoSelectLessThan(
         _ lhs: ProxyNode,
         _ rhs: ProxyNode,
-        considerAppProbe: Bool
+        considerAppProbe: Bool,
+        appOrder: [String] = [],
+        preferFavorites: Bool = false,
+        displayTitles: [UUID: String]? = nil
     ) -> Bool {
         if considerAppProbe {
-            let leftTier = lhs.appProbePassTier
-            let rightTier = rhs.appProbePassTier
-            if leftTier != rightTier { return leftTier > rightTier }
+            for id in appOrder {
+                let leftPassed = lhs.lastAppProbePassedIDs?.contains(id) == true
+                let rightPassed = rhs.lastAppProbePassedIDs?.contains(id) == true
+                if leftPassed != rightPassed { return leftPassed }
+            }
         }
-
+        if preferFavorites, lhs.isFavorite != rhs.isFavorite { return lhs.isFavorite }
         let leftLatency = lhs.lastLatency ?? Int.max
         let rightLatency = rhs.lastLatency ?? Int.max
         if leftLatency != rightLatency { return leftLatency < rightLatency }
 
-        if considerAppProbe, lhs.appProbePassTier > 0 {
-            let leftAppLatency = lhs.lastAppProbeLatency ?? Int.max
-            let rightAppLatency = rhs.lastAppProbeLatency ?? Int.max
-            if leftAppLatency != rightAppLatency { return leftAppLatency < rightAppLatency }
-        }
-
-        return lhs.displayTitle.localizedStandardCompare(rhs.displayTitle) == .orderedAscending
+        let leftTitle = displayTitles?[lhs.id] ?? lhs.displayTitle
+        let rightTitle = displayTitles?[rhs.id] ?? rhs.displayTitle
+        return leftTitle.localizedStandardCompare(rightTitle) == .orderedAscending
     }
 
     var displayCountry: String {
@@ -381,14 +464,56 @@ struct ProxyNode: Identifiable, Codable, Hashable, Sendable {
         Self.sanitizedDisplayName(name)
     }
 
-    static func sanitizedDisplayName(_ raw: String) -> String {
+    func groupName(subscriptions: [Subscription]) -> String {
+        if let subscriptionID,
+           let subscription = subscriptions.first(where: { $0.id == subscriptionID }),
+           !subscription.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return subscription.name
+        }
+        if let sourceName, !sourceName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return sourceName
+        }
+        return subscriptionID == nil ? "手动导入" : "未知订阅"
+    }
+
+    private static let displayNameSuffixRegex = try? NSRegularExpression(
+        pattern: #"""
+        \s*(?:
+            [+＋]\s*
+            (?!(?:中转|直连|专线|落地|入口|出口|备用|备份|IPLC|IEPL|BGP|CN2|IPv[46]|VLESS|VMess|Trojan|Shadowsocks|SS|Hysteria2?|HY2|TUIC|REALITY|TCP|UDP|TLS|WS|gRPC)\s*节点)
+            [\p{L}\p{N}._-]+\s*节点(?:分享|订阅)?(?=\s|[（(【\[+＋|｜]|$)
+            | [+＋]\s*(?:https?://)?(?:[a-z0-9-]+\.)+[a-z]{2,}(?=\s|[（(【\[+＋|｜]|$)
+            | [（(【\[]\s*(?:https?://)?(?:[\p{L}\p{N}._/-]+\s+)?[\p{L}\p{N}._-]*?
+              (?:节点分享|订阅分享|免费节点|免费订阅|公益节点)\s*[）)】\]]
+            | [|｜]\s*(?:[\p{L}\p{N}._-]*?(?:节点分享|订阅分享|免费节点|免费订阅|公益节点)|free[-\s]?nodes)
+              (?=\s|[（(【\[+＋|｜]|$)
+        )
+        """#,
+        options: [.caseInsensitive, .allowCommentsAndWhitespace]
+    )
+
+    private static let emptyDisplayNameDecorationRegex = try? NSRegularExpression(
+        pattern: #"\s*(?:\(\s*\)|（\s*）|\[\s*\]|【\s*】)|\s*[+＋|｜·]+\s*$"#
+    )
+
+    static func sanitizedDisplayName(_ raw: String, customFilters: [String] = []) -> String {
         var result = raw
-        if let regex = try? NSRegularExpression(
-            pattern: #"\s*\+v2cross\.com"#,
-            options: .caseInsensitive
-        ) {
+        if let regex = displayNameSuffixRegex {
             let range = NSRange(result.startIndex..<result.endIndex, in: result)
             result = regex.stringByReplacingMatches(in: result, options: [], range: range, withTemplate: "")
+        }
+        let filters = customFilters.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .sorted { $0.count > $1.count }
+        for filter in filters {
+            result = result.replacingOccurrences(of: filter, with: "", options: .caseInsensitive)
+        }
+        if result != raw {
+            if let regex = emptyDisplayNameDecorationRegex {
+                let range = NSRange(result.startIndex..<result.endIndex, in: result)
+                result = regex.stringByReplacingMatches(in: result, options: [], range: range, withTemplate: "")
+            }
+            result = result.split(whereSeparator: \.isWhitespace).joined(separator: " ")
         }
         let trimmed = result.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? raw : trimmed
@@ -411,17 +536,19 @@ struct ProxyNode: Identifiable, Codable, Hashable, Sendable {
         switch resolvedTestStatus {
         case .unavailable:
             // Failure often still has a TCP RTT; label it so it isn't read as "usable" delay.
-            return "TCP \(LatencyFormat.seconds(lastLatency))"
+            return "TCP \(LatencyFormat.display(lastLatency))"
         case .testing, .untested, .failed:
             return "—"
         case .ultraFast, .fast, .fairlyFast, .fairlySlow, .slow, .ultraSlow:
-            return LatencyFormat.seconds(lastLatency)
+            return LatencyFormat.display(lastLatency)
         }
     }
 
     /// 将可用节点的档次与当前延迟阈值对齐；返回是否有变更。
     mutating func refreshLatencyTier() {
-        guard lastTestStatus.isUsable, let ms = lastLatency else { return }
+        guard lastTestStatus.isUsable else { return }
+        lastTestErrorMessage = nil
+        guard let ms = lastLatency else { return }
         lastTestStatus = NodeTestStatus.from(latencyMs: ms)
     }
 }

@@ -197,14 +197,15 @@ enum ProxyHTTPTester {
         acceptAnyHTTPResponse: Bool = false,
         userAgent: String? = nil
     ) async -> Int? {
-        let httpsURLs = singleURL
-            ? primaryHTTPSURL(from: testURL).map { [$0] } ?? []
-            : httpsCandidates(from: testURL)
-        guard !httpsURLs.isEmpty else { return nil }
+        let checksChatGPTConnectivity = isChatGPTConnectivityURL(testURL)
+        let probeURLs = (singleURL || checksChatGPTConnectivity)
+            ? primaryHTTPURL(from: testURL).map { [$0] } ?? []
+            : httpCandidates(from: testURL)
+        guard !probeURLs.isEmpty else { return nil }
 
         // Real HTTPS through proxy — what browsers need.
         if let socksPort {
-            for url in httpsURLs {
+            for url in probeURLs {
                 guard !Task.isCancelled else { return nil }
                 if let ms = await curlHTTPS(
                     url: url,
@@ -218,7 +219,7 @@ enum ProxyHTTPTester {
                 }
             }
         }
-        for url in httpsURLs {
+        for url in probeURLs {
             guard !Task.isCancelled else { return nil }
             if let ms = await curlHTTPS(
                 url: url,
@@ -232,7 +233,7 @@ enum ProxyHTTPTester {
             }
         }
 
-        if strict || Task.isCancelled {
+        if strict || checksChatGPTConnectivity || Task.isCancelled {
             // Do not accept CONNECT-only: that caused "connected but Google/Cursor won't load".
             return nil
         }
@@ -262,21 +263,18 @@ enum ProxyHTTPTester {
         return nil
     }
 
-    private static func primaryHTTPSURL(from testURL: URL) -> URL? {
-        guard var comps = URLComponents(url: testURL, resolvingAgainstBaseURL: false) else { return nil }
-        if comps.scheme?.lowercased() == "http" { comps.scheme = "https" }
-        guard comps.scheme?.lowercased() == "https", let url = comps.url else { return nil }
-        return url
+    static func primaryHTTPURL(from testURL: URL) -> URL? {
+        AppSettings.validatedTestURL(testURL.absoluteString)
     }
 
-    private static func httpsCandidates(from testURL: URL) -> [URL] {
+    private static func httpCandidates(from testURL: URL) -> [URL] {
         var urls: [URL] = []
         func appendUnique(_ url: URL) {
-            guard url.scheme?.lowercased() == "https" else { return }
+            guard AppSettings.validatedTestURL(url.absoluteString) != nil else { return }
             guard !urls.contains(url) else { return }
             urls.append(url)
         }
-        if let primary = primaryHTTPSURL(from: testURL) {
+        if let primary = primaryHTTPURL(from: testURL) {
             appendUnique(primary)
         }
         for raw in [
@@ -301,6 +299,24 @@ enum ProxyHTTPTester {
     /// curl is far more reliable than URLSession for TLS-over-local-proxy on macOS.
     /// - `acceptAnyHTTPResponse`: 收到任意 HTTP 状态码即视为可达（含 403/429，适合 ChatGPT 等反爬站点）。
     private static func curlHTTPS(
+        url: URL, socksHost: String? = nil, socksPort: Int? = nil,
+        httpProxyHost: String? = nil, httpProxyPort: Int? = nil,
+        timeout: TimeInterval, acceptAnyHTTPResponse: Bool = false, userAgent: String? = nil
+    ) async -> Int? {
+        await diagnoseHTTPS(url: url, socksHost: socksHost, socksPort: socksPort,
+                            httpProxyHost: httpProxyHost, httpProxyPort: httpProxyPort,
+                            timeout: timeout, acceptAnyHTTPResponse: acceptAnyHTTPResponse, userAgent: userAgent).latency
+    }
+
+    struct HTTPSOutcome: Sendable {
+        var latency: Int?
+        var error: String?
+        var statusCode: Int? = nil
+        var warning: String? = nil
+        var timedOut = false
+    }
+
+    static func diagnoseHTTPS(
         url: URL,
         socksHost: String? = nil,
         socksPort: Int? = nil,
@@ -308,8 +324,10 @@ enum ProxyHTTPTester {
         httpProxyPort: Int? = nil,
         timeout: TimeInterval,
         acceptAnyHTTPResponse: Bool = false,
-        userAgent: String? = nil
-    ) async -> Int? {
+        userAgent: String? = nil,
+        followRedirects: Bool = true
+    ) async -> HTTPSOutcome {
+        let checksChatGPTConnectivity = isChatGPTConnectivityURL(url)
         var args = [
             "-sS",
             "--noproxy", "",
@@ -319,10 +337,10 @@ enum ProxyHTTPTester {
             "--connect-timeout", String(format: "%.1f", max(0.8, timeout)),
             "--max-time", String(format: "%.1f", max(1.0, timeout + 0.5)),
             "--http1.1",
-            "-L",
-            "--max-redirs", "5",
             url.absoluteString
         ]
+        if checksChatGPTConnectivity { args.insert("--head", at: 1) }
+        if followRedirects && !checksChatGPTConnectivity { args.insert(contentsOf: ["-L", "--max-redirs", "5"], at: 1) }
         if let userAgent, !userAgent.isEmpty {
             args.insert(contentsOf: ["-A", userAgent], at: 1)
         }
@@ -331,20 +349,60 @@ enum ProxyHTTPTester {
         } else if let httpProxyHost, let httpProxyPort {
             args.insert(contentsOf: ["-x", "http://\(httpProxyHost):\(httpProxyPort)"], at: 1)
         }
-        guard let result = try? await ProcessRunner.run(
-            executable: URL(fileURLWithPath: "/usr/bin/curl"), arguments: args,
-            timeout: max(1, timeout + 0.5)
-        ), !result.cancelled, !result.timedOut, result.status == 0 else { return nil }
+        let result: ProcessRunResult
+        do {
+            result = try await ProcessRunner.run(executable: URL(fileURLWithPath: "/usr/bin/curl"), arguments: args,
+                                                 timeout: max(1, timeout + 0.5))
+        } catch {
+            return HTTPSOutcome(error: "无法启动 HTTPS 探测进程")
+        }
+        if result.cancelled { return HTTPSOutcome(error: "测试已取消") }
+        if result.timedOut || result.status != 0 {
+            return HTTPSOutcome(error: failureReason(status: result.status, timedOut: result.timedOut, timeout: timeout, diagnostic: String(decoding: result.output, as: UTF8.self)),
+                                timedOut: result.timedOut || result.status == 28)
+        }
         let text = String(decoding: result.output, as: UTF8.self)
-        guard let line = text.components(separatedBy: .newlines).last(where: { $0.hasPrefix("HOPWORLD_RESULT ") }) else { return nil }
+        guard let line = text.components(separatedBy: .newlines).last(where: { $0.hasPrefix("HOPWORLD_RESULT ") }) else { return HTTPSOutcome(error: "HTTPS 探测未返回有效结果") }
         let parts = line.split(separator: " ").dropFirst()
         guard parts.count == 2, let code = parts.first, let status = Int(code),
-              let seconds = Double(parts.last!), seconds.isFinite, seconds >= 0 else { return nil }
-        // 任意 HTTP 响应（含 403）表示代理链路已通；严格模式仍要求 2xx/3xx。
+              let seconds = Double(parts.last!), seconds.isFinite, seconds >= 0 else { return HTTPSOutcome(error: "HTTPS 探测结果格式无效") }
+        return httpReachabilityOutcome(status: status, latency: Int(seconds * 1000),
+                                       acceptAnyHTTPResponse: acceptAnyHTTPResponse || checksChatGPTConnectivity)
+    }
+
+    static func httpReachabilityOutcome(status: Int, latency: Int,
+                                        acceptAnyHTTPResponse: Bool = false) -> HTTPSOutcome {
         let accepted = acceptAnyHTTPResponse
             ? (100...599).contains(status)
             : (200...399).contains(status)
-        return accepted ? Int(seconds * 1000) : nil
+        return accepted ? HTTPSOutcome(latency: latency, statusCode: status)
+            : HTTPSOutcome(error: "测试网站返回 HTTP \(status)", statusCode: status)
+    }
+
+    private static func isChatGPTConnectivityURL(_ url: URL) -> Bool {
+        guard url.scheme == "https", url.host?.lowercased() == "chatgpt.com" else { return false }
+        let path = url.path
+        return path.isEmpty || path == "/" || path == "/generate_204"
+            || path == "/backend-api/codex/responses"
+    }
+
+    static func failureReason(status: Int32, timedOut: Bool, timeout: TimeInterval, diagnostic: String = "") -> String {
+        if timedOut || status == 28 { return "HTTPS 探测超时（\(Int(timeout)) 秒）" }
+        switch status {
+        case 5, 6: return "探测地址 DNS 解析失败"
+        case 7: return "无法连接本地测试代理"
+        case 35: return "HTTPS/TLS 握手失败"
+        case 51, 60:
+            let detail = diagnostic.lowercased()
+            if detail.contains("no alternative certificate subject name matches") ||
+                detail.contains("does not match target host") || detail.contains("not valid for name") {
+                return "HTTPS 证书域名不匹配"
+            }
+            return "HTTPS 证书校验失败"
+        case 52: return "连接关闭，未收到响应"
+        case 55, 56: return "连接中断或被重置"
+        default: return "HTTPS 探测失败（curl 错误码 \(status)）"
+        }
     }
 
     static func measureOnce(
@@ -602,6 +660,17 @@ enum ExitIPTester {
         var countryName: String?
         var city: String?
         var asn: String?
+        var networkType: ExitIPType?
+        var networkOperator: String?
+        var region: String?
+        var latitude: Double?
+        var longitude: Double?
+
+        var nodeMetadata: NodeExitMetadata? {
+            guard let ip else { return nil }
+            return NodeExitMetadata(ip: ip, city: city, networkOperator: networkOperator, asn: asn, networkType: networkType,
+                                   countryCode: countryCode, region: region, latitude: latitude, longitude: longitude)
+        }
     }
 
     static func fetch(
@@ -611,6 +680,7 @@ enum ExitIPTester {
         socksPort: Int? = nil
     ) async -> ExitInfo {
         let endpoints = [
+            "https://api.ipquery.io/?format=json",
             "https://api.ip.sb/geoip",
             "https://ipapi.co/json/",
             "https://ifconfig.co/json"
@@ -621,7 +691,9 @@ enum ExitIPTester {
             for raw in endpoints {
                 guard !Task.isCancelled else { return ExitInfo() }
                 if let info = await fetchViaCurl(url: raw, socksHost: proxyHost, socksPort: socksPort, timeout: timeout) {
-                    return info
+                    return await completingNetworkType(info) { ip in
+                        await lookupExitInfo(ip: ip, proxyHost: proxyHost, proxyPort: proxyPort, socksPort: socksPort, timeout: timeout)
+                    }
                 }
             }
         }
@@ -636,10 +708,35 @@ enum ExitIPTester {
                 socksPort: socksPort,
                 timeout: timeout
             ) {
-                return info
+                return await completingNetworkType(info) { ip in
+                    await lookupExitInfo(ip: ip, proxyHost: proxyHost, proxyPort: proxyPort, socksPort: socksPort, timeout: timeout)
+                }
             }
         }
         return ExitInfo()
+    }
+
+    /// A fallback geo provider may know the IP without knowing its network type.
+    static func completingNetworkType(_ info: ExitInfo,
+        lookup: (String) async -> ExitInfo?) async -> ExitInfo {
+        guard !Task.isCancelled, info.networkType == nil, let ip = info.ip,
+              IPv4Address(ip) != nil || IPv6Address(ip) != nil,
+              let detail = await lookup(ip), !Task.isCancelled, detail.ip == ip else { return info }
+        var result = info
+        result.networkType = detail.networkType
+        return result
+    }
+
+    static func lookupExitInfo(ip: String, proxyHost: String? = nil, proxyPort: Int? = nil,
+                               socksPort: Int? = nil, timeout: TimeInterval = 5) async -> ExitInfo? {
+        guard !Task.isCancelled, IPv4Address(ip) != nil || IPv6Address(ip) != nil,
+              let url = URL(string: "https://api.ipquery.io/\(ip)?format=json") else { return nil }
+        if let socksPort, let proxyHost,
+           let info = await fetchViaCurl(url: url.absoluteString, socksHost: proxyHost, socksPort: socksPort, timeout: timeout) {
+            return info.ip == ip ? info : nil
+        }
+        let info = await fetchOne(url: url, proxyHost: proxyHost, proxyPort: proxyPort, socksPort: socksPort, timeout: timeout)
+        return info?.ip == ip ? info : nil
     }
 
     private static func fetchViaCurl(
@@ -659,19 +756,19 @@ enum ExitIPTester {
 
     private static func fetchOne(
         url: URL,
-        proxyHost: String,
-        proxyPort: Int,
+        proxyHost: String?,
+        proxyPort: Int?,
         socksPort: Int?,
         timeout: TimeInterval
     ) async -> ExitInfo? {
         let config = URLSessionConfiguration.ephemeral
-        if let socksPort {
+        if let socksPort, let proxyHost {
             config.connectionProxyDictionary = [
                 kCFStreamPropertySOCKSProxyHost as String: proxyHost,
                 kCFStreamPropertySOCKSProxyPort as String: socksPort,
                 kCFStreamPropertySOCKSVersion as String: kCFStreamSocketSOCKSVersion5
             ]
-        } else {
+        } else if let proxyHost, let proxyPort {
             config.connectionProxyDictionary = [
                 kCFNetworkProxiesHTTPEnable as String: true,
                 kCFNetworkProxiesHTTPProxy as String: proxyHost,
@@ -699,21 +796,32 @@ enum ExitIPTester {
         }
     }
 
-    private static func parseGeoJSON(_ data: Data) -> ExitInfo? {
+    static func parseGeoJSON(_ data: Data) -> ExitInfo? {
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             return nil
         }
 
+        let location = json["location"] as? [String: Any] ?? [:]
+        let isp = json["isp"] as? [String: Any] ?? [:]
         let ip = (json["ip"] as? String)
             ?? (json["query"] as? String)
             ?? (json["origin"] as? String)
         let code = (json["country_code"] as? String)
             ?? (json["countryCode"] as? String)
             ?? (json["country_iso"] as? String)
+            ?? (location["country_code"] as? String)
         let name = (json["country_name"] as? String)
             ?? (json["country"] as? String)
-        let city = json["city"] as? String
+            ?? (location["country"] as? String)
+        let city = (json["city"] as? String) ?? (location["city"] as? String)
         let asn = (json["asn"] as? String)
+            ?? (json["asn"] as? Int).map { "AS\($0)" }
+            ?? (isp["asn"] as? String)
+        let networkOperator = (isp["isp"] as? String)
+            ?? (isp["org"] as? String)
+            ?? (json["isp"] as? String)
+            ?? (json["asn_organization"] as? String)
+            ?? (json["asn_org"] as? String)
             ?? (json["organization"] as? String)
             ?? (json["org"] as? String)
 
@@ -732,8 +840,25 @@ enum ExitIPTester {
             countryCode: normalizedCode,
             countryName: name,
             city: city,
-            asn: asn
+            asn: asn,
+            networkType: ip == nil ? nil : networkType(from: json["risk"] as? [String: Any]),
+            networkOperator: networkOperator,
+            region: (location["state"] as? String) ?? (json["region"] as? String) ?? (json["region_name"] as? String),
+            latitude: (location["latitude"] as? Double) ?? (json["latitude"] as? Double) ?? (json["lat"] as? Double),
+            longitude: (location["longitude"] as? Double) ?? (json["longitude"] as? Double) ?? (json["lon"] as? Double)
         )
+    }
+
+    private static func networkType(from risk: [String: Any]?) -> ExitIPType? {
+        guard let risk else { return nil }
+        if risk["is_tor"] as? Bool == true { return .tor }
+        if risk["is_vpn"] as? Bool == true { return .vpn }
+        if risk["is_proxy"] as? Bool == true { return .proxy }
+        if risk["is_datacenter"] as? Bool == true { return .hosting }
+        if risk["is_mobile"] as? Bool == true { return .mobile }
+        // Absence of known flags only suggests residential use; it does not prove it.
+        let flags = ["is_tor", "is_vpn", "is_proxy", "is_datacenter", "is_mobile"]
+        return flags.allSatisfy { risk[$0] as? Bool == false } ? .residential : nil
     }
 }
 
@@ -760,19 +885,25 @@ enum ProbePolicy {
 }
 
 struct NodeConfigChecker {
-    static func validate(_ node: ProxyNode) -> (Bool, String?) {
+    static func validate(_ node: ProxyNode,
+                         loadCredential: (String) -> String? = KeychainStore.load(account:)) -> (Bool, String?) {
         guard !node.server.isEmpty else { return (false, "server 为空") }
         guard (1...65535).contains(node.port) else { return (false, "port 无效") }
+        guard node.transport != .masque || node.protocolType == .masque else { return (false, "masque 传输仅支持 MASQUE 协议") }
+        var node = node
+        KeychainStore.hydrateCredentials(&node, loadCredential: loadCredential)
 
         switch node.protocolType {
+        case .anytls, .tuic, .wireguard, .socks5, .http:
+            do { try RemoteProtocolParser.validate(node) }
+            catch { return (false, error.localizedDescription) }
+        case .masque:
+            do { try MasqueParser.validate(node) }
+            catch { return (false, error.localizedDescription) }
         case .vless, .vmess:
             guard let uuid = node.uuid, !uuid.isEmpty else { return (false, "缺少 UUID") }
-            // Xray 26.9+：公网地址禁止无 TLS/REALITY 的 VLESS（否则整份配置无法启动）。
-            if node.protocolType == .vless,
-               node.security == .none,
-               !isLoopbackOrPrivateHost(node.server) {
-                return (false, "公网 VLESS 必须启用 TLS 或 REALITY")
-            }
+        case .hysteria2:
+            guard !(node.password ?? "").isEmpty else { return (false, "缺少密码") }
         case .trojan:
             guard let password = node.password, !password.isEmpty else { return (false, "缺少密码") }
         case .shadowsocks:
@@ -781,21 +912,23 @@ struct NodeConfigChecker {
             else { return (false, "缺少加密方式或密码") }
             // Xray 26.x 已移除流密码（cfb / rc4 等）；未知 method 会导致整份配置无法启动。
             let normalized = method.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-            guard Self.supportedShadowsocksMethods.contains(normalized) else {
+            guard Self.supportedShadowsocksMethods.contains(normalized) || SingBoxConnectionConfig.requiresSingBox(node) else {
                 return (false, "Xray 不支持的 Shadowsocks 加密：\(method)")
             }
         }
 
+        if SingBoxConnectionConfig.requiresSingBox(node) {
+            do { _ = try SingBoxConnectionConfig.outbound(node) }
+            catch { return (false, error.localizedDescription) }
+        }
+
         if node.security == .reality {
-            guard let key = node.publicKey, !key.isEmpty else {
+            guard let key = node.publicKey, !key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                 return (false, "REALITY 缺少 publicKey")
             }
         }
 
-        if node.transport == .grpc, (node.serviceName ?? "").isEmpty {
-            return (false, "gRPC 缺少 serviceName")
-        }
-
+        // Xray accepts an empty gRPC service name; only the server can reject a mismatch.
         return (true, nil)
     }
 
@@ -812,7 +945,7 @@ struct NodeConfigChecker {
         "2022-blake3-chacha20-poly1305"
     ]
 
-    private static func isLoopbackOrPrivateHost(_ host: String) -> Bool {
+    static func isLoopbackOrPrivateHost(_ host: String) -> Bool {
         let h = host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         if h == "localhost" || h.hasSuffix(".local") || h.hasSuffix(".localhost") {
             return true
@@ -832,21 +965,24 @@ struct NodeConfigChecker {
 
 /// Off-main-actor probe helpers so concurrent tests don't serialize on UI thread.
 enum NodeProbeEngine {
-    /// One node advances directly from TCP to HTTPS. Batch timeout is the
+    /// TCP is optional metadata; only the actual proxy request proves usability.
+    /// The core may resolve/dial differently from the direct TCP probe. Timeout is the
     /// user's budget, including slow protocols: no hidden 12s floor or retry.
     static func batchProxyProbe(node: ProxyNode, localPort: Int, testURL: URL?,
                                 tcpTimeout: TimeInterval, httpsTimeout: TimeInterval) async -> NodeTestResult? {
         guard !Task.isCancelled else { return nil }
         let started = Date()
-        let tcp = await TCPTester.measure(host: node.server, port: node.port, timeout: tcpTimeout)
+        async let tcp = node.usesUDPTransport ? nil : TCPTester.measure(host: node.server, port: node.port, timeout: tcpTimeout)
+        var result = await httpsThroughProxy(nodeID: node.id, startedAt: started, localPort: localPort,
+                                            testURL: testURL, timeout: httpsTimeout, tcpLatency: nil)
+        result.tcpLatency = await tcp
         guard !Task.isCancelled else { return nil }
-        guard let tcp else {
-            return NodeTestResult(nodeID: node.id, startedAt: started, finishedAt: Date(), configValid: true,
-                                  failureStage: .tcp, errorMessage: "TCP 连接失败或超时")
+        if !result.success, !node.usesUDPTransport, result.tcpLatency == nil {
+            result.failureStage = .tcp
+            result.errorMessage = "TCP 连接失败或超时；\(result.errorMessage ?? "代理请求失败")"
         }
-        let result = await httpsThroughProxy(nodeID: node.id, startedAt: started, localPort: localPort,
-                                            testURL: testURL, timeout: httpsTimeout, tcpLatency: tcp)
-        return Task.isCancelled ? nil : result
+        result.finishedAt = Date()
+        return result
     }
     /// Fast path: TCP only (optional DNS skipped). Used when xray is unavailable.
     static func tcpOnly(node: ProxyNode, timeout: TimeInterval) async -> NodeTestResult {
@@ -864,6 +1000,10 @@ enum NodeProbeEngine {
             )
         }
 
+        guard ![.anytls, .hysteria2, .masque, .tuic, .wireguard, .socks5, .http].contains(node.protocolType) else {
+            return NodeTestResult(nodeID: node.id, startedAt: started, finishedAt: Date(), configValid: true,
+                                  success: false, failureStage: .config, errorMessage: "\(node.protocolType.displayName) 需要 Xray 内核进行代理连通测试")
+        }
         let tcp = await TCPTester.measure(host: node.server, port: node.port, timeout: timeout)
         return NodeTestResult(
             nodeID: node.id,
@@ -878,7 +1018,7 @@ enum NodeProbeEngine {
     }
 
     /// Quick probe through local xray HTTP inbound.
-    /// Fail-fast: TCP fail → skip HTTP. DNS runs in parallel with TCP.
+    /// Uses the same proxy-first decision as batch testing.
     static func quickProxyProbe(
         node: ProxyNode,
         localPort: Int,
@@ -899,35 +1039,13 @@ enum NodeProbeEngine {
             )
         }
 
-        // Skip DNS here — it can hang and only feeds optional metadata.
-        let tcp = await TCPTester.measure(host: node.server, port: node.port, timeout: min(timeout, 1.0))
-
-        // Fail fast: unreachable server → don't wait for proxy HTTP timeout.
-        guard let tcp else {
-            return NodeTestResult(
-                nodeID: node.id,
-                startedAt: started,
-                finishedAt: Date(),
-                configValid: true,
-                dnsLatency: nil,
-                tcpLatency: nil,
-                success: false,
-                failureStage: .tcp,
-                errorMessage: "TCP 连接失败"
-            )
-        }
-
-        return await httpsThroughProxy(
-            nodeID: node.id,
-            startedAt: started,
-            localPort: localPort,
-            testURL: testURL,
-            timeout: timeout,
-            tcpLatency: tcp
-        )
+        return await batchProxyProbe(node: node, localPort: localPort, testURL: testURL,
+                                     tcpTimeout: min(timeout, 1), httpsTimeout: timeout)
+            ?? NodeTestResult(nodeID: node.id, startedAt: started, finishedAt: Date(),
+                              configValid: true, errorMessage: "测试已取消")
     }
 
-    /// HTTPS-only probe after TCP already succeeded (used by paced batch tester).
+    /// A real HTTP(S) response through the node's local proxy inbound.
     static func httpsThroughProxy(
         nodeID: UUID,
         startedAt: Date = Date(),
@@ -936,18 +1054,12 @@ enum NodeProbeEngine {
         timeout: TimeInterval,
         tcpLatency: Int?
     ) async -> NodeTestResult {
-        var proxyLatency: Int?
-        if let testURL {
-            proxyLatency = await ProxyHTTPTester.measure(
-                proxyHost: "127.0.0.1",
-                proxyPort: localPort,
-                testURL: testURL,
-                timeout: timeout,
-                strict: true,
-                singleURL: true
-            )
+        var outcome = ProxyHTTPTester.HTTPSOutcome(error: "未配置有效的 HTTP 或 HTTPS 测试地址")
+        if let testURL, AppSettings.validatedTestURL(testURL.absoluteString) != nil {
+            outcome = await ProxyHTTPTester.diagnoseHTTPS(url: testURL, httpProxyHost: "127.0.0.1",
+                                                        httpProxyPort: localPort, timeout: timeout)
         }
-
+        let proxyLatency = outcome.latency
         let success = proxyLatency != nil
         return NodeTestResult(
             nodeID: nodeID,
@@ -959,7 +1071,7 @@ enum NodeProbeEngine {
             proxyLatency: proxyLatency,
             success: success,
             failureStage: success ? nil : .http,
-            errorMessage: success ? nil : "HTTPS 探测失败（节点无法访问外网）"
+            errorMessage: success ? nil : outcome.error
         )
     }
 }

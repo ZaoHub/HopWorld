@@ -44,9 +44,29 @@ final class ApplicationProxyModePolicyTests: XCTestCase {
             XCTAssertEqual(settings.routingMode, mode)
             XCTAssertEqual(settings.proxyApplications, saved)
             settings.selectRoutingMode(.rules)
-            XCTAssertEqual(settings.connectionCaptureMode, .systemProxy, "返回规则模式不自动启用 TUN 或请求授权")
+            XCTAssertEqual(settings.connectionCaptureMode, .applications,
+                           "返回规则模式且名单非空时恢复应用白名单，避免仍显示名单却走系统代理")
             XCTAssertEqual(settings.proxyApplications, saved)
         }
+    }
+
+    func testReturningToRulesWithoutWhitelistStaysOnSystemProxy() {
+        var settings = AppSettings()
+        settings.routingMode = .global
+        settings.connectionCaptureMode = .globalTun
+        settings.selectRoutingMode(.rules)
+        XCTAssertEqual(settings.connectionCaptureMode, .systemProxy)
+        XCTAssertTrue(settings.proxyApplications.isEmpty)
+    }
+
+    func testExplicitSystemProxyInRulesSurvivesNormalization() throws {
+        var settings = AppSettings()
+        settings.routingMode = .rules
+        settings.connectionCaptureMode = .systemProxy
+        settings.proxyApplications = [try ProxyApplication(url: URL(fileURLWithPath: "/usr/bin/curl"))]
+        settings.normalizeApplicationProxyMode()
+        XCTAssertEqual(settings.connectionCaptureMode, .systemProxy,
+                       "规则模式下主动恢复系统代理后，normalize 不得擅自改回应用白名单")
     }
 
     func testNormalizationDoesNotChangeValidRulesCapture() {

@@ -204,7 +204,8 @@ final class SecureLibraryStore: @unchecked Sendable {
     }
 
     private func protectedWrite(_ data: Data, to url: URL) throws {
-        try data.write(to: url, options: [.atomic, .completeFileProtectionUnlessOpen])
+        // Background commits reopen the encrypted primary to validate and rotate its backup.
+        try data.write(to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
     }
 }

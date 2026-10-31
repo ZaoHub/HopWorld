@@ -3,61 +3,69 @@ import AppKit
 
 struct ContentView: View {
     @EnvironmentObject private var appState: AppState
-    @ObservedObject private var logger = AppLogger.shared
     @State private var isConnectionPanelPresented = false
     @State private var selectedConnectionLogIDs: Set<UUID> = []
+    @State private var showsHistoricalConnectionLogs = false
     @State private var presentedPersistenceError: String?
     @State private var lastPresentedPersistenceError: String?
     @State private var showPersistenceAlert = false
+    @State private var showTestResults = false
+    @State private var presentedTestSummary: NodeTestRunSummary?
 
     var body: some View {
-        NavigationSplitView {
-            GeometryReader { geometry in
-                let navigationRowHeight: CGFloat = 32
-                let cardSafetySpacing: CGFloat = 12
-                let navigationHeight = min(
-                    CGFloat(SidebarItem.allCases.count) * navigationRowHeight + 24,
-                    max(0, geometry.size.height - cardSafetySpacing)
-                )
-                let cardsViewportHeight = max(0, geometry.size.height - navigationHeight - cardSafetySpacing)
-                VStack(spacing: cardSafetySpacing) {
-                    List(SidebarItem.allCases, selection: $appState.selectedSidebar) { item in
-                        Label(item.title, systemImage: item.systemImage)
-                            .frame(height: navigationRowHeight)
-                            .tag(item)
-                            .listRowInsets(EdgeInsets(top: 0, leading: 8, bottom: 0, trailing: 8))
-                    }
-                    .environment(\.defaultMinListRowHeight, navigationRowHeight)
-                    .listStyle(.sidebar)
-                    .safeAreaPadding(.top, 8)
-                    .frame(height: navigationHeight)
-
-                    // Keep sizing one-way during live resize and progress updates.
-                    // Short content sits at the bottom; taller content can scroll.
-                    ScrollView(.vertical) {
-                        VStack(spacing: 0) {
-                            TestProgressFloatingBar()
-                            CodexUsageCard()
+        VStack(spacing: 0) {
+            NavigationSplitView {
+                GeometryReader { geometry in
+                    let navigationRowHeight: CGFloat = 32
+                    let cardSafetySpacing: CGFloat = 12
+                    let navigationHeight = min(
+                        CGFloat(SidebarItem.allCases.count) * navigationRowHeight + 24,
+                        max(0, geometry.size.height - cardSafetySpacing)
+                    )
+                    let cardsViewportHeight = max(0, geometry.size.height - navigationHeight - cardSafetySpacing)
+                    VStack(spacing: cardSafetySpacing) {
+                        List(SidebarItem.allCases, selection: $appState.selectedSidebar) { item in
+                            Label(item.title, systemImage: item.systemImage)
+                                .frame(height: navigationRowHeight)
+                                .tag(item)
+                                .listRowInsets(EdgeInsets(top: 0, leading: 8, bottom: 0, trailing: 8))
                         }
-                        .fixedSize(horizontal: false, vertical: true)
-                        .frame(maxWidth: .infinity)
-                        .frame(minHeight: cardsViewportHeight, alignment: .bottom)
+                        .environment(\.defaultMinListRowHeight, navigationRowHeight)
+                        .listStyle(.sidebar)
+                        .padding(.top, 8)
+                        .frame(height: navigationHeight)
+
+                        // Keep sizing one-way during live resize and progress updates.
+                        // Short content sits at the bottom; taller content can scroll.
+                        ScrollView(.vertical) {
+                            VStack(spacing: 0) {
+                                TestProgressFloatingBar()
+                                CodexUsageCard(statisticsHeight: max(360, geometry.size.height - 24),
+                                               monitor: appState.codexUsageMonitor)
+                            }
+                            .fixedSize(horizontal: false, vertical: true)
+                            .frame(maxWidth: .infinity)
+                            .frame(minHeight: cardsViewportHeight, alignment: .bottom)
+                        }
+                        .frame(height: cardsViewportHeight)
                     }
-                    .frame(height: cardsViewportHeight)
                 }
-            }
-            .navigationSplitViewColumnWidth(min: 160, ideal: 180, max: 220)
-        } detail: {
-            detailView
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .safeAreaInset(edge: .bottom, spacing: 0) {
+                .navigationSplitViewColumnWidth(min: 160, ideal: 180, max: 220)
+            } detail: {
+                VStack(spacing: 0) {
+                    detailView
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                     ephemeralStatusBanner
                 }
                 .overlay(alignment: .bottom) {
                     GeometryReader { geometry in
                         ZStack(alignment: .bottom) {
                             if isConnectionPanelPresented {
-                                connectionLogPanel
+                                ConnectionLogPanel(
+                                    isConnectionPanelPresented: $isConnectionPanelPresented,
+                                    selectedConnectionLogIDs: $selectedConnectionLogIDs,
+                                    showsHistoricalLogs: $showsHistoricalConnectionLogs
+                                )
                                     .frame(maxWidth: 620)
                                     .frame(height: min(420, max(180, geometry.size.height - 24)))
                                     .transition(.move(edge: .bottom))
@@ -69,6 +77,9 @@ struct ContentView: View {
                     }
                     .allowsHitTesting(isConnectionPanelPresented)
                 }
+            }
+            connectionStatusBar
+                .background(.bar)
         }
         .overlay(alignment: .center) {
             if let message = appState.flashToastMessage {
@@ -90,10 +101,10 @@ struct ContentView: View {
         }
         .navigationTitle("跃界")
         .toolbarBackground(.visible, for: .windowToolbar)
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            connectionStatusBar
-        }
         .toolbar {
+            ToolbarItem(placement: .automatic) {
+                ConnectedNodeScoreButton(connection: appState.connection)
+            }
             ToolbarItem(placement: .automatic) {
                 HStack(spacing: 7) {
                     Circle()
@@ -107,19 +118,31 @@ struct ContentView: View {
                 .padding(.leading, 10)
                 .padding(.trailing, 12)
                 .padding(.vertical, 5)
-                .background(Color.primary.opacity(0.05), in: Capsule())
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel(appState.connection.state.status.displayName)
             }
         }
         .onAppear {
             presentPersistenceErrorIfNeeded()
         }
-        .onChange(of: appState.persistenceError) { _, _ in
+        .onChange(of: appState.persistenceError) { _ in
             presentPersistenceErrorIfNeeded()
+        }
+        .alert("暂时没有可连接的节点", isPresented: $appState.showsNoConnectionCandidates) {
+            Button("前往测试") { appState.selectedSidebar = .testing }
+            Button("管理临时屏蔽") {
+                UserDefaults.standard.set(false, forKey: "quickSwitchMergeCountries")
+                appState.selectedSidebar = .dashboard
+            }
+            Button("添加订阅") { appState.showAddSubscription = true }
+            Button("稍后", role: .cancel) {}
+        } message: {
+            Text(appState.noConnectionCandidatesMessage)
         }
         .alert(appState.isLibraryReady ? "节点与订阅保存失败" : "节点与订阅读取失败",
                isPresented: $showPersistenceAlert) {
             if appState.isLibraryReady {
-                if hasQuickSwitchNodes {
+                if showPersistenceAlert && hasQuickSwitchNodes {
                     Button("重新连接") {
                         Task { await appState.connectWithAutoSelect() }
                     }
@@ -136,12 +159,20 @@ struct ContentView: View {
         } message: {
             Text(persistenceAlertMessage)
         }
-        .onReceive(NotificationCenter.default.publisher(for: .hopWorldWillTerminate)) { _ in
-            Task {
-                if appState.connection.state.status == .connected {
-                    await appState.disconnectForTermination()
-                }
+        .alert("订阅更新成功", isPresented: Binding(
+            get: { !appState.subscriptionTestPromptIDs.isEmpty },
+            set: { if !$0 { appState.subscriptionTestPromptIDs.removeAll() } }
+        ), presenting: appState.subscriptionTestPromptIDs) { ids in
+            let selectAllSubscriptions = appState.subscriptionTestPromptSelectsAll
+            Button("手动测试") {
+                Task { await appState.testSubscriptionNodes(ids, selectAllSubscriptions: selectAllSubscriptions) }
             }
+            Button("稍后", role: .cancel) {}
+        } message: { ids in
+            let updated = appState.subscriptions.filter { ids.contains($0.id) }
+            let names = updated.prefix(5).map(\.name).joined(separator: "、")
+            let summary = updated.count > 5 ? "「\(names)」等 \(updated.count) 个订阅" : "「\(names)」"
+            Text("\(summary)的节点有变化。可手动测试节点；若已开启「自动测试可用节点的应用连通」，测速后会继续测试应用连通。")
         }
         .sheet(isPresented: $appState.showAddSubscription) {
             SubscriptionEditorView(mode: .create)
@@ -155,24 +186,50 @@ struct ContentView: View {
             NodeDetailView(nodeID: node.id)
                 .environmentObject(appState)
         }
-        .alert(
-            "测速结果",
-            isPresented: Binding(
-                get: { appState.testManager.showFinishedAlert },
-                set: { appState.testManager.showFinishedAlert = $0 }
-            )
-        ) {
-            Button("查看可用节点") {
-                appState.selectedSidebar = .nodes
-                appState.preferredNodeCategory = "available"
+        .onReceive(appState.testManager.$showFinishedAlert.receive(on: RunLoop.main)) { shouldPresent in
+            guard shouldPresent, let summary = appState.testManager.takeFinishedSummary() else { return }
+            presentedTestSummary = summary
+            showTestResults = true
+        }
+        .sheet(isPresented: $showTestResults) {
+            VStack(alignment: .leading, spacing: 20) {
+                Text(presentedTestSummary?.installGuidance == nil ? "测速结果" : "需要安装 Xray")
+                    .font(.title2.bold())
+                ScrollView {
+                    Text(presentedTestSummary?.message ?? "测试已结束")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .lineLimit(nil)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .textSelection(.enabled)
+                }
+                Divider()
+                HStack {
+                    Spacer()
+                    Button("好的", role: .cancel) { showTestResults = false }
+                        .keyboardShortcut(.cancelAction)
+                    if presentedTestSummary?.installGuidance != nil {
+                        Button("安装 Xray") {
+                            showTestResults = false
+                            appState.selectedSidebar = .about
+                            appState.showComponentUpdates = true
+                        }
+                        .keyboardShortcut(.defaultAction)
+                    } else {
+                        Button("查看可用节点") {
+                            showTestResults = false
+                            appState.selectedSidebar = .nodes
+                            appState.preferredNodeCategory = "available"
+                        }
+                        .keyboardShortcut(.defaultAction)
+                    }
+                }
             }
-            Button("好的", role: .cancel) {}
-        } message: {
-            if let summary = appState.testManager.lastFinishedSummary {
-                Text(summary.message)
-            } else {
-                Text("测试已结束")
-            }
+            .padding(24)
+            .frame(width: 600, height: 420)
+        }
+        .sheet(isPresented: $appState.showComponentUpdates) {
+            ComponentUpdatesDialog()
+                .environmentObject(appState)
         }
         .alert(
             connectConfirmTitle,
@@ -197,6 +254,7 @@ struct ContentView: View {
     }
 
     private var persistenceAlertMessage: String {
+        guard showPersistenceAlert else { return "" }
         guard appState.isLibraryReady else {
             return "本地数据尚未读取成功，自动更新与保存已暂停。原数据不会被覆盖。\n\n"
                 + (presentedPersistenceError ?? "")
@@ -217,7 +275,7 @@ struct ContentView: View {
 
     private var connectConfirmMessage: String {
         let node = appState.pendingUnavailableConnectNode
-        let name = node.map { "「\($0.displayTitle)」" } ?? "该节点"
+        let name = node.map { "「\(appState.settings.nodeDisplayTitle($0))」" } ?? "该节点"
         if node?.lastTestStatus == .failed {
             return "\(name)最近测速为配置失败（客户端无法按当前配置探测），连接多半无法成功。确定继续吗？"
         }
@@ -227,6 +285,8 @@ struct ContentView: View {
     private func presentPersistenceErrorIfNeeded() {
         guard let error = appState.persistenceError else {
             lastPresentedPersistenceError = nil
+            presentedPersistenceError = nil
+            showPersistenceAlert = false
             return
         }
         guard error != lastPresentedPersistenceError else { return }
@@ -291,7 +351,83 @@ struct ContentView: View {
         }
     }
 
-    private var connectionLogPanel: some View {
+    private var connectionStatusBar: some View {
+        VStack(spacing: 0) {
+            Button {
+                withAnimation(.snappy(duration: 0.22)) {
+                    isConnectionPanelPresented.toggle()
+                }
+            } label: {
+                Capsule()
+                    .fill(statusColor.opacity(appState.connection.state.status == .disconnected ? 0.45 : 0.9))
+                    .frame(width: 110, height: 5)
+                    .frame(width: 180, height: 22)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help(isConnectionPanelPresented ? "收起日志面板" : "展开日志面板")
+            .accessibilityLabel(isConnectionPanelPresented ? "收起日志面板" : "展开日志面板")
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, 12)
+        .padding(.bottom, 3)
+    }
+
+    private var viewingNodeBinding: Binding<ProxyNode?> {
+        Binding(
+            get: {
+                guard let id = appState.viewingNodeID else { return nil }
+                return appState.nodes.first { $0.id == id }
+            },
+            set: { appState.viewingNodeID = $0?.id }
+        )
+    }
+}
+
+private struct ConnectedNodeScoreButton: View {
+    @EnvironmentObject private var appState: AppState
+    @ObservedObject var connection: ConnectionManager
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 5)) { context in
+            let node = connection.state.status == .connected ? appState.currentNode : nil
+            let score = node.flatMap {
+                connection.nodeQuality[$0.id]?.score(for: .codex, settings: appState.settings, now: max(context.date, Date()))
+            }
+            let title = score.map { String($0.points) } ?? (node == nil ? "打盹中" : "热身中")
+            let symbol = score != nil ? "chart.bar.xaxis" : (node == nil ? "moon.zzz.fill" : "sparkles")
+            Button {
+                if connection.state.status == .connected, let current = appState.currentNode {
+                    appState.openNetworkHealthCenter(for: current.id)
+                }
+            } label: {
+                Label(title, systemImage: symbol)
+                    .labelStyle(.titleAndIcon)
+                    .monospacedDigit()
+                    .fixedSize()
+            }
+            .disabled(node == nil)
+            .help(node == nil ? "节点打盹中，连接后就能查看评分。" : score.map {
+                "当前节点评分：\($0.points) / 100，已测维度覆盖 \($0.coverage)%。点击打开完整网络健康中心。"
+            } ?? "评分热身中，等待有效采样；点击打开网络健康中心查看观测与采样。")
+            .accessibilityLabel("当前已连接节点评分")
+            .accessibilityValue(score.map { "\($0.points) 分，覆盖 \($0.coverage)%" }
+                ?? (node == nil ? "未连接，打盹中" : "采样不足，热身中"))
+            .accessibilityHint("打开完整网络健康中心")
+        }
+    }
+}
+
+// Only the open log panel observes log traffic, not the navigation/detail tree.
+private struct ConnectionLogPanel: View {
+    @EnvironmentObject private var appState: AppState
+    @ObservedObject private var logger = AppLogger.shared
+    @Binding var isConnectionPanelPresented: Bool
+    @Binding var selectedConnectionLogIDs: Set<UUID>
+    @Binding var showsHistoricalLogs: Bool
+    @State private var showsOnlyProblems = true
+
+    var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 10) {
                 connectionStatusIndicator
@@ -323,7 +459,7 @@ struct ContentView: View {
 
                 if let latency = appState.connection.state.latency,
                    appState.connection.state.status == .connected {
-                    Text(LatencyFormat.seconds(latency))
+                    Text(LatencyFormat.display(latency))
                         .font(.caption.monospacedDigit())
                         .foregroundStyle(.secondary)
                 }
@@ -340,54 +476,13 @@ struct ContentView: View {
 
             Divider()
 
-            VStack(alignment: .leading, spacing: 6) {
-                HStack {
-                    Label("实时日志", systemImage: "text.alignleft")
-                        .font(.caption.weight(.semibold))
-                    Spacer()
-                    Text("最近 \(visibleConnectionLogs.count) 条")
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                }
-
-                Group {
-                    if visibleConnectionLogs.isEmpty {
-                        Text("暂无日志")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .frame(maxWidth: .infinity, minHeight: 120)
-                    } else {
-                        List(visibleConnectionLogs, selection: $selectedConnectionLogIDs) { entry in
-                            connectionLogRow(entry)
-                                .tag(entry.id)
-                                .contextMenu {
-                                    Button(selectedConnectionLogIDs.count > 1 ? "复制选中的 \(selectedConnectionLogIDs.count) 条日志" : "复制此条日志") {
-                                        copySelectedLogs(fallback: entry)
-                                    }
-                                    Button("复制全部日志") {
-                                        copyToPasteboard(logger.exportText())
-                                    }
-                                }
-                        }
-                        .listStyle(.inset)
-                        .scrollContentBackground(.hidden)
-                        .contextMenu {
-                            Button("复制选中日志") {
-                                copySelectedLogs()
-                            }
-                            .disabled(selectedConnectionLogIDs.isEmpty)
-                            Button("全选") {
-                                selectedConnectionLogIDs = Set(visibleConnectionLogs.map(\.id))
-                            }
-                            Button("复制全部日志") {
-                                copyToPasteboard(logger.exportText())
-                            }
-                        }
-                    }
-                }
-                .frame(maxHeight: .infinity)
+            if showsHistoricalLogs || logger.hasCurrentSessionProblems {
+                logContents
+            } else {
+                historyButton
+                    .padding(10)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
-            .padding(10)
         }
         .frame(maxWidth: .infinity)
         .background(.regularMaterial)
@@ -396,27 +491,115 @@ struct ContentView: View {
                 .stroke(Color.primary.opacity(0.1))
         }
         .shadow(color: .black.opacity(0.14), radius: 10, y: -2)
+        .onAppear {
+            selectedConnectionLogIDs.formIntersection(visibleConnectionLogs.map(\.id))
+        }
+        .onChange(of: visibleConnectionLogs.map(\.id)) { ids in
+            selectedConnectionLogIDs.formIntersection(ids)
+        }
     }
 
-    private var connectionStatusBar: some View {
-        VStack(spacing: 0) {
-            Button {
-                withAnimation(.snappy(duration: 0.22)) {
-                    isConnectionPanelPresented.toggle()
-                }
-            } label: {
-                Capsule()
-                    .fill(statusColor.opacity(appState.connection.state.status == .disconnected ? 0.45 : 0.9))
-                    .frame(width: 110, height: 5)
-                    .frame(width: 180, height: 22)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .help(isConnectionPanelPresented ? "收起日志面板" : "展开日志面板")
+    private var historyButton: some View {
+        Button("历史记录") {
+            showsHistoricalLogs = true
         }
-        .frame(maxWidth: .infinity)
-        .padding(.horizontal, 12)
-        .padding(.bottom, 3)
+        .buttonStyle(.borderless)
+        .help("展开历史日志")
+        .accessibilityHint("显示本次启动前保存的日志")
+    }
+
+    private var logContents: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Label("运行日志", systemImage: "text.alignleft")
+                    .font(.caption.weight(.semibold))
+                Spacer()
+                Picker("日志范围", selection: $showsOnlyProblems) {
+                    Text("问题日志").tag(true)
+                    Text("全部日志").tag(false)
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .controlSize(.small)
+                .frame(width: 180)
+                Text("最近 \(visibleConnectionLogs.count) 条")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Group {
+                if visibleConnectionLogs.isEmpty {
+                    VStack(spacing: 6) {
+                        Label(showsOnlyProblems ? "暂无警告或错误" : "暂无日志", systemImage: "text.magnifyingglass")
+                            .font(.callout)
+                        if showsOnlyProblems {
+                            Text("普通连接与断开记录可在“全部日志”中查看")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 120)
+                } else {
+                    List(visibleConnectionLogs, selection: $selectedConnectionLogIDs) { entry in
+                        connectionLogRow(entry)
+                            .tag(entry.id)
+                            .contextMenu {
+                                Button(selectedConnectionLogIDs.contains(entry.id) && selectedConnectionLogIDs.count > 1 ? "复制选中的 \(selectedConnectionLogIDs.count) 条日志" : "复制此条日志") {
+                                    copySelectedLogs(fallback: entry)
+                                }
+                                Button("复制当前显示日志") {
+                                    copyToPasteboard(logger.exportText(Array(visibleConnectionLogs.reversed())))
+                                }
+                            }
+                    }
+                    .listStyle(.inset)
+                    .scrollContentBackground(.hidden)
+                    .contextMenu {
+                        Button("复制选中日志") {
+                            copySelectedLogs()
+                        }
+                        .disabled(selectedConnectionLogIDs.isEmpty)
+                        Button("全选") {
+                            selectedConnectionLogIDs = Set(visibleConnectionLogs.map(\.id))
+                        }
+                        Button("复制当前显示日志") {
+                            copyToPasteboard(logger.exportText(Array(visibleConnectionLogs.reversed())))
+                        }
+                    }
+                }
+            }
+            .frame(maxHeight: .infinity)
+
+            HStack {
+                if logger.hasHistoricalEntries && !showsHistoricalLogs {
+                    historyButton
+                } else {
+                    Text(showsOnlyProblems ? "仅显示警告和错误" : "显示所有已记录级别")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Button("复制当前显示日志") {
+                    copyToPasteboard(logger.exportText(Array(visibleConnectionLogs.reversed())))
+                }
+                .disabled(visibleConnectionLogs.isEmpty)
+                Button("打开日志页") {
+                    appState.selectedSidebar = .logs
+                    isConnectionPanelPresented = false
+                }
+            }
+            .controlSize(.small)
+        }
+        .padding(10)
+    }
+
+    private var statusColor: Color {
+        switch appState.connection.state.status {
+        case .connected: return .green
+        case .connecting, .disconnecting: return .orange
+        case .error: return .red
+        case .disconnected: return .secondary
+        }
     }
 
     @ViewBuilder
@@ -434,24 +617,24 @@ struct ContentView: View {
     }
 
     private var visibleConnectionLogs: [LogEntry] {
-        Array(logger.entries.suffix(100).reversed())
+        logger.recentEntries(problemsOnly: showsOnlyProblems, includeHistory: showsHistoricalLogs)
     }
 
     private func connectionLogRow(_ entry: LogEntry) -> some View {
         HStack(alignment: .top, spacing: 7) {
             Text(entry.date, format: .dateTime.hour().minute().second())
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(.secondary)
                 .fixedSize()
             Text("[\(entry.level.displayName)]")
                 .foregroundStyle(logColor(entry.level))
                 .fixedSize()
-            Text("[\(entry.category.displayName)] \(entry.message)")
-                .foregroundStyle(.secondary)
+            Text("[\(entry.category.displayName)] \(entry.displayMessage)")
+                .foregroundStyle(.primary)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .lineLimit(nil)
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .font(.system(size: 11, design: .monospaced))
+        .font(.system(.caption, design: .monospaced))
         .contentShape(Rectangle())
     }
 
@@ -470,8 +653,8 @@ struct ContentView: View {
     }
 
     private func copySelectedLogs(fallback: LogEntry? = nil) {
-        let selected = logger.entries.filter { selectedConnectionLogIDs.contains($0.id) }
-        if selected.isEmpty, let fallback {
+        let selected = visibleConnectionLogs.reversed().filter { selectedConnectionLogIDs.contains($0.id) }
+        if let fallback, !selectedConnectionLogIDs.contains(fallback.id) {
             copyToPasteboard(logger.exportText([fallback]))
         } else {
             copyToPasteboard(logger.exportText(selected))
@@ -490,11 +673,11 @@ struct ContentView: View {
         if let node = appState.currentNode {
             switch appState.connection.state.status {
             case .connecting:
-                return "正在连接 \(node.displayTitle)"
+                return "正在连接 \(appState.settings.nodeDisplayTitle(node))"
             case .connected:
-                return "\(node.displayTitle) · \(node.protocolType.displayName)"
+                return "\(appState.settings.nodeDisplayTitle(node)) · \(node.protocolType.displayName)"
             case .disconnecting:
-                return "正在断开 \(node.displayTitle)"
+                return "正在断开 \(appState.settings.nodeDisplayTitle(node))"
             case .disconnected, .error:
                 break
             }
@@ -502,13 +685,4 @@ struct ContentView: View {
         return "未连接节点"
     }
 
-    private var viewingNodeBinding: Binding<ProxyNode?> {
-        Binding(
-            get: {
-                guard let id = appState.viewingNodeID else { return nil }
-                return appState.nodes.first { $0.id == id }
-            },
-            set: { appState.viewingNodeID = $0?.id }
-        )
-    }
 }

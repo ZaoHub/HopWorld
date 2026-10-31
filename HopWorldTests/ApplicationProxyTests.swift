@@ -55,7 +55,7 @@ final class ApplicationProxyTests: XCTestCase {
         XCTAssertThrowsError(try ProxyApplication(url: URL(fileURLWithPath: "/Applications")))
     }
 
-    func testConfigWhitelistHasDirectFallbackLoopPreventionAndNoDNSOverride() throws {
+    func testApplicationWhitelistKeepsSharedDNSDirectEvenWhenNodeIsUnavailable() throws {
         let app = try ProxyApplication(url: URL(fileURLWithPath: "/usr/bin/curl"))
         let config = try ApplicationProxyConfig.build(applications: [app], socksPort: 12001, password: "fixture", bypassExecutables: ["/fixture/xray"])
         let route = try XCTUnwrap(config["route"] as? [String: Any])
@@ -67,6 +67,11 @@ final class ApplicationProxyTests: XCTestCase {
         XCTAssertEqual(rules.last?["process_path_regex"] as? [String], [app.pathRegex])
         XCTAssertEqual(rules.last?["outbound"] as? String, "selected-apps")
         XCTAssertNil(config["dns"])
+        XCTAssertNil(route["default_domain_resolver"])
+        XCTAssertEqual(rules[1]["port"] as? [Int], [53])
+        XCTAssertEqual(rules[1]["action"] as? String, "route")
+        XCTAssertEqual(rules[1]["outbound"] as? String, "direct")
+        XCTAssertEqual(rules[2]["ip_is_private"] as? Bool, true)
         let tun = try XCTUnwrap((config["inbounds"] as? [[String: Any]])?.first)
         XCTAssertEqual(tun["dns_mode"] as? String, "disabled")
         XCTAssertEqual((tun["address"] as? [String])?.count, 2)
@@ -119,6 +124,25 @@ final class ApplicationProxyTests: XCTestCase {
         }
     }
 
+    @MainActor
+    func testTunCoreReusesVerifiedExecutableAndRebuildsAfterTampering() async throws {
+        guard SingBoxInstaller.installedVersion != nil else { throw XCTSkip("本地缺少已验证的 sing-box 安装包") }
+        let manager = ApplicationProxyManager()
+        let first = try await manager.prepareCore()
+        let expected = try SingBoxInstaller.digest(first)
+        let firstID = try FileManager.default.attributesOfItem(atPath: first.path)[.systemFileNumber] as? NSNumber
+        let started = ProcessInfo.processInfo.systemUptime
+        let second = try await manager.prepareCore()
+        XCTAssertEqual(second, first)
+        XCTAssertEqual(try FileManager.default.attributesOfItem(atPath: second.path)[.systemFileNumber] as? NSNumber, firstID)
+        print("TUN 已验证核心复用耗时：\(Int((ProcessInfo.processInfo.systemUptime - started) * 1000)) ms")
+        try Data("tampered".utf8).write(to: first)
+        let rebuilt = try await manager.prepareCore()
+        XCTAssertNotEqual(rebuilt, first)
+        XCTAssertEqual(try SingBoxInstaller.digest(rebuilt), expected)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: first.path))
+    }
+
     func testRealGlobalDNSAndOutboundsStartWithoutPrivilegedCapture() async throws {
         guard let path = ProcessInfo.processInfo.environment["HOPWORLD_TEST_SING_BOX"] else {
             throw XCTSkip("设置 HOPWORLD_TEST_SING_BOX 可运行真实核心启动校验")
@@ -141,10 +165,9 @@ final class ApplicationProxyTests: XCTestCase {
     }
 
     func testXrayApplicationInboundForcesProxyAndUsesPrivateCredentials() async throws {
-        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-        let binary = root.appendingPathComponent("HopWorld/Resources/xray")
         let directory = try fixtureDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
+        let binary = try CoreValidationFixture.copyXray(to: directory)
         let node = ProxyNode(name: "fixture", protocolType: .vless, server: "127.0.0.1", port: 443,
                              uuid: "11111111-1111-4111-8111-111111111111")
         for mode in RoutingMode.allCases {
@@ -159,7 +182,7 @@ final class ApplicationProxyTests: XCTestCase {
             XCTAssertEqual(rule?["outboundTag"] as? String, "proxy")
             let file = directory.appendingPathComponent("config.json")
             try XrayConfigBuilder.writeJSON(config, to: file)
-            if FileManager.default.isExecutableFile(atPath: binary.path) {
+            if let binary {
                 let valid = try await XrayValidator.validateConfigFile(at: file, xrayURL: binary)
                 XCTAssertTrue(valid)
             }
@@ -203,6 +226,7 @@ final class ApplicationProxyTests: XCTestCase {
         }.value
         let result = try JSONDecoder().decode(TunSessionStatus.self, from: Data(contentsOf: statusURL))
         XCTAssertEqual(result.state, "stopped")
+        XCTAssertEqual(result.stopReason, .leaseExpired)
         XCTAssertLessThan(ProcessInfo.processInfo.systemUptime - start, 4)
     }
 
@@ -239,6 +263,81 @@ final class ApplicationProxyTests: XCTestCase {
         }.value
         let result = try JSONDecoder().decode(TunSessionStatus.self, from: Data(contentsOf: statusURL))
         XCTAssertEqual(result.state, "stopped")
+        XCTAssertEqual(result.stopReason, .leaseExpired)
+    }
+
+    func testSupervisorSignalStopDoesNotLaunchPendingCore() async throws {
+        let directory = try fixtureDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let (leaseURL, statusURL) = try controlFiles(directory)
+        let lease = try TunControlFile(path: leaseURL.path, uid: getuid(), writable: false)
+        let status = try TunControlFile(path: statusURL.path, uid: getuid(), writable: true)
+        for signal in [SIGTERM, SIGINT] {
+            let supervisor = TunSupervisor()
+            supervisor.requestStop(signal: signal)
+            let result = try await Task.detached {
+                try supervisor.run(executable: URL(fileURLWithPath: "/does-not-exist"), arguments: [],
+                                   lease: lease, status: status)
+            }.value
+
+            XCTAssertEqual(result.state, "stopped")
+            XCTAssertEqual(result.stopReason, .systemSignal)
+            XCTAssertEqual(result.signal, signal)
+            XCTAssertTrue(result.message.contains(signal == SIGTERM ? "SIGTERM" : "SIGINT"))
+        }
+    }
+
+    func testSupervisorKeepsFirstSignalAndItsSender() async throws {
+        let directory = try fixtureDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let (leaseURL, statusURL) = try controlFiles(directory)
+        let lease = try TunControlFile(path: leaseURL.path, uid: getuid(), writable: false)
+        let status = try TunControlFile(path: statusURL.path, uid: getuid(), writable: true)
+        let supervisor = TunSupervisor()
+        supervisor.requestStop(signal: SIGTERM, senderPID: 12345, senderUID: 501, senderName: "first-sender")
+        supervisor.requestStop(signal: SIGINT, senderPID: 54321, senderUID: 0, senderName: "later-sender")
+
+        let result = try await Task.detached {
+            try supervisor.run(executable: URL(fileURLWithPath: "/does-not-exist"), arguments: [],
+                               lease: lease, status: status)
+        }.value
+        let published = try JSONDecoder().decode(TunSessionStatus.self, from: Data(contentsOf: statusURL))
+        for value in [result, published] {
+            XCTAssertEqual(value.state, "stopped")
+            XCTAssertEqual(value.stopReason, .systemSignal)
+            XCTAssertEqual(value.signal, SIGTERM)
+            XCTAssertEqual(value.signalSenderPID, 12345)
+            XCTAssertEqual(value.signalSenderUID, 501)
+            XCTAssertEqual(value.signalSenderName, "first-sender")
+            XCTAssertTrue(value.message.contains("first-sender"))
+            XCTAssertTrue(value.message.contains("12345"))
+            XCTAssertFalse(value.message.contains("later-sender"))
+            XCTAssertFalse(value.allowsAutomaticRecovery)
+        }
+    }
+
+    func testSupervisorExplicitStopIsNotOverwrittenByLaterSignal() async throws {
+        let directory = try fixtureDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let (leaseURL, statusURL) = try controlFiles(directory)
+        let lease = try TunControlFile(path: leaseURL.path, uid: getuid(), writable: false)
+        let status = try TunControlFile(path: statusURL.path, uid: getuid(), writable: true)
+        let supervisor = TunSupervisor()
+        supervisor.requestStop()
+        supervisor.requestStop(signal: SIGTERM, senderPID: 12345, senderUID: 501, senderName: "later-sender")
+
+        let result = try await Task.detached {
+            try supervisor.run(executable: URL(fileURLWithPath: "/does-not-exist"), arguments: [],
+                               lease: lease, status: status)
+        }.value
+        XCTAssertEqual(result.state, "stopped")
+        XCTAssertEqual(result.stopReason, .requested)
+        XCTAssertNil(result.signal)
+        XCTAssertNil(result.signalSenderPID)
+        XCTAssertNil(result.signalSenderUID)
+        XCTAssertNil(result.signalSenderName)
+        XCTAssertFalse(result.message.contains("later-sender"))
+        XCTAssertFalse(result.allowsAutomaticRecovery)
     }
 
     func testSupervisorUnlinkStopsImmediatelyAndStatusWriteStaysOnOpenedFile() async throws {
@@ -360,8 +459,11 @@ final class ApplicationProxyTests: XCTestCase {
             }
         }
         supervisor.requestStop()
-        try await task.value
+        let result = try await task.value
         XCTAssertTrue(running, "Must see readiness without waiting for EOF or a full output buffer")
+        XCTAssertEqual(result.state, "stopped")
+        XCTAssertEqual(result.stopReason, .requested)
+        XCTAssertNil(result.signal)
     }
 
     func testShellQuotingRoundTripDoesNotExecuteInjectedText() async throws {
@@ -465,8 +567,15 @@ final class ApplicationProxyTests: XCTestCase {
         let refusal = try client.request(bad, timeout: 3)
         XCTAssertFalse(refusal.ok)
         XCTAssertTrue(client.ping())
-        for name in ["one", "two"] {
-            let files = try sessionFiles(directory.appendingPathComponent(name))
+        let executed = directory.appendingPathComponent("executed-cores")
+        for name in ["one", "two", "updated"] {
+            let files = try sessionFiles(directory.appendingPathComponent(name), recordExecutableAt: executed)
+            if name == "updated" {
+                let handle = try FileHandle(forWritingTo: files.binary)
+                try handle.seekToEnd()
+                try handle.write(contentsOf: Data("# updated core\n".utf8))
+                try handle.close()
+            }
             let lease = try FileHandle(forUpdating: files.lease)
             let pulse = Task {
                 while !Task.isCancelled {
@@ -501,7 +610,97 @@ final class ApplicationProxyTests: XCTestCase {
                 try await Task.sleep(nanoseconds: 100_000_000)
             }
             XCTAssertTrue(stopped, name)
+            let stop = try client.request(TunHelperRequest(op: "stop"), timeout: 3)
+            XCTAssertTrue(stop.ok, stop.message)
+            let paths = try String(contentsOf: executed).split(separator: "\n").map(String.init)
+            XCTAssertEqual(paths.count, name == "one" ? 1 : name == "two" ? 2 : 3)
+            XCTAssertFalse(FileManager.default.fileExists(atPath: URL(fileURLWithPath: paths.last!).deletingLastPathComponent()
+                .appendingPathComponent("config.json").path), "会话结束不能保留含密码的配置")
+            let originalDigest = try SingBoxInstaller.digest(files.binary)
+            try Data("tampered".utf8).write(to: files.binary)
+            var tampered = try startRequest(files)
+            tampered.binaryDigest = originalDigest
+            XCTAssertFalse(try client.request(tampered, timeout: 3).ok, "复用已验证核心也必须检查每次请求的源文件")
         }
+        let paths = try String(contentsOf: executed).split(separator: "\n").map(String.init)
+        XCTAssertEqual(paths[0], paths[1], "重复连接必须使用同一个已验证可执行文件")
+        XCTAssertNotEqual(paths[1], paths[2], "核心变化必须建立新的验证副本")
+        client.quitAndClose()
+        await fulfillment(of: [finished], timeout: 3)
+        XCTAssertTrue(paths.allSatisfy { !FileManager.default.fileExists(atPath: $0) })
+    }
+
+    func testResidentHelperShutdownDuringPreparationRejectsStart() async throws {
+        let directory = try fixtureDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let socket = "/tmp/hw-stop-start-\(getpid()).sock"
+        unlink(socket)
+        defer { unlink(socket) }
+        let files = try sessionFiles(directory.appendingPathComponent("session"))
+        let originalStatus = try Data(contentsOf: files.status)
+        let server = TunHelperServer()
+        let finished = expectation(description: "stopped helper exit")
+        Thread {
+            _ = server.serve(owner: getuid(), socketPath: socket, idleTimeout: 8) {
+                let runtime = directory.appendingPathComponent("run")
+                try FileManager.default.createDirectory(at: runtime, withIntermediateDirectories: false,
+                                                        attributes: [.posixPermissions: 0o700])
+                server.requestStop()
+                return runtime
+            }
+            finished.fulfill()
+        }.start()
+        let client = try TunHelperClient.connect(socket, timeout: 3)
+        defer { client.close() }
+        let response = try client.request(try startRequest(files), timeout: 3)
+
+        XCTAssertFalse(response.ok, "整体停止后不能接受待启动会话")
+        XCTAssertTrue(response.message.contains("正在停止"), response.message)
+        await fulfillment(of: [finished], timeout: 3)
+        XCTAssertEqual(try Data(contentsOf: files.status), originalStatus, "未启动核心，不应发布运行状态")
+    }
+
+    @MainActor
+    func testSlowTunStopKeepsAuthorizedHelperReusable() async throws {
+        let directory = try fixtureDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let socket = "/tmp/hw-slow-stop-\(getpid()).sock"
+        unlink(socket)
+        defer { unlink(socket) }
+        let server = TunHelperServer()
+        let finished = expectation(description: "helper exit")
+        Thread {
+            _ = server.serve(owner: getuid(), socketPath: socket, idleTimeout: 8) {
+                let runtime = directory.appendingPathComponent("run-" + UUID().uuidString)
+                try FileManager.default.createDirectory(at: runtime, withIntermediateDirectories: false,
+                                                        attributes: [.posixPermissions: 0o700])
+                return runtime
+            }
+            finished.fulfill()
+        }.start()
+        let client = try TunHelperClient.connect(socket, timeout: 3)
+        defer { client.quitAndClose() }
+        let files = try sessionFiles(directory.appendingPathComponent("slow"), ignoresTermination: true)
+        let response = try client.request(try startRequest(files), timeout: 5)
+        XCTAssertTrue(response.ok, response.message)
+        var running = false
+        for _ in 0..<40 {
+            if let data = try? Data(contentsOf: files.status),
+               let state = try? JSONDecoder().decode(TunSessionStatus.self, from: data), state.state == "running" {
+                running = true
+                break
+            }
+            try await Task.sleep(nanoseconds: 100_000_000)
+        }
+        XCTAssertTrue(running)
+
+        let manager = ApplicationProxyManager(helper: client, activeSession: files.lease.deletingLastPathComponent())
+        let started = ProcessInfo.processInfo.systemUptime
+        let stopped = await manager.stop()
+
+        XCTAssertTrue(stopped)
+        XCTAssertGreaterThanOrEqual(ProcessInfo.processInfo.systemUptime - started, 2.5)
+        XCTAssertTrue(client.ping(), "慢停止不能把已授权辅助服务误判失效，否则下次连接会重复授权")
         client.quitAndClose()
         await fulfillment(of: [finished], timeout: 3)
     }
@@ -513,10 +712,12 @@ final class ApplicationProxyTests: XCTestCase {
         let status: URL
     }
 
-    private func sessionFiles(_ directory: URL) throws -> SessionFiles {
+    private func sessionFiles(_ directory: URL, ignoresTermination: Bool = false, recordExecutableAt: URL? = nil) throws -> SessionFiles {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         let binary = directory.appendingPathComponent("core.sh")
-        try Data("#!/bin/sh\necho 'sing-box started'\nexec /bin/sleep 30\n".utf8).write(to: binary)
+        let trap = ignoresTermination ? "trap '' TERM\n" : ""
+        let record = recordExecutableAt.map { "printf '%s\\n' \"$0\" >> \(TunAuthorizationCommand.shellQuote($0.path))\n" } ?? ""
+        try Data("#!/bin/sh\n\(trap)\(record)echo 'sing-box started'\nexec /bin/sleep 30\n".utf8).write(to: binary)
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: binary.path)
         let config = directory.appendingPathComponent("config.json")
         XCTAssertTrue(FileManager.default.createFile(atPath: config.path, contents: Data("{}\n".utf8), attributes: [.posixPermissions: 0o600]))

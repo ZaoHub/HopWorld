@@ -19,6 +19,24 @@ enum NodeListFilter {
         case namedSource(String)
     }
 
+    static func nodes(in nodes: [ProxyNode], source: Source, subscriptions: [Subscription]) -> [ProxyNode] {
+        let active = nodes.filter { $0.enabled && !$0.pendingRemoval }
+        switch source {
+        case .all:
+            return active
+        case .subscription(let id):
+            return active.filter { $0.subscriptionID == id }
+        case .manual:
+            return active.filter { $0.subscriptionID == nil }
+        case .namedSource(let name):
+            let knownIDs = Set(subscriptions.map(\.id))
+            return active.filter { node in
+                guard let id = node.subscriptionID, !knownIDs.contains(id) else { return false }
+                return (node.sourceName ?? "未知订阅") == name
+            }
+        }
+    }
+
     static func encode(scope: Scope, source: Source) -> String {
         "\(encodeScope(scope))@@\(encodeSource(source))"
     }

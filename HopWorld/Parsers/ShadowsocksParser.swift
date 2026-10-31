@@ -49,15 +49,19 @@ enum ShadowsocksParser {
         let methodPass = userInfo.split(separator: ":", maxSplits: 1).map(String.init)
         guard methodPass.count == 2 else { throw ParserError.missingField("method:password") }
 
-        let hostPort = parts[1].split(separator: ":", maxSplits: 1).map(String.init)
-        guard hostPort.count == 2, let port = Int(hostPort[1].split(separator: "/").first ?? Substring(hostPort[1])) else {
+        guard let endpoint = URLComponents(string: "ss://" + parts[1]),
+              let host = endpoint.host, !host.isEmpty,
+              let port = endpoint.port, (1...65535).contains(port) else {
             throw ParserError.missingField("server:port")
+        }
+        guard (endpoint.path.isEmpty || endpoint.path == "/"), (endpoint.query ?? "").isEmpty else {
+            throw ParserError.unsupportedOption("暂不支持 Shadowsocks 插件、查询参数或自定义路径")
         }
 
         return ProxyNode(
-            name: name.isEmpty ? "\(hostPort[0]):\(port)" : name,
+            name: name.isEmpty ? "\(host):\(port)" : name,
             protocolType: .shadowsocks,
-            server: hostPort[0],
+            server: host.trimmingCharacters(in: CharacterSet(charactersIn: "[]")),
             port: port,
             password: methodPass[1],
             method: methodPass[0],

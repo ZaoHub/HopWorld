@@ -111,10 +111,8 @@ struct SubscriptionListView: View {
             } else if appState.subscriptions.isEmpty {
                 subscriptionsEmptyState
             } else {
-                statsStrip
-
                 ScrollView {
-                    LazyVStack(spacing: 10) {
+                    LazyVStack(spacing: 12) {
                         ForEach(appState.subscriptions) { sub in
                             SubscriptionCard(
                                 subscription: sub,
@@ -130,19 +128,16 @@ struct SubscriptionListView: View {
                                     Button("立即更新") {
                                         Task { await appState.refreshSubscription(sub.id) }
                                     }
-                                    Button("测试订阅地址") {
-                                        Task { await appState.testSubscriptionAddress(sub.id) }
-                                    }
                                 }
                                 Button("测试本组全部节点") {
-                                    Task { await appState.testSubscriptionNodes(sub.id) }
+                                    Task { await appState.testSubscriptionNodes([sub.id]) }
                                 }
                                 Divider()
                                 Button("删除", role: .destructive) { confirmDelete = sub }
                             }
                         }
                     }
-                    .padding(.horizontal, 16)
+                    .padding(.horizontal, 24)
                     .padding(.vertical, 12)
                 }
                 .background { SubBackdrop(palette: palette) }
@@ -205,75 +200,95 @@ struct SubscriptionListView: View {
     // MARK: - 码头页眉 + 读数条
 
     private var header: some View {
-        HStack(spacing: 12) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 11, style: .continuous)
-                    .fill(palette.accent.opacity(0.15))
-                Image(systemName: "shippingbox.fill")
-                    .font(.system(size: 20, weight: .semibold))
-                    .foregroundStyle(palette.accent)
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .top, spacing: 12) {
+                headerIdentity
+                Spacer(minLength: 8)
+                headerActions
             }
-            .frame(width: 42, height: 42)
+            VStack(alignment: .leading, spacing: 10) {
+                headerIdentity
+                HStack {
+                    Spacer(minLength: 0)
+                    headerActions
+                }
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 14)
+        .padding(.bottom, 8)
+    }
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text("SUPPLY · 补给码头")
-                    .font(.system(size: 10, weight: .bold, design: .monospaced))
-                    .foregroundStyle(palette.accent)
-                Text("订阅")
-                    .font(.system(size: 22, weight: .bold))
+    private var headerIdentity: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("SUPPLY · 补给码头")
+                .font(.system(size: 11, weight: .bold, design: .monospaced))
+                .foregroundStyle(palette.accent)
+            HStack(spacing: 8) {
+                Image(systemName: "shippingbox.fill")
+                    .font(.system(size: 24, weight: .semibold))
                     .foregroundStyle(palette.text)
+                Text("订阅")
+                    .font(.system(size: 26, weight: .bold))
+                    .foregroundStyle(palette.text)
+                    .fixedSize()
+                if appState.isLibraryReady && !appState.subscriptions.isEmpty {
+                    statsStrip
+                }
             }
-            Spacer(minLength: 8)
+        }
+        .fixedSize(horizontal: true, vertical: false)
+    }
+
+    private var headerActions: some View {
+        VStack(alignment: .trailing, spacing: 8) {
             TimelineView(.periodic(from: .now, by: 1)) { context in
                 Text(context.date, format: .dateTime.hour().minute().second())
-                    .font(.system(size: 15, weight: .semibold, design: .monospaced))
+                    .font(.system(size: 17, weight: .semibold, design: .monospaced))
                     .monospacedDigit()
                     .foregroundStyle(palette.text)
             }
-            Button {
-                Task { await appState.refreshAllSubscriptions() }
-            } label: {
-                Label("全部更新", systemImage: "arrow.triangle.2.circlepath")
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
-            .disabled(appState.subscriptionManager.updateState != .idle)
+            HStack(spacing: 12) {
+                Button {
+                    Task { await appState.refreshAllSubscriptions() }
+                } label: {
+                    Label("全部更新", systemImage: "arrow.triangle.2.circlepath")
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .disabled(appState.isRefreshingAllSubscriptions || appState.subscriptionManager.updateState != .idle)
 
-            Button {
-                appState.showAddSubscription = true
-            } label: {
-                Label("添加订阅", systemImage: "plus")
+                Button {
+                    appState.showAddSubscription = true
+                } label: {
+                    Label("添加订阅", systemImage: "plus")
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(palette.accent)
+                .controlSize(.small)
             }
-            .buttonStyle(.borderedProminent)
-            .tint(palette.accent)
-            .controlSize(.small)
         }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 14)
+        .fixedSize()
     }
 
     private var statsStrip: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 10) {
-                SubStatTile(
-                    label: "订阅",
-                    value: "\(appState.subscriptions.count)",
-                    tint: palette.accent, palette: palette
-                )
-                SubStatTile(
-                    label: "节点",
-                    value: "\(activeNodeCount)",
-                    tint: .green, palette: palette
-                )
-                SubStatTile(
-                    label: "异常",
-                    value: "\(abnormalCount)",
-                    tint: abnormalCount > 0 ? .red : palette.subtext,
-                    palette: palette
-                )
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 10)
+        HStack(spacing: 10) {
+            SubStatTile(
+                label: "订阅",
+                value: "\(appState.subscriptions.count)",
+                tint: palette.accent, palette: palette
+            )
+            SubStatTile(
+                label: "节点",
+                value: "\(activeNodeCount)",
+                tint: .green, palette: palette
+            )
+            SubStatTile(
+                label: "异常",
+                value: "\(abnormalCount)",
+                tint: abnormalCount > 0 ? .red : palette.subtext,
+                palette: palette
+            )
         }
     }
 
@@ -366,6 +381,9 @@ struct SubscriptionListView: View {
 
 struct SubscriptionCard: View {
     @EnvironmentObject private var appState: AppState
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var isHovered = false
+    private var shareLinkCount: Int { appState.currentSubscriptionShareLinks(subscription).count }
     let subscription: Subscription
     var palette: SubPalette
     var onView: () -> Void
@@ -377,20 +395,19 @@ struct SubscriptionCard: View {
             VStack(spacing: 0) {
                 Circle()
                     .fill(statusColor)
-                    .frame(width: 9, height: 9)
+                    .frame(width: 8, height: 8)
                     .shadow(color: statusColor.opacity(0.6), radius: 3)
                 Rectangle()
                     .fill(palette.line)
-                    .frame(width: 1.5)
-                    .padding(.vertical, 4)
+                    .frame(width: 1.5, height: 12)
                 ZStack {
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
                         .fill(statusColor.opacity(0.12))
                     Image(systemName: subscription.isShareLinksBundle ? "doc.on.clipboard.fill" : "antenna.radiowaves.left.and.right")
-                        .font(.system(size: 16, weight: .semibold))
+                        .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(statusColor)
                 }
-                .frame(width: 38, height: 38)
+                .frame(width: 22, height: 22)
             }
 
             VStack(alignment: .leading, spacing: 7) {
@@ -399,6 +416,7 @@ struct SubscriptionCard: View {
                         .font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(palette.text)
                         .lineLimit(1)
+                        .layoutPriority(1)
 
                     Text(statusText)
                         .font(.caption2.weight(.semibold))
@@ -406,6 +424,12 @@ struct SubscriptionCard: View {
                         .padding(.horizontal, 7)
                         .padding(.vertical, 3)
                         .background(statusColor.opacity(0.11), in: Capsule())
+
+                    Text(detailLine)
+                        .font(.caption)
+                        .foregroundStyle(subscription.lastError == nil ? palette.subtext : Color.red)
+                        .lineLimit(1)
+                        .help(detailLine)
                 }
 
                 HStack(spacing: 6) {
@@ -414,22 +438,13 @@ struct SubscriptionCard: View {
                     if !subscription.isShareLinksBundle {
                         metadataBadge(updateScheduleText, icon: "clock")
                     }
-                    if let retry = subscription.updateRetryStatusLine {
-                        metadataBadge(retry, icon: "arrow.clockwise.circle")
-                    }
                 }
-
-                Text(detailLine)
-                    .font(.caption)
-                    .foregroundStyle(subscription.lastError == nil ? palette.subtext : Color.red)
-                    .lineLimit(1)
-                    .help(detailLine)
             }
 
             Spacer(minLength: 12)
 
             VStack(alignment: .trailing, spacing: 3) {
-                Text("\(subscription.nodeCount)")
+                Text("\(appState.nodes.filter { $0.subscriptionID == subscription.id && !$0.pendingRemoval }.count)")
                     .font(.system(.title3, design: .rounded).weight(.bold))
                     .foregroundStyle(palette.text)
                 Text("节点")
@@ -455,13 +470,8 @@ struct SubscriptionCard: View {
             Menu {
                 Button("查看", action: onView)
                 Button("编辑", action: onEdit)
-                if !subscription.isShareLinksBundle {
-                    Button("测试订阅地址") {
-                        Task { await appState.testSubscriptionAddress(subscription.id) }
-                    }
-                }
                 Button("测试本组全部节点") {
-                    Task { await appState.testSubscriptionNodes(subscription.id) }
+                    Task { await appState.testSubscriptionNodes([subscription.id]) }
                 }
                 Divider()
                 Button("删除", role: .destructive, action: onDelete)
@@ -474,15 +484,29 @@ struct SubscriptionCard: View {
             .help("更多操作")
         }
         .padding(14)
-        .background(
+        .background {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .fill(palette.card)
-        )
+                .overlay {
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .fill(LinearGradient(
+                            colors: [palette.accent.opacity(palette.scheme == .dark ? 0.16 : 0.09), .clear],
+                            startPoint: .topLeading, endPoint: .bottomTrailing
+                        ))
+                        .opacity(isHovered ? 1 : 0)
+                }
+        }
         .overlay {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .strokeBorder(palette.cardBorder, lineWidth: 1)
         }
         .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .scaleEffect(isHovered && !reduceMotion ? 1.015 : 1)
+        .shadow(color: palette.accent.opacity(isHovered ? 0.10 : 0), radius: 10)
+        .shadow(color: .black.opacity(isHovered ? (palette.scheme == .dark ? 0.24 : 0.14) : 0), radius: 8, y: 3)
+        .zIndex(isHovered ? 1 : 0)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.16), value: isHovered)
+        .onHover { isHovered = $0 }
         .onTapGesture(perform: onView)
         .help(subscription.statusMessage ?? oneLineMeta)
     }
@@ -498,6 +522,7 @@ struct SubscriptionCard: View {
 
     private var updateScheduleText: String {
         guard subscription.autoUpdate else { return "自动更新关" }
+        guard subscription.updateInterval.usesTimeOfDay else { return subscription.updateInterval.displayName }
         return "\(subscription.updateInterval.displayName) \(String(format: "%02d:%02d", subscription.updateHour, subscription.updateMinute))"
     }
 
@@ -506,9 +531,8 @@ struct SubscriptionCard: View {
         if let error = subscription.lastError, !error.isEmpty { return error }
         if let message = subscription.statusMessage, !message.isEmpty { return message }
         if subscription.isShareLinksBundle {
-            let linkCount = NodeLinkParser.extractShareLinks(from: subscription.shareLinksText ?? "").count
-            if linkCount > 0 {
-                return "\(linkCount) 条分享链接 · 编辑可追加或按策略覆盖"
+            if shareLinkCount > 0 {
+                return "\(shareLinkCount) 条分享链接 · 编辑可追加或按策略覆盖"
             }
             return "分享链接订阅"
         }
@@ -526,9 +550,7 @@ struct SubscriptionCard: View {
         parts.append(subscription.sourceKind.displayName)
         parts.append(subscription.updateMode.displayName)
         if subscription.autoUpdate {
-            parts.append(
-                "\(subscription.updateInterval.displayName) \(String(format: "%02d:%02d", subscription.updateHour, subscription.updateMinute))"
-            )
+            parts.append(updateScheduleText)
         } else {
             parts.append("自动更新关")
         }
@@ -564,6 +586,7 @@ struct SubscriptionDetailView: View {
     @Environment(\.dismiss) private var dismiss
     let subscriptionID: UUID
     @State private var confirmCleanup = false
+    @State private var presentedHistory: SubscriptionHistoryKind?
 
     private var subscription: Subscription? {
         appState.subscription(for: subscriptionID)
@@ -589,7 +612,7 @@ struct SubscriptionDetailView: View {
                                 LabeledContent("地址模式", value: sub.urlMode.displayName)
                             }
                             LabeledContent(sub.isShareLinksBundle ? "链接处理方式" : "更新模式", value: sub.updateMode.displayName)
-                            LabeledContent("节点数量", value: "\(sub.nodeCount)")
+                            LabeledContent("节点数量", value: "\(appState.nodes.filter { $0.subscriptionID == sub.id && !$0.pendingRemoval }.count)")
                             if subscriptionPendingNodeCount > 0 {
                                 LabeledContent("待处理节点", value: "\(subscriptionPendingNodeCount)（待应用/待移除）")
                             }
@@ -610,14 +633,40 @@ struct SubscriptionDetailView: View {
                                     guard var latest = subscription else { return }
                                     latest.unavailableCleanupDays = min(30, max(1, value))
                                     appState.updateSubscription(latest)
+                                    if latest.autoCleanupUnavailableNodes == true {
+                                        appState.cleanupUnavailableNodes(subscriptionID: subscriptionID, automatic: true)
+                                    }
                                 }
                             ), in: 1...30)
                             Button("清理当前组长期不可用节点", role: .destructive) {
                                 confirmCleanup = true
                             }
                             .disabled(appState.unavailableCleanupCandidates(subscriptionID: subscriptionID).isEmpty)
-                            Text("需在期限开始及近期测速中均不可用；恢复可用后重新计时。未测试、配置失败、收藏和当前连接节点均保留。订阅地址保留，更新可能重新导入节点。")
-                                .font(.caption).foregroundStyle(.secondary)
+                            let protectedCount = appState.protectedCleanupFavoriteCount(subscriptionID: subscriptionID)
+                            if protectedCount > 0 {
+                                Label("本组有 \(protectedCount) 个收藏节点已达到不可用期限，仍会一直保留。如需移除，请在节点列表中手动删除。", systemImage: "star.fill")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            HStack {
+                                Text("清理规则").font(.caption).foregroundStyle(.secondary)
+                                UsageHelpButton(title: "清理规则", text: "需在期限开始及近期测速中均不可用；恢复可用后重新计时。收藏节点不会被自动或批量清理，会一直保留，除非在节点列表中手动删除。未测试、配置失败和当前连接节点均保留。订阅地址保留，更新可能重新导入节点。")
+                            }
+                        }
+
+                        Section("清理历史") {
+                            TimelineView(.periodic(from: .now, by: 60)) { context in
+                                LabeledContent("今日自动清理", value: "\(sub.automaticCleanupCountToday(now: context.date)) 个节点")
+                            }
+                            let records = sub.cleanupHistory ?? []
+                            if let latest = records.first {
+                                SubscriptionCleanupHistoryRow(record: latest)
+                                Button("查看全部清理记录（\(records.count) 条）") {
+                                    presentedHistory = .cleanup
+                                }
+                            } else {
+                                Text("暂无清理记录").foregroundStyle(.secondary)
+                            }
                         }
 
                         if sub.isShareLinksBundle {
@@ -626,21 +675,10 @@ struct SubscriptionDetailView: View {
                             remoteURLDetailSections(sub)
                         }
 
-                        if !sub.isShareLinksBundle {
-                            if let report = appState.subscriptionManager.lastTestReport {
-                                Section("最近地址测试") {
-                                    Text("URL：\(report.resolvedURL)")
-                                    Text("HTTP：\(report.httpStatus.map(String.init) ?? "—")")
-                                    Text("有效 \(report.validCount) / 重复 \(report.duplicateCount) / 无效 \(report.invalidCount)")
-                                    Text("耗时 \(LatencyFormat.seconds(report.durationMS))")
-                                }
-                                .font(.caption)
-                            }
-                        }
                     }
                     .formStyle(.grouped)
                 } else {
-                    ContentUnavailableView("订阅不存在", systemImage: "link")
+                    UnavailablePlaceholder("订阅不存在", systemImage: "link")
                 }
             }
             .confirmationDialog("清理当前组长期不可用节点？", isPresented: $confirmCleanup, titleVisibility: .visible) {
@@ -671,12 +709,16 @@ struct SubscriptionDetailView: View {
                 }
             }
             .frame(minWidth: 560, minHeight: 520)
+            .sheet(item: $presentedHistory) { kind in
+                SubscriptionHistoryView(subscriptionID: subscriptionID, kind: kind)
+                    .environmentObject(appState)
+            }
         }
     }
 
     @ViewBuilder
     private func shareLinksDetailSection(_ sub: Subscription) -> some View {
-        let links = NodeLinkParser.extractShareLinks(from: sub.shareLinksText ?? "")
+        let links = appState.currentSubscriptionShareLinks(sub)
         Section("分享链接（\(links.count)）") {
             if links.isEmpty {
                 Text("暂无链接").foregroundStyle(.secondary)
@@ -769,7 +811,9 @@ struct SubscriptionDetailView: View {
         Section("更新设置") {
             LabeledContent("自动更新", value: sub.autoUpdate ? "开启" : "关闭")
             LabeledContent("周期", value: sub.updateInterval.displayName)
-            LabeledContent("时间", value: String(format: "%02d:%02d", sub.updateHour, sub.updateMinute))
+            if sub.updateInterval.usesTimeOfDay {
+                LabeledContent("时间", value: String(format: "%02d:%02d", sub.updateHour, sub.updateMinute))
+            }
             LabeledContent("执行时区", value: sub.timeZoneID)
             LabeledContent("URL 日期时区", value: sub.urlDateTimeZoneID)
             LabeledContent("日期偏移", value: dateOffsetLabel(sub.dateOffset))
@@ -806,31 +850,14 @@ struct SubscriptionDetailView: View {
         }
 
         Section("更新历史") {
-            let logs = appState.logs(for: sub.id)
-            if logs.isEmpty {
-                Text("暂无记录").foregroundStyle(.secondary)
-            } else {
-                ForEach(logs) { log in
-                    VStack(alignment: .leading, spacing: 4) {
-                        HStack {
-                            Text(log.startedAt.formatted(date: .abbreviated, time: .shortened))
-                            Spacer()
-                            Text(log.success ? "成功" : "失败")
-                                .foregroundStyle(log.success ? .green : .red)
-                        }
-                        Text(log.requestedURL)
-                            .font(.system(.caption2, design: .monospaced))
-                            .lineLimit(2)
-                        if log.success {
-                            Text("获取 \(log.fetchedCount) · 新增 \(log.addedCount) · 更新 \(log.updatedCount) · 移除 \(log.removedCount)")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        } else if let err = log.errorMessage {
-                            Text(err).font(.caption).foregroundStyle(.red)
-                        }
-                    }
-                    .padding(.vertical, 2)
+            let logs = appState.logs(for: sub.id, limit: .max)
+            if let latest = logs.first {
+                SubscriptionUpdateHistoryRow(log: latest, compact: true)
+                Button("查看全部更新记录（\(logs.count) 条）") {
+                    presentedHistory = .updates
                 }
+            } else {
+                Text("暂无记录").foregroundStyle(.secondary)
             }
         }
     }
@@ -845,7 +872,324 @@ struct SubscriptionDetailView: View {
     }
 }
 
+private enum SubscriptionHistoryKind: String, Identifiable {
+    case cleanup, updates
+
+    var id: String { rawValue }
+    var title: String { self == .cleanup ? "清理历史" : "更新历史" }
+}
+
+private struct SubscriptionCleanupHistoryRow: View {
+    let record: SubscriptionCleanupRecord
+
+    var body: some View {
+        HStack {
+            Text(record.cleanedAt.formatted(date: .abbreviated, time: .standard))
+            Spacer(minLength: 8)
+            Text(record.automatic ? "自动" : "手动")
+                .foregroundStyle(.secondary)
+            Text("删除 \(record.removedCount) 个节点")
+        }
+    }
+}
+
+private struct SubscriptionUpdateHistoryRow: View {
+    let log: SubscriptionUpdateLog
+    var compact = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text(log.startedAt.formatted(date: .abbreviated, time: .shortened))
+                Spacer(minLength: 8)
+                Text(log.success ? "成功" : "失败")
+                    .foregroundStyle(log.success ? .green : .red)
+            }
+            Text(log.requestedURL)
+                .font(.system(.caption2, design: .monospaced))
+                .lineLimit(compact ? 2 : nil)
+                .fixedSize(horizontal: false, vertical: true)
+                .textSelection(.enabled)
+            if log.success {
+                Text("获取 \(log.fetchedCount) · 新增 \(log.addedCount) · 更新 \(log.updatedCount) · 移除 \(log.removedCount)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else if let error = log.errorMessage {
+                Text(error)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .lineLimit(compact ? 2 : nil)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .textSelection(.enabled)
+            }
+        }
+        .padding(.vertical, 2)
+    }
+}
+
+private struct SubscriptionHistoryView: View {
+    @EnvironmentObject private var appState: AppState
+    @Environment(\.dismiss) private var dismiss
+    let subscriptionID: UUID
+    let kind: SubscriptionHistoryKind
+    @State private var cleanupFilter = SubscriptionCleanupHistoryFilter()
+    @State private var updateFilter = SubscriptionUpdateHistoryFilter()
+    @State private var pendingClear: HistoryClearRequest?
+    @State private var clearFeedback: String?
+
+    private struct HistoryClearRequest {
+        let recordIDs: Set<UUID>
+        let scope: String
+    }
+
+    private var periodSelection: Binding<SubscriptionHistoryPeriod> {
+        Binding(
+            get: { kind == .cleanup ? cleanupFilter.period : updateFilter.period },
+            set: { period in
+                if kind == .cleanup { cleanupFilter.period = period }
+                else { updateFilter.period = period }
+            }
+        )
+    }
+
+    var body: some View {
+        NavigationStack {
+            TimelineView(.periodic(from: .now, by: 60)) { context in
+                let sub = appState.subscription(for: subscriptionID)
+                let records = sub?.cleanupHistory ?? []
+                let filtered = cleanupFilter.apply(to: records, now: context.date)
+                let logs = kind == .updates ? appState.logs(for: subscriptionID, limit: .max) : []
+                let filteredLogs = updateFilter.apply(to: logs, now: context.date)
+                let allIDs = kind == .cleanup ? Set(records.map(\.id)) : Set(logs.map(\.id))
+                let filteredIDs = kind == .cleanup ? Set(filtered.map(\.id)) : Set(filteredLogs.map(\.id))
+                let isFiltering = kind == .cleanup ? cleanupFilter.isActive : updateFilter.isActive
+                Group {
+                    if let sub {
+                        VStack(spacing: 0) {
+                            HStack(spacing: 16) {
+                                Picker("时间", selection: periodSelection) {
+                                    ForEach(SubscriptionHistoryPeriod.allCases, id: \.self) { period in
+                                        Text(period.rawValue).tag(period)
+                                    }
+                                }
+                                if kind == .cleanup {
+                                    Picker("方式", selection: $cleanupFilter.source) {
+                                        ForEach(SubscriptionCleanupHistoryFilter.Source.allCases, id: \.self) { source in
+                                            Text(source.rawValue).tag(source)
+                                        }
+                                    }
+                                } else {
+                                    Picker("结果", selection: $updateFilter.result) {
+                                        ForEach(SubscriptionUpdateHistoryFilter.Result.allCases, id: \.self) { result in
+                                            Text(result.rawValue).tag(result)
+                                        }
+                                    }
+                                }
+                            }
+                            .pickerStyle(.menu)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(12)
+                            .background(.bar)
+                            Divider()
+                            List {
+                                HStack {
+                                    Text(sub.name).font(.headline).lineLimit(1)
+                                    Spacer(minLength: 8)
+                                    Text("显示 \(filteredIDs.count) / \(allIDs.count) 条")
+                                        .foregroundStyle(.secondary)
+                                }
+                                if kind == .cleanup {
+                                    LabeledContent("今日自动清理", value: "\(sub.automaticCleanupCountToday(now: context.date)) 个节点")
+                                    if filtered.isEmpty {
+                                        Text(records.isEmpty ? "暂无清理记录" : "没有符合筛选条件的记录")
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    ForEach(filtered) { record in
+                                        SubscriptionCleanupHistoryRow(record: record)
+                                    }
+                                } else {
+                                    if filteredLogs.isEmpty {
+                                        Text(logs.isEmpty ? "暂无更新记录" : "没有符合筛选条件的记录")
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    ForEach(filteredLogs) { log in
+                                        SubscriptionUpdateHistoryRow(log: log)
+                                    }
+                                }
+                            }
+                            .listStyle(.inset)
+                        }
+                    } else {
+                        UnavailablePlaceholder("订阅不存在", systemImage: "link")
+                    }
+                }
+                .navigationTitle(kind.title)
+                .safeAreaInset(edge: .bottom, spacing: 0) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        if let clearFeedback {
+                            Text(clearFeedback).font(.caption).foregroundStyle(.secondary)
+                        }
+                        HStack(spacing: 12) {
+                            Button("清除筛选结果", role: .destructive) {
+                                pendingClear = HistoryClearRequest(recordIDs: filteredIDs, scope: "当前筛选结果")
+                            }
+                            .disabled(!isFiltering || filteredIDs.isEmpty)
+                            Button("清除全部", role: .destructive) {
+                                pendingClear = HistoryClearRequest(recordIDs: allIDs, scope: "当前订阅的全部\(kind.title)")
+                            }
+                            .disabled(allIDs.isEmpty)
+                            Spacer()
+                            Button("关闭") { dismiss() }
+                                .keyboardShortcut(.cancelAction)
+                        }
+                        .buttonStyle(.bordered)
+                    }
+                    .padding(12)
+                    .background(.bar)
+                }
+                .alert("清除\(kind.title)？", isPresented: Binding(
+                    get: { pendingClear != nil },
+                    set: { if !$0 { pendingClear = nil } }
+                ), presenting: pendingClear) { request in
+                    Button("清除 \(request.recordIDs.count) 条记录", role: .destructive) {
+                        if kind == .cleanup {
+                            appState.clearSubscriptionCleanupHistory(subscriptionID, recordIDs: request.recordIDs)
+                        } else {
+                            appState.clearSubscriptionUpdateHistory(subscriptionID, recordIDs: request.recordIDs)
+                        }
+                        clearFeedback = appState.statusBanner
+                    }
+                    Button("取消", role: .cancel) {}
+                } message: { request in
+                    Text(kind == .cleanup
+                         ? "\(request.scope)，共 \(request.recordIDs.count) 条。仅清除历史记录，不删除节点或更改自动清理设置。今日统计将按剩余记录重新计算，此操作不可撤销。"
+                         : "\(request.scope)，共 \(request.recordIDs.count) 条。仅清除历史记录，不删除节点、订阅或更改更新计划，此操作不可撤销。")
+                }
+                .frame(width: 600, height: 460)
+                .background(.background)
+            }
+        }
+    }
+}
+
 // MARK: - Editor
+
+private struct SubscriptionTimeWheel: View {
+    @Binding var value: Int
+    let range: ClosedRange<Int>
+    let label: String
+    @FocusState private var isFocused: Bool
+    @State private var scrollValue: Int?
+
+    var body: some View {
+        Group {
+            if #available(macOS 14.0, *) {
+                modernWheel
+            } else {
+                legacyWheel
+            }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(label)
+        .accessibilityValue(String(format: "%02d", value))
+        .accessibilityAdjustableAction { direction in
+            switch direction {
+            case .increment: value = min(range.upperBound, value + 1)
+            case .decrement: value = max(range.lowerBound, value - 1)
+            @unknown default: break
+            }
+        }
+        .help("滚动或使用上下方向键选择\(label)")
+    }
+
+    @available(macOS 14.0, *)
+    private var modernWheel: some View {
+        ScrollView(.vertical) {
+            LazyVStack(spacing: 0) {
+                ForEach(range, id: \.self) { number in
+                    Button {
+                        value = number
+                    } label: {
+                        Text(String(format: "%02d", number))
+                            .font(.body.monospacedDigit().weight(number == value ? .semibold : .regular))
+                            .foregroundStyle(number == value ? .primary : .secondary)
+                            .frame(width: 56, height: 28)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .focusable(false)
+                    .id(number)
+                }
+            }
+            .scrollTargetLayout()
+        }
+        .scrollIndicators(.never)
+        .safeAreaPadding(.vertical, 28)
+        .scrollTargetBehavior(.viewAligned)
+        .scrollPosition(id: $scrollValue, anchor: .center)
+        .onAppear { scrollValue = value }
+        .onChange(of: value) { _, number in scrollValue = number }
+        .onChange(of: scrollValue) { _, number in
+            if let number { value = number }
+        }
+        .frame(width: 56, height: 84)
+        .background { wheelChrome }
+        .clipShape(RoundedRectangle(cornerRadius: 6))
+        .focusable()
+        .focusEffectDisabled()
+        .focused($isFocused)
+        .onKeyPress(.upArrow) {
+            value = max(range.lowerBound, value - 1)
+            return .handled
+        }
+        .onKeyPress(.downArrow) {
+            value = min(range.upperBound, value + 1)
+            return .handled
+        }
+    }
+
+    /// macOS 13：无焦点环的点击/步进选择，避免系统蓝框和滚动错位。
+    private var legacyWheel: some View {
+        HStack(spacing: 4) {
+            Button {
+                value = max(range.lowerBound, value - 1)
+            } label: {
+                Image(systemName: "chevron.up")
+                    .font(.caption.weight(.semibold))
+                    .frame(width: 22, height: 28)
+            }
+            .buttonStyle(.borderless)
+            .disabled(value <= range.lowerBound)
+
+            Text(String(format: "%02d", value))
+                .font(.body.monospacedDigit().weight(.semibold))
+                .frame(width: 36, height: 28)
+                .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
+
+            Button {
+                value = min(range.upperBound, value + 1)
+            } label: {
+                Image(systemName: "chevron.down")
+                    .font(.caption.weight(.semibold))
+                    .frame(width: 22, height: 28)
+            }
+            .buttonStyle(.borderless)
+            .disabled(value >= range.upperBound)
+        }
+        .frame(height: 84)
+    }
+
+    private var wheelChrome: some View {
+        RoundedRectangle(cornerRadius: 6)
+            .fill(.quaternary)
+            .frame(height: 28)
+            .overlay {
+                RoundedRectangle(cornerRadius: 6)
+                    .strokeBorder(isFocused ? Color.accentColor : .clear, lineWidth: 1.5)
+                    .frame(height: 28)
+            }
+    }
+}
 
 enum SubscriptionEditorMode {
     case create
@@ -866,13 +1210,18 @@ struct SubscriptionEditorView: View {
     @State private var template = ""
     @State private var detection: DateTemplateDetection?
     @State private var previewToday = ""
-    @State private var previewTomorrow = ""
+    @State private var previewYesterday = ""
+    @State private var fetchYesterdayFirst = false
 
     @State private var isEnabled = true
     @State private var autoUpdate = true
-    @State private var updateInterval: SubscriptionInterval = .daily
+    @State private var updateIntervalCountText = "1"
+    @State private var updateIntervalUnit: SubscriptionInterval.Unit = .days
+    @FocusState private var intervalCountFocused: Bool
+    @State private var intervalClickMonitor: Any?
     @State private var updateHour = 8
     @State private var updateMinute = 30
+    @State private var showingUpdateTime = false
     @State private var timeZoneID = "Asia/Shanghai"
     @State private var urlDateTimeZoneID = "Asia/Shanghai"
     @State private var dateOffset = 0
@@ -881,6 +1230,8 @@ struct SubscriptionEditorView: View {
     @State private var showingUpdateModeHelp = false
     @State private var testAfterUpdate = true
     @State private var smartMergeMissingLimit = 3
+    @State private var autoCleanupUnavailableNodes = false
+    @State private var unavailableCleanupDays = 3
     @State private var refreshAfterSave = false
 
     init(mode: SubscriptionEditorMode = .create) {
@@ -900,6 +1251,7 @@ struct SubscriptionEditorView: View {
         switch sourceKind {
         case .remoteURL:
             return !url.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                && SubscriptionInterval.validCounts.contains(updateIntervalCount)
         case .shareLinks:
             if isEditingShareLinks {
                 return true
@@ -907,6 +1259,12 @@ struct SubscriptionEditorView: View {
             return !NodeLinkParser.extractShareLinks(from: shareLinksText).isEmpty
         }
     }
+
+    private var updateInterval: SubscriptionInterval {
+        SubscriptionInterval(count: updateIntervalCount, unit: updateIntervalUnit)
+    }
+
+    private var updateIntervalCount: Int { Int(updateIntervalCountText) ?? 0 }
 
     private var sharePreviewCount: Int {
         NodeLinkParser.parseLines(shareLinksText).validNodes.count
@@ -933,10 +1291,21 @@ struct SubscriptionEditorView: View {
                     TextField("名称", text: $name)
 
                     if sourceKind == .remoteURL {
-                        TextField("订阅 URL", text: $url)
-                            .onChange(of: url) { _, newValue in
-                                detect(newValue)
+                        HStack(spacing: 8) {
+                            TextField("订阅 URL", text: $url)
+                                .onChange(of: url) { newValue in
+                                    detect(newValue)
+                                }
+                            Button("粘贴") {
+                                guard let text = NSPasteboard.general.string(forType: .string) else { return }
+                                url = text.trimmingCharacters(in: .whitespacesAndNewlines)
                             }
+                            .help("从剪贴板粘贴并替换订阅 URL")
+                            Button("清除") { url = "" }
+                                .disabled(url.isEmpty)
+                                .help("清空订阅 URL")
+                        }
+                        .buttonStyle(.bordered)
                     } else {
                         if isEditingShareLinks {
                             Text("输入框留空表示仅修改名称/策略；粘贴新链接后按下方「链接处理方式」覆盖或合并到现有节点。")
@@ -971,18 +1340,24 @@ struct SubscriptionEditorView: View {
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                             HStack {
+                                Button("同步昨天") {
+                                    syncYesterdayURL()
+                                }
+                                .disabled(previewYesterday.isEmpty)
+
                                 Button("同步今天") {
                                     syncTodayURL()
                                 }
                                 .buttonStyle(.borderedProminent)
                                 .disabled(previewToday.isEmpty)
-
-                                Button("同步明天") {
-                                    syncTomorrowURL()
-                                }
-                                .disabled(previewTomorrow.isEmpty)
                             }
                             Text("只有点击同步后，才会把订阅 URL 改成对应日期并启用自动日期地址")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+
+                        if fetchYesterdayFirst {
+                            Text("添加后先拉取昨天的节点，再拉取今天的节点；后续自动更新从今天开始。")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
@@ -993,7 +1368,7 @@ struct SubscriptionEditorView: View {
                             }
                         }
                         .pickerStyle(.radioGroup)
-                        .onChange(of: urlMode) { _, mode in
+                        .onChange(of: urlMode) { mode in
                             if mode == .dateTemplate {
                                 if template.isEmpty, let detected = detection?.template {
                                     template = detected
@@ -1005,7 +1380,7 @@ struct SubscriptionEditorView: View {
                         if urlMode == .dateTemplate {
                             TextField("URL 模板", text: $template)
                                 .font(.system(.body, design: .monospaced))
-                                .onChange(of: template) { _, _ in
+                                .onChange(of: template) { _ in
                                     refreshPreviews()
                                 }
                             if !previewToday.isEmpty {
@@ -1014,23 +1389,23 @@ struct SubscriptionEditorView: View {
                                     .textSelection(.enabled)
                                     .foregroundStyle(.secondary)
                             }
-                            if !previewTomorrow.isEmpty {
-                                Text("明天将请求：\(previewTomorrow)")
+                            if !previewYesterday.isEmpty {
+                                Text("昨天将请求：\(previewYesterday)")
                                     .font(.caption.monospaced())
                                     .textSelection(.enabled)
                                     .foregroundStyle(.secondary)
                             }
                             HStack {
+                                Button("同步昨天") {
+                                    syncYesterdayURL()
+                                }
+                                .disabled(previewYesterday.isEmpty)
+
                                 Button("同步今天") {
                                     syncTodayURL()
                                 }
                                 .buttonStyle(.borderedProminent)
                                 .disabled(previewToday.isEmpty)
-
-                                Button("同步明天") {
-                                    syncTomorrowURL()
-                                }
-                                .disabled(previewTomorrow.isEmpty)
                             }
                         }
                     }
@@ -1039,14 +1414,85 @@ struct SubscriptionEditorView: View {
                 if sourceKind == .remoteURL {
                     Section("自动更新") {
                         Toggle("自动更新", isOn: $autoUpdate)
-                        Picker("更新周期", selection: $updateInterval) {
-                            ForEach(SubscriptionInterval.allCases, id: \.self) { item in
-                                Text(item.displayName).tag(item)
+                        LabeledContent("更新周期") {
+                            HStack(spacing: 8) {
+                                Text("每")
+                                TextField("数量", text: $updateIntervalCountText)
+                                    .focused($intervalCountFocused)
+                                    .onSubmit { intervalCountFocused = false }
+                                    .onExitCommand { intervalCountFocused = false }
+                                    .labelsHidden()
+                                    .textFieldStyle(.roundedBorder)
+                                    .multilineTextAlignment(.center)
+                                    .frame(width: 48)
+                                    .accessibilityLabel("更新周期数量")
+                                    .accessibilityIdentifier("subscription-interval-count")
+                                Stepper("更新周期数量", value: Binding(
+                                    get: { min(999, max(1, updateIntervalCount)) },
+                                    set: {
+                                        intervalCountFocused = false
+                                        updateIntervalCountText = String($0)
+                                    }
+                                ), in: SubscriptionInterval.validCounts)
+                                    .labelsHidden()
+                                    .fixedSize()
+                                Picker("周期单位", selection: $updateIntervalUnit) {
+                                    ForEach(SubscriptionInterval.Unit.allCases, id: \.self) { unit in
+                                        Text(unit.displayName).tag(unit)
+                                    }
+                                }
+                                .labelsHidden()
+                                .frame(width: 76)
+                                .accessibilityIdentifier("subscription-interval-unit")
+                                .onChange(of: updateIntervalUnit) { _ in intervalCountFocused = false }
                             }
                         }
-                        HStack {
-                            Stepper("小时 \(updateHour)", value: $updateHour, in: 0...23)
-                            Stepper("分钟 \(updateMinute)", value: $updateMinute, in: 0...59)
+                        if !SubscriptionInterval.validCounts.contains(updateIntervalCount) {
+                            Text("更新周期请输入 1–999 的整数")
+                                .font(.caption)
+                                .foregroundStyle(.red)
+                        }
+                        if updateInterval.usesTimeOfDay {
+                            LabeledContent("更新时间") {
+                                Button {
+                                    intervalCountFocused = false
+                                    showingUpdateTime = true
+                                } label: {
+                                    HStack(spacing: 6) {
+                                        Text(String(format: "%02d:%02d", updateHour, updateMinute))
+                                            .monospacedDigit()
+                                        Image(systemName: "chevron.down")
+                                            .font(.caption2)
+                                    }
+                                }
+                                .buttonStyle(.bordered)
+                                .accessibilityLabel("更新时间")
+                                .accessibilityValue(String(format: "%02d:%02d", updateHour, updateMinute))
+                                .accessibilityIdentifier("subscription-update-time")
+                                .popover(isPresented: $showingUpdateTime, arrowEdge: .bottom) {
+                                    VStack(spacing: 12) {
+                                        Text("更新时间")
+                                            .font(.headline)
+                                        HStack(spacing: 8) {
+                                            SubscriptionTimeWheel(value: $updateHour, range: 0...23, label: "更新小时")
+                                            Text("时")
+                                            SubscriptionTimeWheel(value: $updateMinute, range: 0...59, label: "更新分钟")
+                                            Text("分")
+                                        }
+                                        Button("完成") { showingUpdateTime = false }
+                                            .keyboardShortcut(.defaultAction)
+                                            .accessibilityIdentifier("subscription-update-time-done")
+                                    }
+                                    .padding(16)
+                                }
+                            }
+                        } else if updateInterval != .manual {
+                            LabeledContent("更新时间") {
+                                Text("按间隔更新，无需设置固定时间。")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .frame(maxWidth: .infinity, alignment: .trailing)
+                            }
                         }
                         TextField("执行时区", text: $timeZoneID)
                         TextField("URL 日期时区", text: $urlDateTimeZoneID)
@@ -1089,11 +1535,19 @@ struct SubscriptionEditorView: View {
                         )
                     }
                     if sourceKind == .remoteURL {
-                        Toggle("更新后测试新节点", isOn: $testAfterUpdate)
+                        Toggle("定时更新后测试新节点", isOn: $testAfterUpdate)
                     }
                     if updateMode == .smartMerge {
                         Stepper("连续缺失 \(smartMergeMissingLimit) 次后删除", value: $smartMergeMissingLimit, in: 1...10)
                     }
+                }
+
+                Section("长期不可用节点清理") {
+                    Toggle("自动清理", isOn: $autoCleanupUnavailableNodes)
+                    Stepper("持续不可用期限：\(unavailableCleanupDays) 天", value: $unavailableCleanupDays, in: 1...30)
+                    Text("在订阅详情中可手动清理。需在期限开始及近期测速中均不可用；恢复可用后重新计时。未测试、配置失败、收藏和当前连接节点均保留。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
 
                 if isEditing, sourceKind == .remoteURL {
@@ -1115,8 +1569,26 @@ struct SubscriptionEditorView: View {
                     .disabled(!canSave)
                 }
             }
-            .frame(width: 580, height: 560)
+            .frame(width: 580, height: 620)
             .onAppear(perform: load)
+            .onAppear {
+                guard intervalClickMonitor == nil else { return }
+                // Native Form backgrounds don't move the field editor's focus on click.
+                intervalClickMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { event in
+                    if intervalCountFocused,
+                       let editor = event.window?.firstResponder as? NSTextView, editor.isFieldEditor {
+                        let field: NSView = (editor.delegate as? NSTextField) ?? editor
+                        if !field.bounds.contains(field.convert(event.locationInWindow, from: nil)) {
+                            intervalCountFocused = false
+                        }
+                    }
+                    return event
+                }
+            }
+            .onDisappear {
+                if let monitor = intervalClickMonitor { NSEvent.removeMonitor(monitor) }
+                intervalClickMonitor = nil
+            }
         }
     }
 
@@ -1138,8 +1610,9 @@ struct SubscriptionEditorView: View {
             urlMode = sub.urlMode
             template = sub.urlTemplate ?? ""
             isEnabled = sub.isEnabled
-            autoUpdate = sub.autoUpdate
-            updateInterval = sub.updateInterval
+            autoUpdate = sub.autoUpdate && sub.updateInterval != .manual
+            updateIntervalCountText = String(sub.updateInterval.count)
+            updateIntervalUnit = sub.updateInterval.unit
             updateHour = sub.updateHour
             updateMinute = sub.updateMinute
             timeZoneID = sub.timeZoneID
@@ -1149,6 +1622,8 @@ struct SubscriptionEditorView: View {
             updateMode = sub.updateMode
             testAfterUpdate = sub.testAfterUpdate
             smartMergeMissingLimit = sub.smartMergeMissingLimit
+            autoCleanupUnavailableNodes = sub.autoCleanupUnavailableNodes ?? false
+            unavailableCleanupDays = min(30, max(1, sub.unavailableCleanupDays ?? 3))
             if sub.sourceKind == .remoteURL {
                 detect(sub.originalURL)
             }
@@ -1194,13 +1669,20 @@ struct SubscriptionEditorView: View {
                 created.updateMode = updateMode
                 created.testAfterUpdate = testAfterUpdate
                 created.smartMergeMissingLimit = smartMergeMissingLimit
-                appState.updateSubscription(created, refreshAfterSave: true)
+                created.autoCleanupUnavailableNodes = autoCleanupUnavailableNodes
+                created.unavailableCleanupDays = unavailableCleanupDays
+                appState.updateSubscription(created)
+                let includeYesterday = fetchYesterdayFirst
+                Task { await appState.refreshSubscription(created.id, fetchYesterdayFirst: includeYesterday) }
             }
         case .edit(let original):
-            var updated = original
+            guard var updated = appState.subscription(for: original.id) else {
+                appState.statusBanner = "订阅已被删除，请关闭编辑窗口后重试"
+                return
+            }
             if original.isShareLinksBundle {
                 let trimmed = shareLinksText.trimmingCharacters(in: .whitespacesAndNewlines)
-                let hasNewLinks = !NodeLinkParser.extractShareLinks(from: trimmed).isEmpty
+                let hasNewLinks = !trimmed.isEmpty
                 if hasNewLinks {
                     let preview = NodeLinkParser.parseLines(trimmed)
                     guard !preview.validNodes.isEmpty else {
@@ -1216,7 +1698,12 @@ struct SubscriptionEditorView: View {
                 updated.isEnabled = isEnabled
                 updated.updateMode = updateMode
                 updated.smartMergeMissingLimit = smartMergeMissingLimit
+                updated.autoCleanupUnavailableNodes = autoCleanupUnavailableNodes
+                updated.unavailableCleanupDays = unavailableCleanupDays
                 appState.updateSubscription(updated, refreshAfterSave: false)
+                if autoCleanupUnavailableNodes {
+                    appState.cleanupUnavailableNodes(subscriptionID: original.id, automatic: true)
+                }
                 if hasNewLinks {
                     let subscriptionID = original.id
                     Task {
@@ -1236,8 +1723,8 @@ struct SubscriptionEditorView: View {
                 updated.originalURL = trimmedURL
                 updated.urlMode = urlMode
                 updated.urlTemplate = resolvedTemplate
-                updated.resolvedURL = trimmedURL
                 if urlChanged {
+                    updated.resolvedURL = trimmedURL
                     // Force a full fetch+merge after date/URL edits — stale ETag caused
                     // "成功 / 获取 0" with no merge when switching dated subscription files.
                     updated.lastResolvedURL = nil
@@ -1260,7 +1747,16 @@ struct SubscriptionEditorView: View {
                 updated.updateMode = updateMode
                 updated.testAfterUpdate = testAfterUpdate
                 updated.smartMergeMissingLimit = smartMergeMissingLimit
-                appState.updateSubscription(updated, refreshAfterSave: refreshAfterSave || urlChanged)
+                updated.autoCleanupUnavailableNodes = autoCleanupUnavailableNodes
+                updated.unavailableCleanupDays = unavailableCleanupDays
+                appState.updateSubscription(updated)
+                if refreshAfterSave || urlChanged || fetchYesterdayFirst {
+                    let includeYesterday = fetchYesterdayFirst
+                    Task { await appState.refreshSubscription(updated.id, fetchYesterdayFirst: includeYesterday) }
+                }
+                if autoCleanupUnavailableNodes {
+                    appState.cleanupUnavailableNodes(subscriptionID: original.id, automatic: true)
+                }
             }
         }
 
@@ -1275,7 +1771,7 @@ struct SubscriptionEditorView: View {
             if isEditingShareLinks {
                 return "编辑分享链接订阅：查看请在详情页；此处仅粘贴新增链接并由处理方式决定覆盖或合并。"
             }
-            return "节点分享链接：粘贴 ss://、vless://、vmess://、trojan://，每行一个"
+            return "支持 VLESS、VMess、Trojan、Shadowsocks、Hysteria2、MASQUE、TUIC、AnyTLS、WireGuard、SOCKS5 和 HTTP/HTTPS 节点链接及 Base64 订阅内容；WireGuard 也可粘贴单 Peer 配置。"
         }
     }
 
@@ -1291,7 +1787,7 @@ struct SubscriptionEditorView: View {
             refreshPreviews()
         } else {
             previewToday = ""
-            previewTomorrow = ""
+            previewYesterday = ""
             if case .create = mode {
                 urlMode = .fixed
             }
@@ -1302,7 +1798,7 @@ struct SubscriptionEditorView: View {
         let templateText = template.isEmpty ? (detection?.template ?? "") : template
         guard !templateText.isEmpty else {
             previewToday = ""
-            previewTomorrow = ""
+            previewYesterday = ""
             return
         }
         let tz = TimeZone(identifier: urlDateTimeZoneID.isEmpty ? appState.settings.defaultTimeZoneID : urlDateTimeZoneID) ?? .current
@@ -1310,13 +1806,15 @@ struct SubscriptionEditorView: View {
         calendar.timeZone = tz
         let tmpl = SubscriptionDateTemplate(template: templateText)
         previewToday = tmpl.resolve(date: Date(), timeZone: tz)
-        let tomorrow = calendar.date(byAdding: .day, value: 1, to: Date()) ?? Date()
-        previewTomorrow = tmpl.resolve(date: tomorrow, timeZone: tz)
+        let yesterday = calendar.date(byAdding: .day, value: -1, to: Date()) ?? Date()
+        previewYesterday = tmpl.resolve(date: yesterday, timeZone: tz)
     }
 
     private func syncTodayURL() {
         refreshPreviews()
         guard !previewToday.isEmpty else { return }
+        fetchYesterdayFirst = false
+        dateOffset = 0
         url = previewToday
         urlMode = .dateTemplate
         if template.isEmpty, let detected = detection?.template {
@@ -1324,10 +1822,12 @@ struct SubscriptionEditorView: View {
         }
     }
 
-    private func syncTomorrowURL() {
+    private func syncYesterdayURL() {
         refreshPreviews()
-        guard !previewTomorrow.isEmpty else { return }
-        url = previewTomorrow
+        guard !previewYesterday.isEmpty else { return }
+        fetchYesterdayFirst = true
+        dateOffset = 0
+        url = previewYesterday
         urlMode = .dateTemplate
         if template.isEmpty, let detected = detection?.template {
             template = detected
@@ -1344,7 +1844,7 @@ struct ImportLinksView: View {
             VStack(alignment: .leading, spacing: 12) {
                 Text(targetHint)
                     .font(.subheadline.weight(.medium))
-                Text("粘贴 VLESS / VMess / Trojan / Shadowsocks 链接，每行一个。可只加一条。")
+                Text("粘贴已支持的节点分享链接，每行一个；也可粘贴单 Peer WireGuard 配置。")
                     .foregroundStyle(.secondary)
                 TextEditor(text: $appState.importText)
                     .font(.system(.body, design: .monospaced))

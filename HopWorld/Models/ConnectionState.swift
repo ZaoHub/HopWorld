@@ -42,6 +42,7 @@ struct NodeTestResult: Identifiable, Codable, Hashable, Sendable {
     var exitCountryCode: String?
     var exitCountryName: String?
     var asn: String?
+    var exitMetadata: NodeExitMetadata? = nil
 
     var success: Bool
     var failureStage: TestStage?
@@ -95,6 +96,73 @@ struct NodeTestResult: Identifiable, Codable, Hashable, Sendable {
     }
 }
 
+enum NodeTestStatistic: String, CaseIterable, Identifiable {
+    case available, unavailable, failed, progress
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .available: return "可用 / 应用连通"
+        case .unavailable: return "不可用"
+        case .failed: return "失败"
+        case .progress: return "测速进度"
+        }
+    }
+
+    func sections(for nodes: [ProxyNode], remainingNodeIDs: Set<UUID> = []) -> [NodeTestStatisticSection] {
+        switch self {
+        case .available:
+            let usable = nodes.filter { $0.lastTestStatus.isUsable }
+            let speeds = Dictionary(grouping: usable) { $0.resolvedTestStatus.displayName }
+                .mapValues { $0.count }
+            let applications = Dictionary(grouping: nodes) { node in
+                if node.hasAppProbeSuccess { return "应用已连通" }
+                return node.lastAppProbeDate != nil ? "应用未通过" : "应用未测试"
+            }.mapValues { $0.count }
+            return [
+                NodeTestStatisticSection(title: "可用节点速度档次", counts: speeds),
+                NodeTestStatisticSection(title: "应用连通", counts: applications)
+            ]
+        case .unavailable, .failed:
+            let status: NodeTestStatus = self == .failed ? .failed : .unavailable
+            let counts = Dictionary(grouping: nodes.filter { $0.lastTestStatus == status }) { node in
+                let reason = node.lastTestErrorMessage?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                return reason.isEmpty || reason == "TCP_PASS"
+                    ? "原因未记录（重新测速后可查看）" : reason
+            }.mapValues { $0.count }
+            return [NodeTestStatisticSection(title: "\(title)原因", counts: counts)]
+        case .progress:
+            let states = Dictionary(grouping: nodes) { $0.lastTestStatus.displayName }
+                .mapValues { $0.count }
+            let testing = nodes.filter { $0.lastTestStatus == .testing }.count
+            let untested = nodes.filter { $0.lastTestStatus == .untested }.count
+            var totals = [
+                "范围节点": nodes.count,
+                "已完成": nodes.count - testing - untested,
+                "测试中": testing,
+                "未测试": untested
+            ]
+            let remaining = remainingNodeIDs.intersection(Set(nodes.map(\.id))).count
+            if remaining > 0 { totals["待继续"] = remaining }
+            return [
+                NodeTestStatisticSection(title: "测速状态", counts: states),
+                NodeTestStatisticSection(title: "范围统计", counts: totals)
+            ]
+        }
+    }
+}
+
+struct NodeTestStatisticSection: Identifiable {
+    var title: String
+    var counts: [String: Int]
+    var id: String { title }
+
+    var sortedCounts: [(key: String, value: Int)] {
+        counts.sorted { $0.value == $1.value ? $0.key < $1.key : $0.value > $1.value }
+    }
+}
+
 struct CountryGroup: Identifiable, Hashable, Sendable {
     var id: String { code }
     var code: String
@@ -134,6 +202,206 @@ enum ConnectionStatus: String, Codable, Sendable {
     }
 }
 
+struct NodeExitMetadata: Codable, Hashable, Sendable {
+    var ip: String
+    var city: String?
+    var networkOperator: String?
+    var asn: String?
+    var networkType: ExitIPType?
+    var countryCode: String?
+    var region: String?
+    var latitude: Double?
+    var longitude: Double?
+    var localizedCity: String?
+
+    func retainingKnownDetails(from previous: Self?) -> Self {
+        var result = self
+        if previous?.ip == ip, result.networkType == nil { result.networkType = previous?.networkType }
+        if result.localizedCity == nil, let previous, result.hasSameCityObservation(as: previous) {
+            result.localizedCity = previous.localizedCity
+        }
+        return result
+    }
+
+    func hasSameCityObservation(as other: Self) -> Bool {
+        ip == other.ip && city == other.city && countryCode == other.countryCode && region == other.region
+            && latitude == other.latitude && longitude == other.longitude
+    }
+}
+
+/// Display snapshot for the network health center: live connection exit first, then saved node metadata.
+struct NetworkHealthExitInfo: Equatable, Sendable {
+    var ip: String?
+    var networkType: ExitIPType?
+    var country: String?
+    var rawCountry: String?
+    var city: String
+    var rawCity: String?
+    var countryCode: String?
+    var networkOperator: String
+    var rawOperator: String?
+    var asn: String?
+    var isCurrentConnection: Bool
+    var awaitingLive: Bool
+
+    static func resolve(node: ProxyNode, connection: ConnectionState, showChinese: Bool = true,
+                        catalog: ChineseCityCatalog? = nil) -> Self {
+        let isCurrent = connection.status == .connected && connection.currentNodeID == node.id
+        let metadata = node.exitMetadata
+        let rawCity = isCurrent ? (connection.exitCity ?? metadata?.city) : metadata?.city
+        let rawOperator = isCurrent ? (connection.exitOperator ?? metadata?.networkOperator) : metadata?.networkOperator
+        let sameExitIP = isCurrent ? (connection.exitIP == nil || connection.exitIP == metadata?.ip) : true
+        let liveCountry = connection.exitCountry?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let liveCountryCode = liveCountry.flatMap(ExitMetadataLocalization.countryCode(from:))
+        let countryCode: String? = {
+            if isCurrent {
+                if sameExitIP {
+                    return metadata?.countryCode ?? liveCountryCode ?? connection.currentCountryCode ?? node.countryCode
+                }
+                return liveCountryCode
+            }
+            return metadata?.countryCode ?? node.countryCode
+        }()
+        let rawCountry: String? = {
+            if isCurrent, let liveCountry, !liveCountry.isEmpty { return liveCountry }
+            if let code = countryCode, !code.isEmpty {
+                return CountryResolver.displayName(for: code)
+            }
+            if !isCurrent {
+                let resolved = CountryResolver.effectiveCountry(for: node)
+                return resolved.code == "XX" ? nil : resolved.name
+            }
+            return nil
+        }()
+        let country = ExitMetadataLocalization.country(rawCountry, countryCode: countryCode, showChinese: showChinese)
+        let localizedCity = (rawCity == nil || rawCity == metadata?.city) ? metadata?.localizedCity : nil
+        let ip = isCurrent ? (connection.exitIP ?? metadata?.ip) : metadata?.ip
+        return Self(
+            ip: ip,
+            networkType: isCurrent ? (connection.exitIPType ?? metadata?.networkType) : metadata?.networkType,
+            country: country,
+            rawCountry: rawCountry,
+            city: ExitMetadataLocalization.city(rawCity, countryCode: countryCode,
+                                                localizedCity: localizedCity,
+                                                showChinese: showChinese, catalog: catalog),
+            rawCity: rawCity,
+            countryCode: countryCode,
+            networkOperator: ExitMetadataLocalization.networkOperator(rawOperator, showChinese: showChinese),
+            rawOperator: rawOperator,
+            asn: isCurrent ? (connection.exitASN ?? metadata?.asn) : metadata?.asn,
+            isCurrentConnection: isCurrent,
+            awaitingLive: isCurrent && connection.exitIP == nil
+        )
+    }
+}
+
+enum ExitMetadataLocalization {
+    static func city(_ value: String?, countryCode: String? = nil, localizedCity: String? = nil, showChinese: Bool = true, catalog: ChineseCityCatalog? = nil) -> String {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else { return "未知" }
+        guard showChinese else { return value }
+        return ChineseCityCatalog.chineseName(localizedCity)
+            ?? (catalog ?? .shared).name(for: value, countryCode: countryCode) ?? value
+    }
+
+    /// Keep the English country label, and append Chinese in parentheses when available.
+    static func country(_ value: String?, countryCode code: String? = nil, showChinese: Bool = true) -> String? {
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolvedCode = resolvedCountryCode(code) ?? resolvedCountryCode(trimmed)
+        let english = englishCountryName(raw: trimmed, code: resolvedCode)
+        guard showChinese else { return english }
+        guard let english else { return nil }
+        let chinese = resolvedCode.map(CountryResolver.displayName(for:))
+            ?? trimmed.flatMap { CountryResolver.resolve(fromName: $0)?.name }
+        guard let chinese, chinese != english,
+              chinese.unicodeScalars.contains(where: { (0x3400...0x9FFF).contains($0.value) }) else {
+            return english
+        }
+        return "\(english)（\(chinese)）"
+    }
+
+    static func countryCode(from value: String?) -> String? {
+        resolvedCountryCode(value)
+    }
+
+    private static func resolvedCountryCode(_ value: String?) -> String? {
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !trimmed.isEmpty else { return nil }
+        if trimmed.count == 2, trimmed.allSatisfy({ $0.isASCII && $0.isLetter }) {
+            return trimmed.uppercased()
+        }
+        return CountryResolver.resolve(fromName: trimmed)?.code
+    }
+
+    private static func englishCountryName(raw: String?, code: String?) -> String? {
+        if let raw, !raw.isEmpty {
+            let hasChinese = raw.unicodeScalars.contains(where: { (0x3400...0x9FFF).contains($0.value) })
+            let isISOCode = raw.count == 2 && raw.allSatisfy({ $0.isASCII && $0.isLetter })
+            if !hasChinese && !isISOCode { return raw }
+        }
+        if let code, code.count == 2,
+           let english = Locale(identifier: "en_US").localizedString(forRegionCode: code), !english.isEmpty {
+            return english
+        }
+        if let raw, !raw.isEmpty {
+            let isISOCode = raw.count == 2 && raw.allSatisfy({ $0.isASCII && $0.isLetter })
+            if !isISOCode { return raw }
+        }
+        return code
+    }
+
+    static func networkOperator(_ value: String?, showChinese: Bool = true) -> String {
+        localized(value, names: showChinese ? operators : [:])
+    }
+
+    static func help(raw: String?, displayed: String, showChinese: Bool) -> String {
+        let original = raw?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let pending = showChinese && !original.isEmpty && displayed == original
+            && ChineseCityCatalog.chineseName(displayed) == nil
+        return "\(displayed)（\(original.isEmpty ? "未知" : original)）" + (pending ? "\n中文名待补充" : "")
+    }
+
+    private static func localized(_ value: String?, names: [String: String]) -> String {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else { return "未知" }
+        return names[normalizedKey(value)] ?? value
+    }
+
+    private static func normalizedKey(_ value: String) -> String {
+        value.split(whereSeparator: \.isWhitespace).joined(separator: " ").lowercased()
+    }
+
+    private static let operators = [
+        "ovh": "OVH 云服务", "ovh sas": "OVH 云服务", "ovh s.a.s.": "OVH 云服务",
+        "ovhcloud": "OVH 云服务", "ovh hosting, inc.": "OVH 云服务",
+        "google": "谷歌", "google llc": "谷歌", "google cloud": "谷歌云",
+        "microsoft corporation": "微软", "microsoft": "微软",
+        "amazon.com, inc.": "亚马逊", "amazon technologies inc.": "亚马逊科技",
+        "amazon data services": "亚马逊数据服务", "amazon web services": "亚马逊云科技",
+        "alibaba (us) technology co., ltd.": "阿里巴巴（美国）", "alibaba cloud": "阿里云",
+        "tencent cloud": "腾讯云", "tencent cloud computing (beijing) co., ltd": "腾讯云",
+        "huawei cloud": "华为云", "huawei clouds": "华为云",
+        "china telecom": "中国电信", "chinanet": "中国电信", "china unicom": "中国联通",
+        "china mobile": "中国移动", "china mobile communications corporation": "中国移动",
+        "oracle corporation": "甲骨文", "akamai technologies, inc.": "阿卡迈科技",
+        "digitalocean, llc": "数字海洋", "ntt communications corporation": "NTT 通信",
+        "deutsche telekom ag": "德国电信", "france telecom": "法国电信"
+    ]
+}
+
+enum ExitIPType: String, Codable, Sendable {
+    case residential, mobile, hosting, vpn, proxy, tor
+
+    var displayName: String {
+        switch self {
+        case .residential: return "家庭住宅·推测"
+        case .mobile: return "移动网络"
+        case .hosting: return "机房托管"
+        case .vpn: return "VPN 出口"
+        case .proxy: return "公共代理"
+        case .tor: return "Tor 出口"
+        }
+    }
+}
+
 struct ConnectionState: Codable, Sendable {
     var status: ConnectionStatus = .disconnected
     var currentNodeID: UUID?
@@ -141,8 +409,13 @@ struct ConnectionState: Codable, Sendable {
     var currentCountryName: String?
     var protocolType: ProxyProtocolType?
     var latency: Int?
+    var lastSuccessfulLatency: Int?
     var exitIP: String?
+    var exitIPType: ExitIPType?
     var exitCountry: String?
+    var exitCity: String?
+    var exitOperator: String?
+    var exitASN: String?
     var downloadMbps: Double = 0
     var uploadMbps: Double = 0
     var sessionDownloadBytes: Int64 = 0
@@ -150,14 +423,56 @@ struct ConnectionState: Codable, Sendable {
     var connectedAt: Date?
     var lastError: String?
     var autoSelectEnabled: Bool = true
+
+    mutating func recordExitIP(_ ip: String?, type: ExitIPType?) {
+        let sameExit = ip != nil && ip == exitIP
+        exitIPType = type ?? (sameExit ? exitIPType : nil)
+        exitIP = ip
+    }
+
+    mutating func recordLatency(_ milliseconds: Int?) {
+        latency = milliseconds
+        if let milliseconds { lastSuccessfulLatency = milliseconds }
+    }
+
+    mutating func resetLatency() {
+        latency = nil
+        lastSuccessfulLatency = nil
+    }
+
+    func dashboardLatencyText(lastTestLatency: Int?) -> String {
+        if status == .connected {
+            if let latency { return LatencyFormat.display(latency) }
+            if let previous = lastSuccessfulLatency ?? lastTestLatency {
+                return "\(LatencyFormat.display(previous))（上次）"
+            }
+            return "暂不可测"
+        }
+        if status == .connecting {
+            return lastSuccessfulLatency.map { LatencyFormat.display($0) }
+                ?? lastTestLatency.map { LatencyFormat.display($0) }
+                ?? "连接中"
+        }
+        return lastTestLatency.map { LatencyFormat.display($0) } ?? "未测速"
+    }
 }
 
-/// Durable connection intent kept separately from the live connection state.
-/// The live state is reset while cleaning up proxies on quit, but this record
-/// lets the next launch distinguish a quit while connected from a manual disconnect.
+/// Connection history survives quit cleanup; settings.connectOnLaunch controls the next launch.
 struct StartupConnectionIntent: Codable, Sendable, Equatable {
     var lastConnectedNodeID: UUID?
+    /// Records a recoverable session without overriding the startup setting.
     var reconnectOnNextLaunch = false
+    /// Legacy manual-stop record; it does not override the next launch's setting.
+    var stayDisconnectedUntilConnect = false
+}
+
+extension StartupConnectionIntent {
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        lastConnectedNodeID = try values.decodeIfPresent(UUID.self, forKey: .lastConnectedNodeID)
+        reconnectOnNextLaunch = try values.decodeIfPresent(Bool.self, forKey: .reconnectOnNextLaunch) ?? false
+        stayDisconnectedUntilConnect = try values.decodeIfPresent(Bool.self, forKey: .stayDisconnectedUntilConnect) ?? false
+    }
 }
 
 enum RoutingMode: String, Codable, CaseIterable, Sendable {
@@ -180,7 +495,7 @@ enum RoutingMode: String, Codable, CaseIterable, Sendable {
         case .direct:
             return "全部流量不走节点，相当于未使用代理。"
         case .rules:
-            return "按规则分流：自定义规则优先，国内域名和 IP 直连，其余走当前节点。"
+            return "默认用系统代理按域名/IP 分流（遵循系统代理的 App 都会进入节点）。若只要指定 App 走代理，请在下方启用「按应用代理」。"
         }
     }
 }
@@ -327,9 +642,28 @@ struct OriginalProxySettings: Codable, Hashable, Sendable {
     var autoDiscoveryEnabled: Bool? = nil
 }
 
+enum AppTheme: String, Codable, CaseIterable, Sendable {
+    case system, light, dark
+
+    var displayName: String {
+        switch self {
+        case .system: return "跟随系统"
+        case .light: return "浅色"
+        case .dark: return "深色"
+        }
+    }
+}
+
 struct AppSettings: Codable, Hashable, Sendable {
+    func shouldResolveChineseCity(for node: ProxyNode) -> Bool {
+        showChineseNodeMetadata && node.resolvedTestStatus.isUsable && node.enabled && !node.pendingRemoval
+    }
+
+    var theme: AppTheme = .system
     var launchAtLogin: Bool = false
-    var showMenuBar: Bool = true
+    var showChineseNodeMetadata: Bool = true
+    var filterNodeNameAds: Bool = true
+    var nodeNameAdFilterText: String = ""
     var connectOnLaunch: ConnectOnLaunch = .lastNode
     var disconnectOnScreenLock: Bool = true
     var screenLockDisconnectDelayMinutes: Int = 15
@@ -340,12 +674,70 @@ struct AppSettings: Codable, Hashable, Sendable {
     var httpPort: Int = 10809
 
     var autoFailover: Bool = true
+    var codexSmartFailover: Bool = false
     /// 故障切换候选：前 N 个可用，或全部可用。
     var failoverPoolMode: FailoverPoolMode = .limited
     var maxFailoverAttempts: Int = 5
-    /// 单次连接验证超时（秒）；超时后自动换下一个候选节点。
-    var connectTimeoutSeconds: Int = 3
+    /// 初次连接验证的等待时间（秒）；慢连接会延长等待后再决定是否切换。
+    var connectTimeoutSeconds: Int = 15
 
+    static let chatGPTConnectivityTestURL = "https://chatgpt.com/generate_204"
+    static let codexConnectivityTestURL = "https://chatgpt.com/backend-api/codex/responses"
+    static let presetTestURLs = [
+        "https://www.google.com/generate_204",
+        "https://www.youtube.com/generate_204",
+        "https://www.googlevideo.com/generate_204",
+        "https://www.gstatic.com/generate_204",
+        "https://www.apple.com/library/test/success.html",
+        "http://www.msftconnecttest.com/connecttest.txt",
+        chatGPTConnectivityTestURL,
+        codexConnectivityTestURL
+    ]
+    static func testURLTitle(_ url: String) -> String {
+        switch url {
+        case presetTestURLs[0]: return "谷歌连通性检测"
+        case presetTestURLs[1]: return "优兔连通性检测"
+        case presetTestURLs[2]: return "谷歌视频连通性检测"
+        case presetTestURLs[3]: return "谷歌静态资源连通性检测（默认）"
+        case presetTestURLs[4]: return "苹果网络连通性检测"
+        case presetTestURLs[5]: return "微软网络连通性检测"
+        case presetTestURLs[6]: return "ChatGPT 连通性检测"
+        case presetTestURLs[7]: return "Codex连通性检测"
+        default: return "自定义测试地址"
+        }
+    }
+    var customTestURLs: [String]? = nil
+    var customTestURLNames: [String: String]? = nil
+    func testURLDisplayTitle(_ url: String) -> String {
+        if let name = customTestURLNames?[url]?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty {
+            return name
+        }
+        if Self.presetTestURLs.contains(url) { return Self.testURLTitle(url) }
+        return URL(string: url)?.host ?? Self.testURLTitle(url)
+    }
+    var availableTestURLs: [String] {
+        var urls = Self.presetTestURLs
+        for url in (customTestURLs ?? []) + [testURL] where !urls.contains(url) {
+            urls.append(url)
+        }
+        return urls
+    }
+    static func validatedTestURL(_ raw: String) -> URL? {
+        guard let url = URL(string: raw),
+              ["http", "https"].contains(url.scheme?.lowercased() ?? ""),
+              let host = url.host, !host.isEmpty,
+              url.user == nil, url.password == nil else { return nil }
+        return url
+    }
+    static func testURLForAddition(_ raw: String, useGenerate204: Bool) -> URL? {
+        guard let url = validatedTestURL(raw.trimmingCharacters(in: .whitespacesAndNewlines)) else { return nil }
+        guard useGenerate204 else { return url }
+        guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return nil }
+        components.path = "/generate_204"
+        components.query = nil
+        components.fragment = nil
+        return components.url
+    }
     var testURL: String = "https://www.gstatic.com/generate_204"
     var testConcurrency: Int = 16
     /// 单个节点测速超时（秒）；含 FinalMask 等慢握手节点可调高。
@@ -354,8 +746,11 @@ struct AppSettings: Codable, Hashable, Sendable {
     var batchTestTimeoutSeconds: Int = 2
     /// 测试中心「应用连通」探测超时（秒）。
     var appProbeTimeoutSeconds: Int = 5
-    /// 测速后 / 自动优选前，是否自动对「可用但未做应用连通」的节点补测。默认关闭。
+    /// 开启后，手动与后台测速结束都会对可用节点补测应用连通（手动会强制复测）。默认关闭。
     var autoAppProbeUsableNodes: Bool = false
+    var appProbeOrder: [String: [String]] = [:]
+    /// 概览「应用代理」中停用的目标：不参与应用连通测试与自动优选排序。
+    var appProbeDisabledTargetIDs: Set<String> = []
     var appProbeSource: AppProbeSource? = nil
     var installedAppProbes: [InstalledAppProbe] = []
     var testResultTTLMinutes: Int = 30
@@ -372,7 +767,7 @@ struct AppSettings: Codable, Hashable, Sendable {
 
     var defaultUpdateHour: Int = 8
     var defaultUpdateMinute: Int = 30
-    var defaultTimeZoneID: String = "Asia/Shanghai"
+    var defaultTimeZoneID: String = TimeZone.current.identifier
     var defaultUpdateMode: SubscriptionUpdateMode = .smartMerge
     var defaultFallbackDays: Int = 3
 
@@ -390,6 +785,7 @@ struct AppSettings: Codable, Hashable, Sendable {
     /// Country allowlist used when `autoSelectCountryScope == .specified`.
     var autoSelectIncludedCountryCodes: Set<String> = []
     /// Slowest latency tier allowed to participate in automatic selection.
+    var temporarilyBlockedNodeIDs: Set<UUID>? = nil
     var autoSelectMinimumSpeed: AutoSelectMinimumSpeed = .allUsable
     var autoSelectUnhealthySeconds: Int = 30
 
@@ -400,6 +796,21 @@ struct AppSettings: Codable, Hashable, Sendable {
     var testSpeedTuned: Bool = false
     /// Last selected filters on the Nodes page: `scope@@source` (survives sidebar switches).
     var nodeListCategoryRaw: String = "all@@all"
+
+    func nodeDisplayTitle(_ node: ProxyNode) -> String {
+        nodeDisplayName(node.name)
+    }
+
+    func nodeCountryLabel(_ node: ProxyNode, displayedCity: String? = nil) -> String? {
+        let country = CountryResolver.displayName(for: CountryResolver.effectiveCode(for: node))
+        return nodeDisplayTitle(node).contains(country) || displayedCity == country ? nil : country
+    }
+
+    func nodeDisplayName(_ raw: String) -> String {
+        filterNodeNameAds
+            ? ProxyNode.sanitizedDisplayName(raw, customFilters: nodeNameAdFilterText.components(separatedBy: .newlines))
+            : raw
+    }
 }
 
 enum AutoSelectCountryScope: String, Codable, CaseIterable, Sendable {
@@ -451,7 +862,12 @@ extension AppSettings {
         }
     }
 
-    func allowsAutoSelectNode(_ node: ProxyNode) -> Bool {
+    func isTemporarilyBlocked(_ id: UUID) -> Bool {
+        temporarilyBlockedNodeIDs?.contains(id) == true
+    }
+
+    func allowsAutoSelectNode(_ node: ProxyNode, includingTemporarilyBlocked: Bool = false) -> Bool {
+        if !includingTemporarilyBlocked, isTemporarilyBlocked(node.id) { return false }
         guard allowsAutoSelectCountry(CountryResolver.effectiveCode(for: node)) else { return false }
         // A completed failed app probe disqualifies a node, including favorites.
         // Untested nodes remain eligible so automatic probing can evaluate them.
@@ -538,6 +954,35 @@ enum FavoritePreference: String, Codable, CaseIterable, Sendable {
     }
 }
 
+/// 按自然日累计的代理流量（跨连接会话累加，用于概览「今日流量」卡片）。
+struct DailyUsageStats: Codable, Sendable, Equatable {
+    /// yyyy-MM-dd（本地时区）。
+    var day: String
+    var uploadBytes: Int64 = 0
+    var downloadBytes: Int64 = 0
+
+    init(day: String = DailyUsageStats.todayString(), uploadBytes: Int64 = 0, downloadBytes: Int64 = 0) {
+        self.day = day
+        self.uploadBytes = uploadBytes
+        self.downloadBytes = downloadBytes
+    }
+
+    var totalBytes: Int64 { uploadBytes + downloadBytes }
+
+    static func todayString(_ date: Date = Date()) -> String {
+        let components = Calendar.current.dateComponents([.year, .month, .day], from: date)
+        return String(format: "%04d-%02d-%02d",
+                      components.year ?? 0, components.month ?? 0, components.day ?? 0)
+    }
+
+    /// 跨自然日后从零重新累计。
+    func rolledForwardToToday() -> DailyUsageStats {
+        let today = Self.todayString()
+        guard day != today else { return self }
+        return DailyUsageStats(day: today)
+    }
+}
+
 enum AppLogLevel: String, Codable, CaseIterable, Sendable {
     case debug
     case info
@@ -551,5 +996,93 @@ enum AppLogLevel: String, Codable, CaseIterable, Sendable {
         case .warning: return "Warning"
         case .error: return "Error"
         }
+    }
+}
+
+
+extension AppSettings {
+    /// Apply only user edits, preserving scheduler timestamps and unrelated concurrent settings.
+    func applyingSettingsEdits(from draft: Self, comparedTo baseline: Self) -> Self {
+        var updated = self
+        func merge<Value: Equatable>(_ keyPath: WritableKeyPath<Self, Value>) {
+            if draft[keyPath: keyPath] != baseline[keyPath: keyPath] {
+                updated[keyPath: keyPath] = draft[keyPath: keyPath]
+            }
+        }
+        merge(\.appProbeTimeoutSeconds)
+        merge(\.autoAppProbeUsableNodes)
+        merge(\.autoFailover)
+        merge(\.codexSmartFailover)
+        merge(\.autoSelectCountryScope)
+        merge(\.autoSelectExcludedCountryCodes)
+        merge(\.autoSelectIncludedCountryCodes)
+        merge(\.temporarilyBlockedNodeIDs)
+        merge(\.autoSelectMinimumSpeed)
+        merge(\.autoSelectUnhealthySeconds)
+        merge(\.batchTestTimeoutSeconds)
+        merge(\.connectOnLaunch)
+        merge(\.connectTimeoutSeconds)
+        merge(\.defaultFallbackDays)
+        merge(\.defaultTimeZoneID)
+        merge(\.defaultUpdateHour)
+        merge(\.defaultUpdateMinute)
+        merge(\.defaultUpdateMode)
+        merge(\.disconnectOnScreenLock)
+        merge(\.failoverPoolMode)
+        merge(\.favoritePreference)
+        merge(\.showChineseNodeMetadata)
+        merge(\.filterNodeNameAds)
+        merge(\.nodeNameAdFilterText)
+        merge(\.launchAtLogin)
+        merge(\.logLevel)
+        merge(\.maxFailoverAttempts)
+        merge(\.scheduledTestEnabled)
+        merge(\.scheduledTestIntervalMinutes)
+        merge(\.scheduledTestScope)
+        merge(\.scheduledTestSubscriptionRaw)
+        merge(\.screenLockDisconnectDelayMinutes)
+        merge(\.theme)
+        merge(\.testConcurrency)
+        merge(\.testResultTTLMinutes)
+        merge(\.testTimeoutSeconds)
+        merge(\.testURL)
+        merge(\.customTestURLs)
+        merge(\.customTestURLNames)
+        merge(\.installedAppProbes)
+        merge(\.appProbeSource)
+        merge(\.appProbeOrder)
+        merge(\.socksHost)
+        merge(\.socksPort)
+        merge(\.httpHost)
+        merge(\.httpPort)
+        return updated
+    }
+}
+
+extension AppSettings {
+    static func connectionCandidatesGuidance(blockedCount: Int, hasNodes: Bool) -> String {
+        guard hasNodes else { return "还没有可连接的节点。请先添加订阅，再到测试页面完成测速和应用连通测试。" }
+        let blocked = blockedCount > 0
+            ? "当前有 \(blockedCount) 个节点被临时屏蔽，不会参与自动连接。可在快速切换中右键节点，选择“关闭临时屏蔽”。\n\n"
+            : ""
+        return blocked + "目前没有符合优选条件的可用节点。请前往测试页面重新测速和测试应用连通，并检查国家范围、最低速度及收藏限制。临时屏蔽不会自动解除。"
+    }
+
+}
+
+extension AppSettings {
+    func quickSwitchCounts(for nodes: [ProxyNode]) -> (available: Int, filtered: Int, blocked: Int) {
+        var counts = (available: 0, filtered: 0, blocked: 0)
+        for node in nodes where !node.pendingRemoval {
+            if isTemporarilyBlocked(node.id) {
+                counts.blocked += 1
+            } else if node.enabled && allowsAutoSelectNode(node)
+                        && (favoritePreference != .favoritesOnly || node.isFavorite) {
+                counts.available += 1
+            } else if node.resolvedTestStatus.isUsable || node.hasAppProbeSuccess {
+                counts.filtered += 1
+            }
+        }
+        return counts
     }
 }

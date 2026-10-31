@@ -15,7 +15,8 @@ enum XrayConfigBuilder {
         routingMode: RoutingMode,
         routingRules: RoutingRules = RoutingRules(),
         probePort: Int? = nil,
-        applicationProxy: (port: Int, password: String)? = nil
+        applicationProxy: (port: Int, password: String)? = nil,
+        qualityProxy: (port: Int, password: String)? = nil
     ) throws -> [String: Any] {
         var hydrated = node
         KeychainStore.hydrateCredentials(&hydrated)
@@ -53,6 +54,7 @@ enum XrayConfigBuilder {
                 ] as [String: Any],
                 "sniffing": [
                     "enabled": true,
+                    "routeOnly": true,
                     "destOverride": ["http", "tls", "quic"]
                 ] as [String: Any]
             ],
@@ -64,6 +66,7 @@ enum XrayConfigBuilder {
                 "settings": [:] as [String: Any],
                 "sniffing": [
                     "enabled": true,
+                    "routeOnly": true,
                     "destOverride": ["http", "tls"]
                 ] as [String: Any]
             ]
@@ -92,19 +95,38 @@ enum XrayConfigBuilder {
             ], at: 0)
             routing["rules"] = rules
         }
+        if let qualityProxy {
+            inbounds.append([
+                "tag": "quality-in", "listen": "127.0.0.1", "port": qualityProxy.port,
+                "protocol": "socks", "settings": ["udp": true, "auth": "password",
+                    "accounts": [["user": "hopworld", "pass": qualityProxy.password]]]
+            ])
+            var rules = routing["rules"] as? [[String: Any]] ?? []
+            rules.insert(["type": "field", "inboundTag": ["quality-in"],
+                          "outboundTag": routingMode == .direct ? "direct" : "proxy"], at: 0)
+            routing["rules"] = rules
+        }
         var dnsServers: [Any] = [
-            "1.1.1.1", "8.8.8.8", "https://1.1.1.1/dns-query", "https://8.8.8.8/dns-query", "localhost"
+            "1.1.1.1", "8.8.8.8", "https://1.1.1.1/dns-query", "https://8.8.8.8/dns-query"
         ]
         if routingMode == .rules && routingRules.bypassChina {
             dnsServers.insert([
                 "address": "223.5.5.5",
                 "domains": ["geosite:cn"],
-                "skipFallback": true
+                "skipFallback": true,
+                "tag": "dns-direct"
             ] as [String: Any], at: 0)
         }
         // Resolve the node before the tunnel exists. Never route its bootstrap
         // lookup through the very outbound that depends on that lookup.
         dnsServers.insert(bootstrapDNS(for: [node]), at: 0)
+
+        var dnsRules = routing["rules"] as? [[String: Any]] ?? []
+        dnsRules.insert(contentsOf: [
+            ["type": "field", "inboundTag": ["dns-direct"], "outboundTag": "direct"],
+            ["type": "field", "inboundTag": ["dns-remote"], "outboundTag": routingMode == .direct ? "direct" : "proxy"]
+        ], at: min(1, dnsRules.count))
+        routing["rules"] = dnsRules
 
         return [
             "log": [
@@ -130,7 +152,8 @@ enum XrayConfigBuilder {
             // 国内域名优先使用国内 DNS；其它查询保留原有解析服务器。
             "dns": [
                 "servers": dnsServers,
-                "queryStrategy": "UseIPv4"
+                "tag": "dns-remote",
+                "queryStrategy": "UseIP"
             ] as [String: Any]
         ]
     }
@@ -141,7 +164,11 @@ enum XrayConfigBuilder {
     /// 512 KiB per request, bounded. In particular avoid the small ARM64
     /// default dropping UDP bursts when the internal queue is full.
     static let connectionPolicy: [String: Any] = [
-        "0": ["bufferSize": 512]
+        "0": ["bufferSize": 512, "connIdle": 3600]
+    ]
+
+    private static let nodeSocketOptions: [String: Any] = [
+        "domainStrategy": "UseIPv4v6", "tcpKeepAliveIdle": 30, "tcpKeepAliveInterval": 15
     ]
 
     private static func bootstrapDNS(for nodes: [ProxyNode]) -> [String: Any] {
@@ -199,7 +226,7 @@ enum XrayConfigBuilder {
                     "8.8.8.8",
                     "localhost"
                 ],
-                "queryStrategy": "UseIPv4"
+                "queryStrategy": "UseIP"
             ] as [String: Any],
             "inbounds": inbounds,
             "outbounds": outbounds,
@@ -208,6 +235,18 @@ enum XrayConfigBuilder {
                 "rules": rules
             ]
         ]
+    }
+
+    /// This nonisolated async boundary keeps Keychain, encoding and disk I/O off MainActor.
+    nonisolated static func writeTestConfig(
+        nodes: [(node: ProxyNode, localPort: Int)], to file: URL, verbose: Bool = false
+    ) async throws {
+        try Task.checkCancellation()
+        var config = try buildTestConfig(nodes: nodes)
+        if verbose { config["log"] = ["loglevel": "info"] }
+        try Task.checkCancellation()
+        try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try writeJSON(config, to: file)
     }
 
     static func writeJSON(_ config: [String: Any], to url: URL) throws {
@@ -226,7 +265,59 @@ enum XrayConfigBuilder {
     // MARK: - Outbound
 
     private static func buildOutbound(_ node: ProxyNode, tag: String) throws -> [String: Any] {
+        guard node.transport != .masque || node.protocolType == .masque else {
+            throw ParserError.unsupportedOption("masque 传输仅支持 MASQUE 协议")
+        }
+        if SingBoxConnectionConfig.requiresSingBox(node) {
+            return ["tag": tag, "protocol": "socks", "settings": ["servers": [["address": "127.0.0.1", "port": 1]]],
+                    SingBoxConnectionConfig.marker: try SingBoxConnectionConfig.outbound(node)]
+        }
         switch node.protocolType {
+        case .socks5, .http:
+            try RemoteProtocolParser.validate(node)
+            var server: [String: Any] = ["address": node.server, "port": node.port]
+            if let user = node.username { server["users"] = [["user": user, "pass": node.password ?? ""]] }
+            var settings: [String: Any] = ["servers": [server]]
+            if let headers = node.httpHeaders, node.protocolType == .http { settings["headers"] = headers }
+            var stream: [String: Any] = ["network": "tcp", "security": node.security.rawValue, "sockopt": nodeSocketOptions]
+            if node.security == .tls {
+                var tls: [String: Any] = ["serverName": node.sni ?? node.server, "alpn": ["http/1.1"]]
+                if let pin = node.pinnedCertSHA256 { tls["pinnedPeerCertSha256"] = pin }
+                stream["tlsSettings"] = tls
+            }
+            return ["tag": tag, "protocol": node.protocolType == .socks5 ? "socks" : "http", "settings": settings, "streamSettings": stream]
+        case .wireguard:
+            try RemoteProtocolParser.validate(node)
+            let options = node.wireGuardOptions!
+            let endpoint = node.server.contains(":") ? "[\(node.server)]:\(node.port)" : "\(node.server):\(node.port)"
+            var peer: [String: Any] = ["endpoint": endpoint, "publicKey": options.peerPublicKey]
+            if let psk = options.preSharedKey { peer["preSharedKey"] = psk }
+            if let allowed = options.allowedIPs { peer["allowedIPs"] = allowed }
+            if let keepalive = options.keepAlive { peer["keepAlive"] = keepalive }
+            var settings: [String: Any] = ["secretKey": options.privateKey!, "address": options.addresses, "peers": [peer], "noKernelTun": true]
+            if let mtu = options.mtu { settings["mtu"] = mtu }
+            if let reserved = options.reserved { settings["reserved"] = reserved }
+            if let dns = options.remoteDNS { settings["remoteDNS"] = dns }
+            return ["tag": tag, "protocol": "wireguard", "settings": settings, "streamSettings": ["sockopt": nodeSocketOptions]]
+        case .anytls, .tuic:
+            throw ParserError.unsupportedOption("\(node.protocolType.displayName) 必须使用 sing-box 协议桥接")
+        case .masque:
+            try MasqueParser.validate(node)
+            var settings: [String: Any] = ["address": node.server, "port": node.port]
+            if let dns = node.masqueRemoteDNS, !dns.isEmpty { settings["remoteDNS"] = dns }
+            var masque: [String: Any] = ["path": node.path ?? MasqueParser.defaultPath]
+            if let host = node.host { masque["host"] = host }
+            if let user = node.username { masque["user"] = user }
+            if let password = node.password { masque["pass"] = password }
+            if let headers = node.masqueHeaders { masque["headers"] = headers }
+            var tls: [String: Any] = ["serverName": node.sni ?? node.server,
+                                      "alpn": (node.alpn ?? "h3").components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespaces) }]
+            if let fp = node.fingerprint { tls["fingerprint"] = fp }
+            if let pin = node.pinnedCertSHA256 { tls["pinnedPeerCertSha256"] = pin }
+            var stream: [String: Any] = ["network": "masque", "security": "tls", "masqueSettings": masque,
+                                         "tlsSettings": tls, "sockopt": nodeSocketOptions]
+            if let mask = FinalMaskCodec.jsonObject(from: node) { stream["finalmask"] = mask }
+            return ["tag": tag, "protocol": "masque", "settings": settings, "streamSettings": stream]
         case .vless:
             return try vlessOutbound(node, tag: tag)
         case .vmess:
@@ -235,6 +326,22 @@ enum XrayConfigBuilder {
             return try trojanOutbound(node, tag: tag)
         case .shadowsocks:
             return try shadowsocksOutbound(node, tag: tag)
+        case .hysteria2:
+            guard let password = node.password, !password.isEmpty else { throw ParserError.missingField("password") }
+            if node.allowInsecure == true, (node.pinnedCertSHA256 ?? "").isEmpty {
+                throw ParserError.unsupportedOption("当前 Xray 不支持 Hysteria2 的 insecure=1，请使用有效证书或提供 pinSHA256")
+            }
+            var tls: [String: Any] = ["serverName": node.sni ?? node.server, "alpn": ["h3"]]
+            if let pin = node.pinnedCertSHA256 { tls["pinnedPeerCertSha256"] = pin }
+            if let alpn = node.alpn { tls["alpn"] = alpn.split(separator: ",").map(String.init) }
+            return [
+                "tag": tag, "protocol": "hysteria",
+                "settings": ["version": 2, "address": node.server, "port": node.port],
+                "streamSettings": [
+                    "network": "hysteria", "security": "tls", "tlsSettings": tls,
+                    "hysteriaSettings": ["version": 2, "auth": password]
+                ]
+            ]
         }
     }
 
@@ -320,6 +427,7 @@ enum XrayConfigBuilder {
         return [
             "tag": tag,
             "protocol": "shadowsocks",
+            "streamSettings": ["sockopt": nodeSocketOptions],
             "settings": [
                 "servers": [[
                     "address": node.server,
@@ -363,7 +471,7 @@ enum XrayConfigBuilder {
             if let path = node.path { xhttp["path"] = path }
             if let headerHost { xhttp["host"] = headerHost }
             stream["xhttpSettings"] = xhttp
-        case .tcp:
+        case .tcp, .masque:
             break
         }
 
@@ -391,11 +499,8 @@ enum XrayConfigBuilder {
             stream["security"] = "none"
         }
 
-        // Prefer IPv4 when dialing the node. Broken/partial IPv6 on the LAN
-        // otherwise yields "all unavailable" while other IPv4-first clients work.
-        stream["sockopt"] = [
-            "domainStrategy": "UseIPv4"
-        ] as [String: Any]
+        // Prefer IPv4 while retaining IPv6-only node support.
+        stream["sockopt"] = nodeSocketOptions
 
         // FinalMask (share-link `fm=`): TCP fragment etc. Required under local DPI.
         if let finalmask = FinalMaskCodec.jsonObject(from: node) {
@@ -410,6 +515,7 @@ enum XrayConfigBuilder {
         case .tcp: return "tcp"
         case .ws: return "ws"
         case .grpc: return "grpc"
+        case .masque: return "masque"
         case .httpupgrade: return "httpupgrade"
         case .xhttp, .h2, .http, .quic:
             // Xray 26.9+ 已移除 h2/http/quic 传输。
@@ -478,5 +584,127 @@ enum XrayValidator {
         let result = try await ProcessRunner.run(executable: xrayURL,
             arguments: ["run", "-test", "-config", url.path], timeout: 15, environment: environment)
         return result.status == 0 && !result.timedOut && !result.cancelled
+    }
+}
+
+/// Protocol fallback only: routing and statistics remain on the existing local core.
+enum SingBoxConnectionConfig {
+    static let marker = "hopworldSingBox"
+    static let legacyShadowsocksMethods: Set<String> = ["rc4-md5", "aes-128-cfb", "aes-192-cfb", "aes-256-cfb"]
+
+    static func requiresSingBox(_ node: ProxyNode) -> Bool {
+        [.anytls, .tuic].contains(node.protocolType)
+            || ([ProxyProtocolType.vless, .vmess, .trojan].contains(node.protocolType) && [.h2, .http].contains(node.transport))
+            || (node.protocolType == .vless && node.security == .none && !NodeConfigChecker.isLoopbackOrPrivateHost(node.server))
+            || (node.protocolType == .hysteria2 && node.allowInsecure == true && (node.pinnedCertSHA256 ?? "").isEmpty)
+            || (node.protocolType == .shadowsocks && legacyShadowsocksMethods.contains((node.method ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()))
+    }
+
+    static func outbound(_ node: ProxyNode) throws -> [String: Any] {
+        guard !FinalMaskCodec.isPresent(on: node) else {
+            throw ParserError.unsupportedOption("sing-box 连接暂不支持该节点的 FinalMask 参数")
+        }
+        var outbound: [String: Any] = ["type": node.protocolType.rawValue, "server": node.server, "server_port": node.port,
+                                      "tcp_keep_alive": "30s", "tcp_keep_alive_interval": "15s"]
+        switch node.protocolType {
+        case .anytls:
+            try RemoteProtocolParser.validate(node)
+            outbound["password"] = node.password!
+            var tls: [String: Any] = ["enabled": true, "server_name": node.sni ?? node.server,
+                                     "insecure": node.allowInsecure ?? false]
+            if let alpn = node.alpn { tls["alpn"] = alpn.components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespaces) } }
+            if let fingerprint = node.fingerprint, !fingerprint.isEmpty {
+                tls["utls"] = ["enabled": true, "fingerprint": fingerprint]
+            }
+            outbound["tls"] = tls
+        case .tuic:
+            try RemoteProtocolParser.validate(node)
+            outbound["uuid"] = node.uuid!
+            outbound["password"] = node.password!
+            let options = node.tuicOptions
+            if let congestion = options?.congestionControl { outbound["congestion_control"] = congestion }
+            if let mode = options?.udpRelayMode { outbound["udp_relay_mode"] = mode }
+            if let overStream = options?.udpOverStream { outbound["udp_over_stream"] = overStream }
+            if let zeroRTT = options?.zeroRTTHandshake { outbound["zero_rtt_handshake"] = zeroRTT }
+            if let heartbeat = options?.heartbeat { outbound["heartbeat"] = heartbeat }
+            var tls: [String: Any] = ["enabled": true, "server_name": node.sni ?? node.server,
+                                     "insecure": node.allowInsecure ?? false,
+                                     "alpn": (node.alpn ?? "h3").components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespaces) }]
+            if let cert = options?.certificate { tls["certificate"] = cert }
+            if let pins = options?.publicKeySHA256 { tls["certificate_public_key_sha256"] = pins }
+            if let disable = options?.disableSNI { tls["disable_sni"] = disable }
+            outbound["tls"] = tls
+        case .shadowsocks:
+            let method = (node.method ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            guard legacyShadowsocksMethods.contains(method) else { throw ParserError.unsupportedOption("sing-box 旧版 Shadowsocks 桥接不支持：\(method)") }
+            guard node.transport == .tcp, node.security == .none else {
+                throw ParserError.unsupportedOption("\(method) 桥接仅支持原生 Shadowsocks，不支持额外传输或 TLS/REALITY")
+            }
+            guard let password = node.password, !password.isEmpty else { throw ParserError.missingField("password") }
+            outbound["method"] = method
+            outbound["password"] = password
+        case .vless:
+            guard let uuid = node.uuid, !uuid.isEmpty else { throw ParserError.missingField("uuid") }
+            guard (node.encryption ?? "none") == "none" else { throw ParserError.unsupportedOption("sing-box 暂不支持 VLESS Encryption") }
+            outbound["uuid"] = uuid
+            if let flow = node.flow, !flow.isEmpty { outbound["flow"] = flow }
+            switch node.transport {
+            case .tcp: break
+            case .ws:
+                var transport: [String: Any] = ["type": "ws", "path": node.path ?? "/"]
+                if let host = node.host ?? node.sni { transport["headers"] = ["Host": host] }
+                outbound["transport"] = transport
+            case .grpc:
+                outbound["transport"] = ["type": "grpc", "service_name": node.serviceName ?? ""]
+            case .httpupgrade:
+                outbound["transport"] = ["type": "httpupgrade", "host": node.host ?? node.server, "path": node.path ?? "/"]
+            case .h2, .http:
+                try configureHTTPTransport(node, outbound: &outbound)
+            default: throw ParserError.unsupportedOption("sing-box 不支持该 VLESS 传输：\(node.transport.displayName)")
+            }
+        case .vmess:
+            guard let uuid = node.uuid, !uuid.isEmpty else { throw ParserError.missingField("uuid") }
+            outbound["uuid"] = uuid
+            outbound["security"] = node.encryption ?? "auto"
+            outbound["alter_id"] = node.alterId ?? 0
+            try configureHTTPTransport(node, outbound: &outbound)
+        case .trojan:
+            guard let password = node.password, !password.isEmpty else { throw ParserError.missingField("password") }
+            outbound["password"] = password
+            try configureHTTPTransport(node, outbound: &outbound)
+        case .hysteria2:
+            guard let password = node.password, !password.isEmpty else { throw ParserError.missingField("password") }
+            outbound["password"] = password
+            var tls: [String: Any] = ["enabled": true, "server_name": node.sni ?? node.server, "insecure": node.allowInsecure ?? false]
+            if let alpn = node.alpn { tls["alpn"] = alpn.split(separator: ",").map(String.init) }
+            outbound["tls"] = tls
+        default: throw ParserError.unsupportedScheme(node.protocolType.rawValue)
+        }
+        return outbound
+    }
+
+    private static func configureHTTPTransport(_ node: ProxyNode, outbound: inout [String: Any]) throws {
+        guard [.h2, .http].contains(node.transport) else { throw ParserError.unsupportedOption("该协议桥接仅支持旧 H2/HTTP 传输") }
+        guard node.security != .reality, (node.publicKey ?? "").isEmpty else {
+            throw ParserError.unsupportedOption("旧 H2/HTTP 桥接不支持 REALITY，请使用与服务端一致的传输")
+        }
+        // sing-box 1.14 supports public-key pins, not the certificate digest stored by this model.
+        guard (node.pinnedCertSHA256 ?? "").isEmpty else {
+            throw ParserError.unsupportedOption("旧 H2/HTTP 桥接暂不支持证书 SHA-256 固定校验")
+        }
+        var transport: [String: Any] = ["type": "http", "path": node.path ?? "/"]
+        if let host = node.host, !host.isEmpty {
+            transport["host"] = host.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
+        }
+        outbound["transport"] = transport
+        if node.security == .tls || node.protocolType == .trojan {
+            var tls: [String: Any] = ["enabled": true, "server_name": node.sni ?? node.server,
+                                      "insecure": node.allowInsecure ?? false]
+            if let alpn = node.alpn { tls["alpn"] = alpn.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) } }
+            if let fingerprint = node.fingerprint, !fingerprint.isEmpty {
+                tls["utls"] = ["enabled": true, "fingerprint": fingerprint]
+            }
+            outbound["tls"] = tls
+        }
     }
 }

@@ -38,7 +38,7 @@ struct PersistenceStore: Sendable {
                 if systemError.domain == NSCocoaErrorDomain &&
                     (systemError.code == CocoaError.fileReadNoPermission.rawValue ||
                      systemError.code == CocoaError.fileWriteNoPermission.rawValue) {
-                    completion("暂时无法访问本地数据。请确认电脑已解锁。保存成功前请保持应用打开。")
+                    completion("系统拒绝访问本地数据。应用会自动重试，也会在解锁或返回应用时再次尝试保存。若持续失败，请检查应用的数据访问权限。保存成功前请保持应用打开。")
                 } else {
                     completion("暂时无法保存节点和订阅。保存成功前请保持应用打开，以免丢失最近的修改。")
                 }
@@ -64,6 +64,15 @@ struct PersistenceStore: Sendable {
         }
         // 兼容旧版 settings.json：缺少新字段时补默认值再解码，避免整份设置被重置。
         if var obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            if let previous = obj["testURL"] as? String,
+               ["https://chatgpt.com/cdn-cgi/trace", "https://chatgpt.com/", "https://chatgpt.com"].contains(previous) {
+                obj["testURL"] = AppSettings.chatGPTConnectivityTestURL
+                if var names = obj["customTestURLNames"] as? [String: String],
+                   let name = names[previous], names[AppSettings.chatGPTConnectivityTestURL] == nil {
+                    names[AppSettings.chatGPTConnectivityTestURL] = name
+                    obj["customTestURLNames"] = names
+                }
+            }
             // Fill every missing field from defaults; adding a new setting must
             // not invalidate the user's entire saved configuration.
             if let defaultsData = try? JSONEncoder().encode(AppSettings()),
@@ -121,12 +130,14 @@ struct PersistenceStore: Sendable {
             if let patched = try? JSONSerialization.data(withJSONObject: obj),
                var settings = try? decoder.decode(AppSettings.self, from: patched) {
                 settings.normalizeApplicationProxyMode()
+                settings.connectTimeoutSeconds = min(99, max(1, settings.connectTimeoutSeconds))
                 settings.scheduledTestIntervalMinutes = min(1440, max(5, settings.scheduledTestIntervalMinutes))
                 return settings
             }
         }
         if var settings = try? decoder.decode(AppSettings.self, from: data) {
             settings.normalizeApplicationProxyMode()
+            settings.connectTimeoutSeconds = min(99, max(1, settings.connectTimeoutSeconds))
             settings.scheduledTestIntervalMinutes = min(1440, max(5, settings.scheduledTestIntervalMinutes))
             return settings
         }
@@ -174,6 +185,21 @@ struct PersistenceStore: Sendable {
 
     func savePinnedNodeIDs(_ ids: [UUID]) {
         save(ids, filename: "pinned-nodes.json")
+    }
+
+    func loadDailyUsage() -> DailyUsageStats {
+        load(filename: "daily-usage.json", as: DailyUsageStats.self) ?? DailyUsageStats()
+    }
+
+    func saveDailyUsage(_ usage: DailyUsageStats) {
+        save(usage, filename: "daily-usage.json")
+    }
+
+    /// Wait for queued records before replying to the app's termination request.
+    func flush() async {
+        await withCheckedContinuation { continuation in
+            ioQueue.async { continuation.resume() }
+        }
     }
 
     private func url(for filename: String) -> URL {
@@ -239,6 +265,11 @@ enum LibraryBackup {
         var payload = snapshot
         if !includeCredentials {
             payload.nodes = payload.nodes.map(redactForExport)
+            payload.subscriptions = payload.subscriptions.map { subscription in
+                var copy = subscription
+                copy.shareLinksText = nil
+                return copy
+            }
         }
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
@@ -273,6 +304,11 @@ enum LibraryBackup {
         var copy = node
         copy.uuid = nil
         copy.password = nil
+        copy.username = nil
+        copy.masqueHeaders = nil
+        copy.httpHeaders = nil
+        copy.wireGuardOptions?.privateKey = nil
+        copy.wireGuardOptions?.preSharedKey = nil
         copy.credentialKey = nil
         return copy
     }

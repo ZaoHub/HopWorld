@@ -1,33 +1,107 @@
 import Foundation
 
-enum SubscriptionInterval: String, Codable, CaseIterable, Sendable {
-    case every6Hours
-    case every12Hours
-    case daily
-    case every2Days
-    case weekly
+enum SubscriptionInterval: Codable, Hashable, Sendable {
+    enum Unit: String, Codable, CaseIterable, Sendable {
+        case hours, days, weeks
+
+        var displayName: String {
+            switch self {
+            case .hours: return "小时"
+            case .days: return "天"
+            case .weeks: return "周"
+            }
+        }
+    }
+
+    case hours(Int)
+    case days(Int)
+    case weeks(Int)
     case manual
 
-    var displayName: String {
-        switch self {
-        case .every6Hours: return "每 6 小时"
-        case .every12Hours: return "每 12 小时"
-        case .daily: return "每天"
-        case .every2Days: return "每 2 天"
-        case .weekly: return "每周"
-        case .manual: return "手动"
+    static let validCounts = 1...999
+    static let hourly = Self.hours(1)
+    static let every6Hours = Self.hours(6)
+    static let every12Hours = Self.hours(12)
+    static let daily = Self.days(1)
+    static let every2Days = Self.days(2)
+    static let weekly = Self.weeks(1)
+
+    init(count: Int, unit: Unit) {
+        switch unit {
+        case .hours: self = .hours(count)
+        case .days: self = .days(count)
+        case .weeks: self = .weeks(count)
         }
+    }
+
+    var count: Int {
+        switch self {
+        case let .hours(count), let .days(count), let .weeks(count): return count
+        case .manual: return 1
+        }
+    }
+
+    var unit: Unit {
+        switch self {
+        case .hours: return .hours
+        case .days, .manual: return .days
+        case .weeks: return .weeks
+        }
+    }
+
+    var displayName: String {
+        self == .manual ? "手动" : "每 \(count) \(unit.displayName)"
     }
 
     var seconds: TimeInterval? {
         switch self {
-        case .every6Hours: return 6 * 3600
-        case .every12Hours: return 12 * 3600
-        case .daily: return 24 * 3600
-        case .every2Days: return 48 * 3600
-        case .weekly: return 7 * 24 * 3600
+        case let .hours(count): return Double(count) * 3600
+        case let .days(count): return Double(count) * 24 * 3600
+        case let .weeks(count): return Double(count) * 7 * 24 * 3600
         case .manual: return nil
         }
+    }
+
+    var usesTimeOfDay: Bool { self != .manual && unit != .hours }
+
+    private enum CodingKeys: String, CodingKey { case count, unit }
+
+    init(from decoder: Decoder) throws {
+        // Existing subscription libraries store the former preset's name as a string.
+        if let raw = try? decoder.singleValueContainer().decode(String.self) {
+            switch raw {
+            case "hourly": self = .hourly
+            case "every6Hours": self = .every6Hours
+            case "every12Hours": self = .every12Hours
+            case "daily": self = .daily
+            case "every2Days": self = .every2Days
+            case "weekly": self = .weekly
+            case "manual": self = .manual
+            default:
+                throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: "未知的订阅更新周期"))
+            }
+            return
+        }
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let count = try container.decode(Int.self, forKey: .count)
+        guard Self.validCounts.contains(count) else {
+            throw DecodingError.dataCorruptedError(forKey: .count, in: container, debugDescription: "更新周期必须为 1–999")
+        }
+        self.init(count: count, unit: try container.decode(Unit.self, forKey: .unit))
+    }
+
+    func encode(to encoder: Encoder) throws {
+        if self == .manual {
+            var container = encoder.singleValueContainer()
+            try container.encode("manual")
+            return
+        }
+        guard Self.validCounts.contains(count) else {
+            throw EncodingError.invalidValue(count, .init(codingPath: encoder.codingPath, debugDescription: "更新周期必须为 1–999"))
+        }
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(count, forKey: .count)
+        try container.encode(unit, forKey: .unit)
     }
 }
 
@@ -109,6 +183,78 @@ enum SubscriptionUpdateState: Equatable, Sendable {
     }
 }
 
+struct SubscriptionCleanupRecord: Identifiable, Codable, Hashable, Sendable {
+    var id = UUID()
+    var cleanedAt: Date
+    var automatic: Bool
+    var removedCount: Int
+}
+
+enum SubscriptionHistoryPeriod: String, CaseIterable {
+    case all = "全部时间"
+    case today = "今天"
+    case last7Days = "最近 7 天"
+    case last30Days = "最近 30 天"
+
+    func dateInterval(now: Date, calendar: Calendar) -> DateInterval? {
+        let days: Int
+        switch self {
+        case .all: return nil
+        case .today: days = 1
+        case .last7Days: days = 7
+        case .last30Days: days = 30
+        }
+        let today = calendar.startOfDay(for: now)
+        let start = calendar.date(byAdding: .day, value: 1 - days, to: today) ?? today
+        let end = calendar.date(byAdding: .day, value: 1, to: today) ?? now
+        return DateInterval(start: start, end: end)
+    }
+}
+
+struct SubscriptionCleanupHistoryFilter {
+    typealias Period = SubscriptionHistoryPeriod
+
+    enum Source: String, CaseIterable {
+        case all = "全部方式"
+        case automatic = "自动"
+        case manual = "手动"
+    }
+
+    var period: Period = .all
+    var source: Source = .all
+    var isActive: Bool { period != .all || source != .all }
+
+    func apply(to records: [SubscriptionCleanupRecord], now: Date = Date(), calendar: Calendar = .current) -> [SubscriptionCleanupRecord] {
+        let interval = period.dateInterval(now: now, calendar: calendar)
+        return records.filter { record in
+            let matchesSource = source == .all || record.automatic == (source == .automatic)
+            let matchesDate = interval.map { record.cleanedAt >= $0.start && record.cleanedAt < $0.end } ?? true
+            return matchesSource && matchesDate
+        }
+    }
+}
+
+struct SubscriptionUpdateHistoryFilter {
+    enum Result: String, CaseIterable {
+        case all = "全部结果"
+        case success = "成功"
+        case failure = "失败"
+    }
+
+    var period: SubscriptionHistoryPeriod = .all
+    var result: Result = .all
+    var isActive: Bool { period != .all || result != .all }
+
+    func apply(to logs: [SubscriptionUpdateLog], now: Date = Date(), calendar: Calendar = .current) -> [SubscriptionUpdateLog] {
+        let interval = period.dateInterval(now: now, calendar: calendar)
+        return logs.filter { log in
+            let matchesResult = result == .all || log.success == (result == .success)
+            let matchesDate = interval.map { log.startedAt >= $0.start && log.startedAt < $0.end } ?? true
+            return matchesResult && matchesDate
+        }
+    }
+}
+
 struct Subscription: Identifiable, Codable, Hashable, Sendable {
     let id: UUID
 
@@ -141,6 +287,19 @@ struct Subscription: Identifiable, Codable, Hashable, Sendable {
     var smartMergeMissingLimit: Int
     var autoCleanupUnavailableNodes: Bool?
     var unavailableCleanupDays: Int?
+    var cleanupHistory: [SubscriptionCleanupRecord]?
+
+    func automaticCleanupCountToday(now: Date = Date(), calendar: Calendar = .current) -> Int {
+        (cleanupHistory ?? []).filter {
+            $0.automatic && calendar.isDate($0.cleanedAt, inSameDayAs: now)
+        }.reduce(0) { $0 + $1.removedCount }
+    }
+
+    mutating func removeCleanupHistory(recordIDs: Set<UUID>) -> Int {
+        let previousCount = cleanupHistory?.count ?? 0
+        cleanupHistory?.removeAll { recordIDs.contains($0.id) }
+        return previousCount - (cleanupHistory?.count ?? 0)
+    }
 
     var lastAttemptAt: Date?
     var lastSuccessAt: Date?
@@ -341,5 +500,12 @@ struct SubscriptionUpdateLog: Identifiable, Codable, Hashable, Sendable {
         self.errorMessage = errorMessage
         self.usedFallbackDate = usedFallbackDate
         self.resolvedDateText = resolvedDateText
+    }
+}
+
+
+extension Subscription {
+    func initialFetchOffsets(includeYesterday: Bool) -> [Int] {
+        includeYesterday && urlMode == .dateTemplate ? [-1, 0] : [dateOffset]
     }
 }

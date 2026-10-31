@@ -102,6 +102,7 @@ enum TunAuthorizationCommand {
 @MainActor
 final class ApplicationProxyManager {
     private var directory: URL?
+    private var preparedCore: (version: String, directory: URL, binary: URL, digest: String)?
     private var leaseHandle: FileHandle?
     private var heartbeat: Task<Void, Never>?
     private var monitor: Task<Void, Never>?
@@ -109,15 +110,20 @@ final class ApplicationProxyManager {
     private var sawSupervisor = false
     private var helper: TunHelperClient?
     private var helperPulse: Task<Void, Never>?
-    var onUnexpectedStop: ((String) -> Void)?
+    var onUnexpectedStop: ((TunSessionStatus) -> Void)?
     private var terminationObserver: NSObjectProtocol?
 
-    init() {
+    init(helper: TunHelperClient? = nil, activeSession: URL? = nil) {
+        self.helper = helper
+        directory = activeSession
+        authorizationPending = activeSession != nil
+        sawSupervisor = activeSession != nil
         terminationObserver = NotificationCenter.default.addObserver(
             forName: NSNotification.Name("NSApplicationWillTerminateNotification"), object: nil, queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated { self?.shutdownHelper() }
         }
+        if let helper { startHelperPulse(helper) }
     }
 
     deinit {
@@ -127,10 +133,35 @@ final class ApplicationProxyManager {
         monitor?.cancel()
         helper?.close()
         try? leaseHandle?.close()
+        if let preparedCore { try? FileManager.default.removeItem(at: preparedCore.directory) }
+    }
+
+    func prepareCore() async throws -> URL {
+        let version = SingBoxInstaller.selectedVersion
+        if let preparedCore, preparedCore.version == version,
+           (try? SingBoxInstaller.digest(preparedCore.binary)) == preparedCore.digest {
+            return preparedCore.binary
+        }
+        let coreDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("hopworld-tun-core-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: coreDirectory, withIntermediateDirectories: false,
+                                               attributes: [.posixPermissions: 0o700])
+        do {
+            let binary = try await SingBoxInstaller.prepare(in: coreDirectory, version: version)
+            let digest = try SingBoxInstaller.digest(binary)
+            try Task.checkCancellation()
+            if let preparedCore { try? FileManager.default.removeItem(at: preparedCore.directory) }
+            // A stable executable avoids repeating macOS's first-launch checks on every connection.
+            preparedCore = (version, coreDirectory, binary, digest)
+            return binary
+        } catch {
+            try? FileManager.default.removeItem(at: coreDirectory)
+            throw error
+        }
     }
 
     func start(applications: [ProxyApplication], socksPort: Int, password: String, xrayBinary: URL,
-               captureAll: Bool = false, bootstrapDomains: [String] = []) async throws {
+               captureAll: Bool = false, bootstrapDomains: [String] = [], additionalBypassExecutables: [String] = []) async throws {
         guard await stop() else { throw ApplicationProxyError.failed("上一个 TUN 尚未确认停止，请稍后重试。") }
         let session = FileManager.default.temporaryDirectory.appendingPathComponent("hopworld-tun-" + UUID().uuidString)
         try FileManager.default.createDirectory(at: session, withIntermediateDirectories: false,
@@ -152,11 +183,16 @@ final class ApplicationProxyManager {
             guard FileManager.default.isExecutableFile(atPath: supervisor.path) else {
                 throw ApplicationProxyError.failed("缺少 TUN 监护程序，请重新构建 HopWorld。")
             }
-            let binary = try await SingBoxInstaller.prepare(in: session)
+            let binary = try await prepareCore()
+            // HopWorld itself always goes direct — including global TUN. Otherwise
+            // subscription fetch (and other app networking) dies with the proxy node,
+            // undoing SubscriptionFetcher's system-proxy bypass.
             let config = try ApplicationProxyConfig.build(applications: applications, socksPort: socksPort,
-                password: password, bypassExecutables: [xrayBinary.resolvingSymlinksInPath().path,
-                    captureAll ? "" : (Bundle.main.executableURL?.resolvingSymlinksInPath().path ?? ""),
-                    binary.path].filter { !$0.isEmpty }, captureAll: captureAll, bootstrapDomains: bootstrapDomains)
+                password: password, bypassExecutables: [
+                    xrayBinary.resolvingSymlinksInPath().path,
+                    Bundle.main.executableURL?.resolvingSymlinksInPath().path ?? "",
+                    binary.path
+                ].filter { !$0.isEmpty } + additionalBypassExecutables, captureAll: captureAll, bootstrapDomains: bootstrapDomains)
             let configURL = session.appendingPathComponent("config.json")
             try XrayConfigBuilder.writeJSON(config, to: configURL)
             let checked = try await ProcessRunner.run(executable: binary,
@@ -220,7 +256,7 @@ final class ApplicationProxyManager {
                                     ProcessInfo.processInfo.systemUptime - lastHealthy > 5 {
                                     // Stop the lease before notifying ConnectionManager.
                                     self.revokeLease()
-                                    self.onUnexpectedStop?(state?.message ?? "TUN 监护进程失去响应")
+                                    self.onUnexpectedStop?(state ?? .init(state: "failed", message: "TUN 监护进程失去响应"))
                                     return
                                 }
                             }
@@ -263,7 +299,7 @@ final class ApplicationProxyManager {
         }
         let script = try TunAuthorizationCommand.makeHelper(supervisor: supervisor, uid: getuid())
         AppLogger.shared.info("正在等待系统授权。请在密码窗口输入登录密码并点「允许访问」。", category: .systemProxy)
-        NSApplication.shared.activate()
+        NSApplication.shared.activate(ignoringOtherApps: true)
         let outcome = TunHelperAuthorizationOutcome()
         let authorization = Task.detached {
             do {
@@ -297,9 +333,9 @@ final class ApplicationProxyManager {
             while !Task.isCancelled {
                 do { try await Task.sleep(nanoseconds: 1_000_000_000) } catch { return }
                 guard let self else { return }
-                // A running job is kept alive by the lease. Pinging now would only
-                // fill the socket while the helper is blocked inside that job.
-                if self.leaseHandle != nil { continue }
+                // Removing the lease starts cleanup; the helper is still busy
+                // until stop() confirms completion and clears authorizationPending.
+                if self.leaseHandle != nil || self.authorizationPending { continue }
                 let alive = await Task.detached { client.ping() }.value
                 if Task.isCancelled || self.helper !== client { return }
                 if !alive {
@@ -317,6 +353,8 @@ final class ApplicationProxyManager {
         revokeLease()
         helper?.quitAndClose()
         helper = nil
+        if let preparedCore { try? FileManager.default.removeItem(at: preparedCore.directory) }
+        preparedCore = nil
     }
 
     private func pulse() {

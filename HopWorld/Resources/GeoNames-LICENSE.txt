@@ -1,0 +1,16 @@
+Chinese city names derived from GeoNames (https://www.geonames.org/).
+Source: https://download.geonames.org/export/dump/
+License: Creative Commons Attribution 4.0 International (CC BY 4.0)
+https://creativecommons.org/licenses/by/4.0/
+
+This application filters GeoNames cities500 populated places with available
+Chinese alternate names, normalizes search aliases, and converts Chinese names
+to simplified characters when displaying them. GeoNames does not endorse this
+application. The original data is supplied without warranties of accuracy,
+timeliness or completeness. The snapshot date is recorded in the optional
+ChineseCities.json database. Developer-generated snapshots also include source
+SHA-256 checksums.
+
+Download and generate the optional library in Settings, or regenerate with
+Scripts/update_chinese_cities.py. Neither the raw downloads nor the optional
+database is included in the application bundle.

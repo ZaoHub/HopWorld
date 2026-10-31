@@ -103,6 +103,25 @@ enum CountryResolver {
         ($0.keywords.map(\.count).max() ?? 0) > ($1.keywords.map(\.count).max() ?? 0)
     }
 
+    private static let nameKeywords = keywordMapBySpecificity.flatMap { entry in
+        entry.keywords.filter { keyword in
+            !(keyword.count == 2 && keyword.allSatisfy { $0.isLetter && $0.isASCII })
+        }.map { (value: $0.uppercased(), code: entry.code, name: entry.name) }
+    }
+
+    private final class NameResolution: NSObject {
+        let country: (code: String, name: String)?
+        init(_ country: (code: String, name: String)?) { self.country = country }
+    }
+
+    // Menus, filters and connection checks repeatedly resolve the same immutable names.
+    private static let nameCache: NSCache<NSString, NameResolution> = {
+        let cache = NSCache<NSString, NameResolution>()
+        cache.countLimit = 8192
+        cache.totalCostLimit = 2 * 1024 * 1024
+        return cache
+    }()
+
     private static let knownISOCodes: Set<String> = Set(Locale.Region.isoRegions.map(\.identifier))
 
     /// Preferred zh display names; fall back to system localization.
@@ -122,6 +141,14 @@ enum CountryResolver {
 
     /// Resolve country from a node remark/name.
     static func resolve(fromName name: String) -> (code: String, name: String)? {
+        let key = name as NSString
+        if let cached = nameCache.object(forKey: key) { return cached.country }
+        let country = resolveUncached(fromName: name)
+        nameCache.setObject(NameResolution(country), forKey: key, cost: name.utf8.count)
+        return country
+    }
+
+    private static func resolveUncached(fromName name: String) -> (code: String, name: String)? {
         if let fromFlag = extractFromRegionalIndicators(name) {
             return (fromFlag, displayName(for: fromFlag))
         }
@@ -132,13 +159,9 @@ enum CountryResolver {
         let upper = name.uppercased()
         // Prefer longer phrases; skip bare Latin ISO digraphs here (handled by extractISOCode)
         // so "PARIS" doesn't match "IS", "CHINA" doesn't match "CH". Keep 中国 / 日本 etc.
-        for entry in keywordMapBySpecificity {
-            for keyword in entry.keywords {
-                let isBareISO = keyword.count == 2 && keyword.allSatisfy { $0.isLetter && $0.isASCII }
-                if isBareISO { continue }
-                if upper.contains(keyword.uppercased()) {
-                    return (entry.code, entry.name)
-                }
+        for entry in nameKeywords {
+            if upper.contains(entry.value) {
+                return (entry.code, entry.name)
             }
         }
         return nil
@@ -181,19 +204,15 @@ enum CountryResolver {
     }
 
     static func group(_ nodes: [ProxyNode]) -> [CountryGroup] {
-        var buckets: [String: CountryGroup] = [:]
-
-        for node in nodes where !node.pendingRemoval {
-            let resolved = effectiveCountry(for: node)
-            let code = resolved.code
-            let name = resolved.name
-            let flag = FlagResolver.flag(for: code == "XX" ? nil : code)
-            var group = buckets[code] ?? CountryGroup(code: code, name: name, flag: flag, nodes: [])
-            group.nodes.append(node)
-            buckets[code] = group
+        // Group arrays in place; copying a CountryGroup before every append is quadratic.
+        let buckets = Dictionary(grouping: nodes.filter { !$0.pendingRemoval }) { effectiveCode(for: $0) }
+        let groups = buckets.map { code, members in
+            let name = effectiveCountry(for: members[0]).name
+            return CountryGroup(code: code, name: name,
+                                flag: FlagResolver.flag(for: code == "XX" ? nil : code), nodes: members)
         }
 
-        return buckets.values.sorted { lhs, rhs in
+        return groups.sorted { lhs, rhs in
             if lhs.code == "XX" { return false }
             if rhs.code == "XX" { return true }
             return lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
@@ -202,18 +221,18 @@ enum CountryResolver {
 
     // MARK: - Name parsing helpers
 
-    /// `_CN_`, `[CN]`, `(CN)`, `/CN/`, `|CN|`, `CN-`, `-CN-`
-    private static func extractISOCode(from name: String) -> String? {
-        let patterns = [
+    private static let isoCodePatterns = [
             #"[_\ entr(\p{Lu}{2})[_\]]"#,
             #"\((\p{Lu}{2})\)"#,
             #"/(\p{Lu}{2})/"#,
             #"\|(\p{Lu}{2})\|"#,
             #"(?:^|[\s\-|/])(\p{Lu}{2})(?:[\s\-|/]|$)"#
-        ]
-        for pattern in patterns {
-            guard let regex = try? NSRegularExpression(pattern: pattern) else { continue }
-            let range = NSRange(name.startIndex..., in: name)
+        ].compactMap { try? NSRegularExpression(pattern: $0) }
+
+    /// `_CN_`, `[CN]`, `(CN)`, `/CN/`, `|CN|`, `CN-`, `-CN-`
+    private static func extractISOCode(from name: String) -> String? {
+        let range = NSRange(name.startIndex..., in: name)
+        for regex in isoCodePatterns {
             let matches = regex.matches(in: name, range: range)
             for match in matches where match.numberOfRanges >= 2 {
                 guard let codeRange = Range(match.range(at: 1), in: name) else { continue }

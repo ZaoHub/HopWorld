@@ -1,6 +1,8 @@
 import Foundation
 import Combine
 import SQLite3
+import Security
+import CommonCrypto
 
 struct CursorUsageSnapshot: Decodable, Sendable {
     struct PlanUsage: Decodable, Sendable {
@@ -38,8 +40,12 @@ struct CursorUsageSnapshot: Decodable, Sendable {
 /// Read the Cursor-owned login database without writing or persisting credentials.
 /// The access token is used only for Cursor's own read-only dashboard endpoint.
 enum CursorUsageReader {
+    private static let passwordLock = NSLock()
+    private static var cachedSafeStoragePassword: Data?
+
     enum ReadError: LocalizedError {
-        case missingLogin, loginExpired, unavailable, unsupported
+        case missingLogin, loginExpired, unavailable, unsupported, unsupportedLogin
+        case keychainAccess(OSStatus)
         case httpStatus(Int)
         var errorDescription: String? {
             switch self {
@@ -47,11 +53,21 @@ enum CursorUsageReader {
             case .loginExpired: return "Cursor 登录已失效，请在 Cursor 重新登录后刷新。"
             case .unavailable: return "Cursor 用量读取失败，请稍后重试。"
             case .unsupported: return "Cursor 未返回可显示的用量，请查看用量页面。"
+            case .unsupportedLogin: return "无法解密 Cursor 登录凭据，请打开 Cursor 确认登录状态后重试。"
+            case .keychainAccess: return "无法读取 Cursor 加密登录，请点击刷新并允许访问“Cursor Safe Storage”钥匙串。"
+            case .httpStatus(403): return "Cursor 拒绝访问用量接口（HTTP 403），请检查账号权限或网络后重试。"
             case .httpStatus: return "Cursor 用量读取失败，请稍后重试。"
             }
         }
     }
-    static func readAccessToken() throws -> String {
+    static func readAccessToken(allowKeychainInteraction: Bool = false) throws -> String {
+        let storedValue = try readStoredAccessToken()
+        return try decodeAccessToken(storedValue) {
+            try readSafeStoragePassword(allowInteraction: allowKeychainInteraction)
+        }
+    }
+
+    private static func readStoredAccessToken() throws -> String {
         let path = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/Application Support/Cursor/User/globalStorage/state.vscdb").path
         var database: OpaquePointer?
@@ -68,12 +84,108 @@ enum CursorUsageReader {
         defer { sqlite3_finalize(statement) }
         guard sqlite3_step(statement) == SQLITE_ROW,
               let bytes = sqlite3_column_text(statement, 0) else { throw ReadError.missingLogin }
-        let token = String(cString: bytes)
-        guard !token.isEmpty, !token.contains("\n"), !token.contains("\r") else { throw ReadError.missingLogin }
+        return String(cString: bytes)
+    }
+
+    static func readSafeStoragePassword(allowInteraction: Bool,
+                                        loadPassword: () throws -> Data = readKeychainPassword) throws -> Data {
+        // Background refreshes use only the key explicitly unlocked in this app session.
+        if !allowInteraction {
+            guard let cached = passwordLock.withLock({ cachedSafeStoragePassword }) else {
+                throw ReadError.keychainAccess(errSecInteractionNotAllowed)
+            }
+            return cached
+        }
+        let data = try loadPassword()
+        guard !data.isEmpty else { throw ReadError.unsupportedLogin }
+        passwordLock.withLock { cachedSafeStoragePassword = data }
+        return data
+    }
+
+    private static func readKeychainPassword() throws -> Data {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: "Cursor Safe Storage",
+            kSecAttrAccount as String: "Cursor Key",
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne
+        ]
+        var item: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &item)
+        guard status == errSecSuccess else { throw ReadError.keychainAccess(status) }
+        guard let data = item as? Data, !data.isEmpty else { throw ReadError.unsupportedLogin }
+        return data
+    }
+
+    static func decodeAccessToken(_ storedValue: String, password: () throws -> Data) throws -> String {
+        guard storedValue.utf8.count < 65_536 else { throw ReadError.unsupportedLogin }
+        var token = storedValue
+        if storedValue.hasPrefix("cursor-safe-storage:") {
+            let prefix = "cursor-safe-storage:v1:"
+            guard storedValue.hasPrefix(prefix),
+                  let encrypted = Data(base64Encoded: String(storedValue.dropFirst(prefix.count))),
+                  encrypted.starts(with: Data("v10".utf8)),
+                  encrypted.count > 3, (encrypted.count - 3) % kCCBlockSizeAES128 == 0 else {
+                throw ReadError.unsupportedLogin
+            }
+            let secret = try password()
+            guard !secret.isEmpty else { throw ReadError.unsupportedLogin }
+            // Chromium macOS OSCrypt v10: PBKDF2-SHA1 and AES-128-CBC/PKCS7.
+            let salt = Array("saltysalt".utf8)
+            var key = [UInt8](repeating: 0, count: kCCKeySizeAES128)
+            let derived = secret.withUnsafeBytes { bytes in
+                CCKeyDerivationPBKDF(CCPBKDFAlgorithm(kCCPBKDF2), bytes.bindMemory(to: CChar.self).baseAddress,
+                                      secret.count, salt, salt.count, CCPseudoRandomAlgorithm(kCCPRFHmacAlgSHA1),
+                                      1003, &key, key.count)
+            }
+            guard derived == kCCSuccess else { throw ReadError.unsupportedLogin }
+            let ciphertext = Data(encrypted.dropFirst(3))
+            let iv = [UInt8](repeating: 0x20, count: kCCBlockSizeAES128)
+            var plaintext = [UInt8](repeating: 0, count: ciphertext.count + kCCBlockSizeAES128)
+            let capacity = plaintext.count
+            var written = 0
+            let decrypted = ciphertext.withUnsafeBytes { bytes in
+                CCCrypt(CCOperation(kCCDecrypt), CCAlgorithm(kCCAlgorithmAES), CCOptions(kCCOptionPKCS7Padding),
+                        key, key.count, iv, bytes.baseAddress, ciphertext.count, &plaintext, capacity, &written)
+            }
+            guard decrypted == kCCSuccess,
+                  let decoded = String(bytes: plaintext.prefix(written), encoding: .utf8) else {
+                throw ReadError.unsupportedLogin
+            }
+            token = decoded
+        }
+        guard !token.isEmpty, token.utf8.allSatisfy({ (0x21...0x7e).contains($0) }),
+              !token.hasPrefix("cursor-safe-storage:") else { throw ReadError.missingLogin }
         return token
     }
-    static func read() async throws -> CursorUsageSnapshot {
-        let token = try await Task.detached(priority: .utility) { try readAccessToken() }.value
+    /// Cursor 从服务端获取并缓存的可用模型名；出口地区不支持 Claude 时列表中没有 `claude-*`。
+    static func readAvailableModelNames() -> [String]? {
+        let path = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Application Support/Cursor/User/globalStorage/state.vscdb").path
+        var database: OpaquePointer?
+        guard sqlite3_open_v2(path, &database, SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX, nil) == SQLITE_OK else {
+            if let database { sqlite3_close(database) }
+            return nil
+        }
+        defer { sqlite3_close(database) }
+        sqlite3_busy_timeout(database, 1000)
+        var statement: OpaquePointer?
+        let key = "src.vs.platform.reactivestorage.browser.reactiveStorageServiceImpl.persistentStorage.applicationUser"
+        guard sqlite3_prepare_v2(database, "SELECT value FROM ItemTable WHERE key = '\(key)' LIMIT 1", -1, &statement, nil) == SQLITE_OK else {
+            return nil
+        }
+        defer { sqlite3_finalize(statement) }
+        guard sqlite3_step(statement) == SQLITE_ROW, let bytes = sqlite3_column_blob(statement, 0) else { return nil }
+        let data = Data(bytes: bytes, count: Int(sqlite3_column_bytes(statement, 0)))
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let models = object["availableDefaultModels2"] as? [[String: Any]] else { return nil }
+        return models.compactMap { $0["name"] as? String }
+    }
+
+    static func read(allowKeychainInteraction: Bool = false) async throws -> CursorUsageSnapshot {
+        let token = try await Task.detached(priority: .utility) {
+            try readAccessToken(allowKeychainInteraction: allowKeychainInteraction)
+        }.value
         guard let endpoint = URL(string: "https://api2.cursor.sh/aiserver.v1.DashboardService/GetCurrentPeriodUsage") else { throw ReadError.unavailable }
         var request = URLRequest(url: endpoint)
         request.httpMethod = "POST"
@@ -90,8 +202,12 @@ enum CursorUsageReader {
         defer { session.invalidateAndCancel() }
         let (data, response) = try await session.data(for: request)
         guard let response = response as? HTTPURLResponse else { throw ReadError.unavailable }
-        if response.statusCode == 401 || response.statusCode == 403 { throw ReadError.loginExpired }
-        guard response.statusCode == 200 else { throw ReadError.httpStatus(response.statusCode) }
+        return try decodeResponse(data, statusCode: response.statusCode)
+    }
+
+    static func decodeResponse(_ data: Data, statusCode: Int) throws -> CursorUsageSnapshot {
+        if statusCode == 401 { throw ReadError.loginExpired }
+        guard statusCode == 200 else { throw ReadError.httpStatus(statusCode) }
         guard data.count < 1_000_000 else { throw ReadError.unavailable }
         let snapshot: CursorUsageSnapshot
         do { snapshot = try JSONDecoder().decode(CursorUsageSnapshot.self, from: data) }
@@ -120,9 +236,11 @@ final class CursorUsageMonitor: ObservableObject {
     @Published var message: String?
     @Published var isRefreshing = false
     private var refreshTimer: Timer?
-    private let readSnapshot: @Sendable () async throws -> CursorUsageSnapshot
+    private let readSnapshot: @Sendable (Bool) async throws -> CursorUsageSnapshot
     init(refreshInterval: TimeInterval = 300,
-         readSnapshot: @escaping @Sendable () async throws -> CursorUsageSnapshot = { try await CursorUsageReader.read() }) {
+         readSnapshot: @escaping @Sendable (Bool) async throws -> CursorUsageSnapshot = {
+             try await CursorUsageReader.read(allowKeychainInteraction: $0)
+         }) {
         self.readSnapshot = readSnapshot
         let timer = Timer(timeInterval: refreshInterval, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in await self?.refresh() }
@@ -131,12 +249,12 @@ final class CursorUsageMonitor: ObservableObject {
         RunLoop.main.add(timer, forMode: .common)
     }
     deinit { refreshTimer?.invalidate() }
-    func refresh() async {
+    func refresh(allowKeychainInteraction: Bool = false) async {
         guard !isRefreshing else { return }
         isRefreshing = true
         defer { isRefreshing = false }
         do {
-            snapshot = try await readSnapshot()
+            snapshot = try await readSnapshot(allowKeychainInteraction)
             updatedAt = Date()
             message = nil
         } catch {
