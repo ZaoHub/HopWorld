@@ -21,7 +21,8 @@
     }
 
     const forceIntro = /(?:\?|&)intro=1(?:&|$)/.test(location.search);
-    if (!forceIntro && (reduce || sessionStorage.getItem("hopworld-intro-seen") === "1")) {
+    const skipIntro = /(?:\?|&)intro=0(?:&|$)/.test(location.search);
+    if (skipIntro || (!forceIntro && (reduce || sessionStorage.getItem("hopworld-intro-seen") === "1"))) {
       finishIntro();
       return;
     }
