@@ -1,0 +1,43 @@
+# 跃界 HopWorld
+
+> macOS 原生可视化代理客户端（SwiftUI）。面向 VNP/代理节点：多协议导入、测速、按国家连接、规则/全局/分应用 TUN。开源 MIT，内核为 Xray 与 sing-box。
+
+跃界（HopWorld）帮助用户在 macOS 上管理代理节点与订阅，统一完成导入、测速、连接与流量接管。官方仓库与安装包托管在 GitHub。
+
+## 产品事实
+
+- 产品名：跃界 / HopWorld
+- 平台：macOS 13.0+
+- 技术栈：SwiftUI；代理内核 Xray、sing-box
+- 许可：自有源码 MIT；第三方内核遵循上游许可证
+- 版本：v1.0.0（2026-10-31 DMG）
+- 开发者组织：ZaoHub
+
+## 支持的节点协议
+
+VLESS、VMess、Trojan、Shadowsocks、Hysteria2、MASQUE、TUIC、AnyTLS、WireGuard、SOCKS5、HTTP（共 11 种）。支持订阅、分享链接与 Clash YAML 轻量解析。
+
+## 核心能力
+
+- 节点延迟测速；探测 Google、ChatGPT、Claude、GitHub 等应用是否可达
+- 规则代理、全局 TUN、仅指定应用 TUN；自定义强制代理 / 直连 / 拦截
+- 按国家一键连接与自动故障切换
+- 应用内安装更新 Xray、sing-box、GeoFiles
+- 加密节点库与选择性口令便携备份
+- 可选 Codex 重置 iMessage 提醒
+
+## 下载
+
+- Apple Silicon DMG：https://github.com/ZaoHub/HopWorld/releases/download/v1.0.0/HopWorld-2026-10-31-arm64.dmg
+- Intel DMG：https://github.com/ZaoHub/HopWorld/releases/download/v1.0.0/HopWorld-2026-10-31-x86_64.dmg
+- 全部 Release：https://github.com/ZaoHub/HopWorld/releases/tag/v1.0.0
+- 安装包为 ad-hoc 签名，未做 Apple 公证
+
+## 链接
+
+- [官方落地页](https://zaohub.github.io/HopWorld/)：产品介绍、界面预览与下载
+- [GitHub 仓库](https://github.com/ZaoHub/HopWorld)：源码、Issue、Release
+- [README 文档](https://github.com/ZaoHub/HopWorld/blob/main/README.md)：安装、功能与运维说明
+- [协议维护指南](https://github.com/ZaoHub/HopWorld/blob/main/docs/已支持协议与维护指南.md)：协议边界与扩展流程
+- [常见问题](https://zaohub.github.io/HopWorld/#faq)：定位、协议、系统要求与开源许可
+- [Sitemap](https://zaohub.github.io/HopWorld/sitemap.xml)：页面索引
