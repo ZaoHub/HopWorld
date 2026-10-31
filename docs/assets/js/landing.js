@@ -20,7 +20,8 @@
       return;
     }
 
-    if (reduce || sessionStorage.getItem("hopworld-intro-seen") === "1") {
+    const forceIntro = /(?:\?|&)intro=1(?:&|$)/.test(location.search);
+    if (!forceIntro && (reduce || sessionStorage.getItem("hopworld-intro-seen") === "1")) {
       finishIntro();
       return;
     }
@@ -322,15 +323,23 @@
       raf = requestAnimationFrame(frame);
     };
 
-    resize();
-    particles = Array.from({ length: particleCount() }, (_, i) => makeParticle(i));
-    bindFormTargets();
-    window.addEventListener("resize", resize);
-    skipBtn?.addEventListener("click", endIntro, { once: true });
-    raf = requestAnimationFrame(frame);
+    try {
+      resize();
+      particles = Array.from({ length: particleCount() }, (_, i) => makeParticle(i));
+      bindFormTargets();
+      window.addEventListener("resize", resize);
+      skipBtn?.addEventListener("click", endIntro, { once: true });
+      raf = requestAnimationFrame(frame);
+    } catch (_) {
+      endIntro();
+    }
   };
 
-  runIntro();
+  try {
+    runIntro();
+  } catch (_) {
+    finishIntro();
+  }
 
   const header = document.querySelector(".site-header");
   const onScroll = () => {
