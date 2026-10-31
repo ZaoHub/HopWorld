@@ -621,15 +621,15 @@ button,
   }
 
   .hero-veil {
-    background: linear-gradient(180deg, transparent 62%, rgba(7, 17, 31, 0.55) 82%, rgba(7, 17, 31, 0.96) 100%);
+    display: none;
   }
 
   .hero-content {
     position: relative;
     z-index: 1;
     width: min(100% - 1.5rem, var(--max));
-    margin: -3.5rem auto 0;
-    padding: 0 0 calc(2.5rem + env(safe-area-inset-bottom, 0px));
+    margin: 0 auto;
+    padding: 1.35rem 0 calc(2.5rem + env(safe-area-inset-bottom, 0px));
   }
 
   .hero-brand {
