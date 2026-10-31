@@ -11,7 +11,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=Syne:wght@600;700;800&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
-  <link rel="stylesheet" href="./assets/css/landing.css?v=20261101a">
+  <link rel="stylesheet" href="./assets/css/landing.css?v=20261101d">
   <noscript>
     <style>
       .intro { display: none; }
@@ -29,6 +29,9 @@
       <button class="intro-skip" type="button" data-intro-skip>跳过</button>
     </div>
   </div>
+
+  <div class="scroll-progress" aria-hidden="true"></div>
+  <canvas class="ambient" data-ambient aria-hidden="true"></canvas>
 
   <header class="site-header">
     <a class="brand" href="#top" aria-label="跃界 HopWorld 首页">
@@ -52,14 +55,33 @@
       </div>
       <div class="hero-content">
         <h1 class="hero-brand reveal">
-          <span>HopWorld</span>
-          跃界
+          <span class="hero-kicker">HopWorld</span>
+          <span class="hero-word">跃界</span>
         </h1>
-        <p class="hero-lead reveal">用更稳的连接，打开更大的世界。macOS 原生可视化代理客户端。</p>
-        <div class="cta-row reveal">
+        <p class="hero-lead reveal" style="--d: 1">用更稳的连接，打开更大的世界。macOS 原生可视化代理客户端。</p>
+        <div class="cta-row reveal" style="--d: 2">
           <a class="btn btn-primary" href="#download">下载安装包</a>
           <a class="btn btn-ghost" href="https://github.com/ZaoHub/HopWorld" rel="noopener noreferrer">查看源码</a>
         </div>
+      </div>
+    </section>
+
+    <section class="stats" aria-label="关键数字">
+      <div class="stat reveal" style="--d: 0">
+        <div class="stat-num"><span data-count="11">11</span></div>
+        <div class="stat-label">节点协议</div>
+      </div>
+      <div class="stat reveal" style="--d: 1">
+        <div class="stat-num"><span data-count="3">3</span></div>
+        <div class="stat-label">接管模式</div>
+      </div>
+      <div class="stat reveal" style="--d: 2">
+        <div class="stat-num"><span data-count="2">2</span></div>
+        <div class="stat-label">内核 Xray / sing-box</div>
+      </div>
+      <div class="stat reveal" style="--d: 3">
+        <div class="stat-num"><span data-count="13">13</span><small>+</small></div>
+        <div class="stat-label">macOS 版本</div>
       </div>
     </section>
 
@@ -181,7 +203,7 @@
     </div>
   </footer>
 
-  <script src="./assets/js/intro.js?v=20261101c" defer></script>
-  <script src="./assets/js/landing.js?v=20261101a" defer></script>
+  <script src="./assets/js/intro.js?v=20261101d" defer></script>
+  <script src="./assets/js/landing.js?v=20261101d" defer></script>
 </body>
 </html>

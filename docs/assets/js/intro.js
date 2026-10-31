@@ -72,7 +72,7 @@
   const TAU = Math.PI * 2;
 
   const HOPS = ROUTE.length - 1;
-  const T = { intro: 650, hop: 470, travel: 0.8, pause: 220, form: 1500, hold: 1500 };
+  const T = { intro: 650, hop: 470, travel: 0.8, pause: 220, form: 1500, hold: 2800 };
   const tHopsEnd = T.intro + HOPS * T.hop;
   const tForm = tHopsEnd + T.pause;
   const tHold = tForm + T.form;
