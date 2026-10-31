@@ -10,6 +10,12 @@ HopWorld 自有源码采用 [MIT License](LICENSE)。外部代理内核及规则
 
 根据 `macOS_Xray_可视化代理客户端_开发文档_V1.0.md` 实现首版核心能力：订阅导入、日期型 URL、节点分类、测速、按国家一键连接、系统代理模式。
 
+## 产品主页
+
+落地页（启用 GitHub Pages 后）：[https://zaohub.github.io/HopWorld/](https://zaohub.github.io/HopWorld/)
+
+仓库 Settings → Pages → Source 选 `main` / `/docs` 即可发布。About 的 Website 可填同一地址。
+
 ## 界面预览
 
 <p align="center">

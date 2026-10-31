@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="zh-Hans">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>跃界 HopWorld — macOS 可视化代理客户端</title>
+  <meta name="description" content="跃界 HopWorld：多协议节点、订阅测速、国家一键连接、规则/全局/分应用 TUN、应用连通与 Codex 重置提醒。">
+  <meta property="og:title" content="跃界 HopWorld">
+  <meta property="og:description" content="macOS 原生可视化代理客户端。自由连接，稳定访问。">
+  <meta property="og:image" content="./assets/screenshots/promo.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=Syne:wght@600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./assets/css/landing.css">
+</head>
+<body>
+  <header class="site-header">
+    <a class="brand" href="#top" aria-label="跃界 HopWorld 首页">
+      <span class="brand-zh">跃界</span>
+      <span class="brand-en">HopWorld</span>
+    </a>
+    <nav class="nav" aria-label="页面导航">
+      <a class="nav-hide-sm" href="#features">能力</a>
+      <a class="nav-hide-sm" href="#gallery">界面</a>
+      <a href="#download">下载</a>
+      <a href="https://github.com/ZaoHub/HopWorld" rel="noopener noreferrer">GitHub</a>
+    </nav>
+  </header>
+
+  <main id="top">
+    <section class="hero" aria-label="首屏">
+      <div class="hero-media" aria-hidden="true">
+        <img src="./assets/screenshots/promo.png" alt="" width="1024" height="1536">
+        <div class="hero-veil"></div>
+        <div class="hero-orbit"></div>
+      </div>
+      <div class="hero-content">
+        <h1 class="hero-brand reveal">
+          <span>HopWorld</span>
+          跃界
+        </h1>
+        <p class="hero-lead reveal">用更稳的连接，打开更大的世界。macOS 原生可视化代理客户端。</p>
+        <div class="cta-row reveal">
+          <a class="btn btn-primary" href="#download">下载安装包</a>
+          <a class="btn btn-ghost" href="https://github.com/ZaoHub/HopWorld" rel="noopener noreferrer">查看源码</a>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="features" aria-labelledby="features-title">
+      <p class="section-kicker reveal">Capabilities</p>
+      <h2 class="section-title reveal" id="features-title">把连接、测速与健康放在同一处</h2>
+      <p class="section-copy reveal">从订阅导入到按国家连接，从应用连通探测到 Codex 重置提醒，跃界把日常代理工作流收进一个原生窗口。</p>
+      <div class="feature-rail">
+        <article class="feature-item reveal">
+          <div class="feature-index">01</div>
+          <div>
+            <h3>多协议节点</h3>
+            <p>VLESS、VMess、Trojan、Shadowsocks、Hysteria2、MASQUE、TUIC、AnyTLS、WireGuard、SOCKS5、HTTP；支持订阅、分享链接与 Clash YAML 轻量解析。</p>
+          </div>
+        </article>
+        <article class="feature-item reveal">
+          <div class="feature-index">02</div>
+          <div>
+            <h3>测速与应用连通</h3>
+            <p>节点延迟测速之外，还可探测 Google、ChatGPT、Claude、GitHub 等是否可达；测速后可自动补测可用节点。</p>
+          </div>
+        </article>
+        <article class="feature-item reveal">
+          <div class="feature-index">03</div>
+          <div>
+            <h3>灵活接管</h3>
+            <p>规则代理、全局 TUN、仅指定应用 TUN；自定义强制代理 / 直连 / 拦截；按国家一键连接与自动故障切换。</p>
+          </div>
+        </article>
+        <article class="feature-item reveal">
+          <div class="feature-index">04</div>
+          <div>
+            <h3>健康与提醒</h3>
+            <p>网络健康中心观察节点与应用状态；Codex / Cursor 用量卡片，以及可选的 Codex 重置 iMessage 提醒。</p>
+          </div>
+        </article>
+        <article class="feature-item reveal">
+          <div class="feature-index">05</div>
+          <div>
+            <h3>组件与备份</h3>
+            <p>应用内在线安装更新 Xray、sing-box、GeoFiles；加密节点库与选择性口令便携备份。</p>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section class="section" id="gallery" aria-labelledby="gallery-title">
+      <p class="section-kicker reveal">Product</p>
+      <h2 class="section-title reveal" id="gallery-title">真实界面</h2>
+      <p class="section-copy reveal">首页、国家、订阅、路由与 Codex Token 统计——点击缩略图切换预览。</p>
+      <div class="shot-stage reveal">
+        <div class="shot-main">
+          <img data-shot-main src="./assets/screenshots/home.png" alt="跃界首页" width="849" height="698">
+        </div>
+        <div class="shot-grid" role="list">
+          <button class="shot-thumb is-active" type="button" role="listitem" data-shot-src="./assets/screenshots/home.png" data-shot-alt="跃界首页" aria-label="查看首页截图">
+            <img src="./assets/screenshots/home.png" alt="">
+          </button>
+          <button class="shot-thumb" type="button" role="listitem" data-shot-src="./assets/screenshots/countries.png" data-shot-alt="国家页" aria-label="查看国家页截图">
+            <img src="./assets/screenshots/countries.png" alt="">
+          </button>
+          <button class="shot-thumb" type="button" role="listitem" data-shot-src="./assets/screenshots/subscriptions.png" data-shot-alt="订阅页" aria-label="查看订阅页截图">
+            <img src="./assets/screenshots/subscriptions.png" alt="">
+          </button>
+          <button class="shot-thumb" type="button" role="listitem" data-shot-src="./assets/screenshots/routing.png" data-shot-alt="路由页" aria-label="查看路由页截图">
+            <img src="./assets/screenshots/routing.png" alt="">
+          </button>
+          <button class="shot-thumb" type="button" role="listitem" data-shot-src="./assets/screenshots/codex-tokens.png" data-shot-alt="Codex Token 统计" aria-label="查看 Codex Token 统计截图">
+            <img src="./assets/screenshots/codex-tokens.png" alt="">
+          </button>
+          <button class="shot-thumb" type="button" role="listitem" data-shot-src="./assets/screenshots/promo.png" data-shot-alt="跃界宣传视觉" aria-label="查看宣传视觉">
+            <img src="./assets/screenshots/promo.png" alt="">
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" aria-labelledby="protocol-title">
+      <p class="section-kicker reveal">Protocols</p>
+      <h2 class="section-title reveal" id="protocol-title">协议覆盖</h2>
+      <p class="section-copy reveal">十一种节点协议进入统一导入、测试与连接流程。</p>
+      <div class="protocol-wrap reveal">
+        <span class="protocol-chip">VLESS</span>
+        <span class="protocol-chip">VMess</span>
+        <span class="protocol-chip">Trojan</span>
+        <span class="protocol-chip">Shadowsocks</span>
+        <span class="protocol-chip">Hysteria2</span>
+        <span class="protocol-chip">MASQUE</span>
+        <span class="protocol-chip">TUIC</span>
+        <span class="protocol-chip">AnyTLS</span>
+        <span class="protocol-chip">WireGuard</span>
+        <span class="protocol-chip">SOCKS5</span>
+        <span class="protocol-chip">HTTP</span>
+      </div>
+    </section>
+
+    <section class="section" id="download" aria-labelledby="download-title">
+      <div class="download-panel reveal">
+        <h2 id="download-title">下载跃界</h2>
+        <p>macOS 13.0 及以上。首次运行可在「关于 → 管理更新」安装 Xray；连接或测速时也会自动下载。安装包为 ad-hoc 签名，未做 Apple 公证。</p>
+        <div class="cta-row">
+          <a class="btn btn-primary" href="https://github.com/ZaoHub/HopWorld/releases/download/v1.0.0/HopWorld-2026-10-31-arm64.dmg">Apple Silicon · DMG</a>
+          <a class="btn btn-ghost" href="https://github.com/ZaoHub/HopWorld/releases/download/v1.0.0/HopWorld-2026-10-31-x86_64.dmg">Intel · DMG</a>
+          <a class="btn btn-ghost" href="https://github.com/ZaoHub/HopWorld/releases/tag/v1.0.0" rel="noopener noreferrer">全部 Release</a>
+        </div>
+        <p class="download-note">若系统提示无法打开，可在「隐私与安全性」允许，或右键 App 选择打开。</p>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="site-footer-inner">
+      <div>© 跃界 HopWorld · MIT License</div>
+      <div>
+        <a href="https://github.com/ZaoHub/HopWorld" rel="noopener noreferrer">GitHub</a>
+        ·
+        <a href="https://github.com/ZaoHub/HopWorld/blob/main/README.md" rel="noopener noreferrer">文档</a>
+      </div>
+    </div>
+  </footer>
+
+  <script src="./assets/js/landing.js" defer></script>
+</body>
+</html>
