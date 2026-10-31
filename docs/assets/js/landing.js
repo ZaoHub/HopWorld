@@ -10,7 +10,7 @@
     window.setTimeout(() => intro.remove(), 800);
   };
 
-  const runIntro = () => {
+  const runIntro = async () => {
     const intro = document.getElementById("intro");
     const canvas = document.querySelector("[data-intro-canvas]");
     const caption = document.querySelector("[data-intro-caption]");
@@ -32,15 +32,21 @@
       return;
     }
 
+    try {
+      if (document.fonts?.ready) await document.fonts.ready;
+    } catch (_) {
+      /* ignore */
+    }
+
     const cities = [
-      { name: "东京", x: 0.78, y: 0.32 },
-      { name: "新加坡", x: 0.7, y: 0.62 },
-      { name: "香港", x: 0.72, y: 0.42 },
-      { name: "洛杉矶", x: 0.16, y: 0.4 },
-      { name: "法兰克福", x: 0.48, y: 0.28 },
-      { name: "悉尼", x: 0.84, y: 0.78 },
-      { name: "伦敦", x: 0.42, y: 0.24 },
-      { name: "圣保罗", x: 0.28, y: 0.72 },
+      { name: "东京", x: 0.82, y: 0.3 },
+      { name: "新加坡", x: 0.74, y: 0.58 },
+      { name: "香港", x: 0.76, y: 0.4 },
+      { name: "洛杉矶", x: 0.14, y: 0.38 },
+      { name: "法兰克福", x: 0.48, y: 0.26 },
+      { name: "悉尼", x: 0.86, y: 0.74 },
+      { name: "伦敦", x: 0.4, y: 0.22 },
+      { name: "圣保罗", x: 0.24, y: 0.7 },
     ];
 
     let width = 0;
@@ -55,11 +61,14 @@
     let routeFlash = 0;
 
     const phases = {
-      hopEnd: 2200,
-      formEnd: 3800,
-      holdEnd: 4600,
-      fadeEnd: 5400,
+      hopEnd: 2400,
+      formEnd: 4200,
+      holdEnd: 5400,
+      fadeEnd: 6200,
     };
+
+    const glyphFont = (size) =>
+      `900 ${size}px "Noto Sans SC", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif`;
 
     const resize = () => {
       dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -70,10 +79,11 @@
       canvas.style.width = `${width}px`;
       canvas.style.height = `${height}px`;
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      const pad = width < 640 ? 0.08 : 0;
       nodes = cities.map((c) => ({
         name: c.name,
-        x: c.x * width,
-        y: c.y * height,
+        x: (pad + c.x * (1 - pad * 2)) * width,
+        y: (0.06 + c.y * 0.88) * height,
       }));
       targets = sampleGlyphTargets();
       if (particles.length) bindFormTargets();
@@ -81,27 +91,31 @@
 
     const sampleGlyphTargets = () => {
       const off = document.createElement("canvas");
-      const fontSize = Math.min(width * 0.28, height * 0.22, 168);
-      off.width = Math.ceil(width);
-      off.height = Math.ceil(height);
-      const octx = off.getContext("2d");
+      const fontSize = Math.min(width * 0.34, height * 0.24, 180);
+      off.width = Math.max(1, Math.ceil(width));
+      off.height = Math.max(1, Math.ceil(height));
+      const octx = off.getContext("2d", { willReadFrequently: true });
       if (!octx) return [];
       octx.clearRect(0, 0, off.width, off.height);
       octx.fillStyle = "#fff";
       octx.textAlign = "center";
       octx.textBaseline = "middle";
-      octx.font = `800 ${fontSize}px "Syne", "PingFang SC", "Hiragino Sans GB", sans-serif`;
-      octx.fillText("跃界", width * 0.5, height * 0.46);
+      octx.font = glyphFont(fontSize);
+      const gap = fontSize * 0.08;
+      const cx = width * 0.5;
+      const cy = height * 0.45;
+      octx.fillText("跃", cx - fontSize * 0.52 - gap / 2, cy);
+      octx.fillText("界", cx + fontSize * 0.52 + gap / 2, cy);
       const { data } = octx.getImageData(0, 0, off.width, off.height);
       const pts = [];
-      const step = Math.max(3, Math.floor(fontSize / 28));
+      const step = Math.max(2, Math.floor(fontSize / 36));
       for (let y = 0; y < off.height; y += step) {
         for (let x = 0; x < off.width; x += step) {
           const a = data[(y * off.width + x) * 4 + 3];
-          if (a > 140) {
+          if (a > 120) {
             pts.push({
-              x: x + (Math.random() - 0.5) * 1.2,
-              y: y + (Math.random() - 0.5) * 1.2,
+              x: x + (Math.random() - 0.5),
+              y: y + (Math.random() - 0.5),
             });
           }
         }
@@ -114,24 +128,22 @@
     const makeParticle = (i) => {
       const from = nodes[i % nodes.length];
       const to = nodes[(i + 1 + Math.floor(Math.random() * (nodes.length - 1))) % nodes.length];
-      const midX = (from.x + to.x) / 2 + rand(-90, 90);
-      const midY = Math.min(from.y, to.y) - rand(40, 140);
       return {
-        x: from.x,
-        y: from.y,
+        x: from.x + rand(-8, 8),
+        y: from.y + rand(-8, 8),
         from,
         to,
-        cx: midX,
-        cy: midY,
-        progress: Math.random() * 0.15,
-        speed: rand(0.0018, 0.0034),
+        cx: (from.x + to.x) / 2 + rand(-90, 90),
+        cy: Math.min(from.y, to.y) - rand(40, 140),
+        progress: Math.random() * 0.12,
+        speed: rand(0.0018, 0.0032),
         hopsLeft: 1 + Math.floor(Math.random() * 2),
-        size: rand(1.2, 2.8),
-        hue: Math.random() > 0.45 ? "amber" : "teal",
+        size: rand(1.15, 2.6),
+        hue: Math.random() > 0.42 ? "amber" : "teal",
         twinkle: Math.random() * Math.PI * 2,
         tx: width / 2,
         ty: height / 2,
-        formDelay: Math.random() * 0.35,
+        formDelay: Math.random() * 0.28,
       };
     };
 
@@ -157,9 +169,8 @@
 
     const bindFormTargets = () => {
       if (!targets.length) return;
-      const count = Math.min(particles.length, targets.length);
       for (let i = 0; i < particles.length; i += 1) {
-        const t = targets[i % count];
+        const t = targets[i % targets.length];
         particles[i].tx = t.x;
         particles[i].ty = t.y;
       }
@@ -178,9 +189,9 @@
 
     const particleCount = () => {
       const area = width * height;
-      if (area < 500000) return 220;
-      if (area < 1200000) return 320;
-      return 420;
+      if (area < 500000) return 280;
+      if (area < 1200000) return 420;
+      return 560;
     };
 
     const endIntro = () => {
@@ -211,6 +222,8 @@
 
       nodes.forEach((n, i) => {
         const pulse = 0.55 + Math.sin(t * 0.004 + i) * 0.2;
+        const labelAlpha =
+          t < phases.hopEnd ? 0.6 : Math.max(0, 0.6 - (t - phases.hopEnd) / 650);
         ctx.beginPath();
         ctx.arc(n.x, n.y, 3.2, 0, Math.PI * 2);
         ctx.fillStyle = `rgba(242, 238, 230, ${0.55 * pulse})`;
@@ -220,8 +233,6 @@
         ctx.strokeStyle = `rgba(61, 184, 168, ${0.28 * pulse})`;
         ctx.lineWidth = 1;
         ctx.stroke();
-
-        const labelAlpha = t < phases.hopEnd ? 0.55 : Math.max(0, 0.55 - (t - phases.hopEnd) / 700);
         if (labelAlpha > 0.02) {
           ctx.font = '500 11px "Manrope", "PingFang SC", sans-serif';
           ctx.fillStyle = `rgba(199, 212, 227, ${labelAlpha})`;
@@ -236,12 +247,7 @@
           const b = nodes[(i + 3) % nodes.length];
           ctx.beginPath();
           ctx.moveTo(a.x, a.y);
-          ctx.quadraticCurveTo(
-            (a.x + b.x) / 2,
-            Math.min(a.y, b.y) - 80,
-            b.x,
-            b.y
-          );
+          ctx.quadraticCurveTo((a.x + b.x) / 2, Math.min(a.y, b.y) - 80, b.x, b.y);
           ctx.strokeStyle = `rgba(227, 155, 74, ${0.12 * routeFlash})`;
           ctx.lineWidth = 1;
           ctx.stroke();
@@ -268,39 +274,34 @@
             p.y = quad(p.from.y, p.cy, p.to.y, p.progress);
           }
         } else {
-          const local = Math.min(1, Math.max(0, (t - phases.hopEnd) / 1400 - p.formDelay));
+          const local = Math.min(1, Math.max(0, (t - phases.hopEnd) / 1500 - p.formDelay));
           const e = easeOutCubic(local);
-          p.x += (p.tx - p.x) * (0.08 + e * 0.18);
-          p.y += (p.ty - p.y) * (0.08 + e * 0.18);
+          const pull = hold ? 1 : 0.1 + e * 0.35;
+          p.x += (p.tx - p.x) * pull;
+          p.y += (p.ty - p.y) * pull;
+          if (hold) {
+            p.x = p.tx;
+            p.y = p.ty;
+          }
         }
 
-        const flicker = 0.65 + Math.sin(t * 0.01 + p.twinkle) * 0.35;
-        const alpha = Math.max(0, (hold ? 0.95 : 0.75) * flicker * (1 - fade));
+        const flicker = 0.7 + Math.sin(t * 0.01 + p.twinkle) * 0.3;
+        const alpha = Math.max(0, (hold ? 1 : 0.78) * flicker * (1 - fade));
         ctx.beginPath();
-        ctx.arc(p.x, p.y, p.size * (hold ? 1.15 : 1), 0, Math.PI * 2);
+        ctx.arc(p.x, p.y, p.size * (hold ? 1.08 : 1), 0, Math.PI * 2);
         ctx.fillStyle =
           p.hue === "amber"
             ? `rgba(227, 155, 74, ${alpha})`
             : `rgba(61, 184, 168, ${alpha})`;
         ctx.fill();
-
-        if (forming && !hold) {
-          ctx.beginPath();
-          ctx.arc(p.x, p.y, p.size * 2.4, 0, Math.PI * 2);
-          ctx.fillStyle =
-            p.hue === "amber"
-              ? `rgba(227, 155, 74, ${alpha * 0.18})`
-              : `rgba(61, 184, 168, ${alpha * 0.18})`;
-          ctx.fill();
-        }
       });
 
-      if (hold && fade < 0.85) {
-        const brandAlpha = Math.min(1, (t - phases.formEnd) / 350) * (1 - fade);
+      if (hold && fade < 0.9) {
+        const brandAlpha = Math.min(1, (t - phases.formEnd) / 280) * (1 - fade);
         ctx.textAlign = "center";
-        ctx.fillStyle = `rgba(242, 238, 230, ${0.55 * brandAlpha})`;
+        ctx.fillStyle = `rgba(242, 238, 230, ${0.62 * brandAlpha})`;
         ctx.font = '600 14px "Manrope", sans-serif';
-        ctx.fillText("HopWorld", width * 0.5, height * 0.46 + Math.min(width * 0.16, 96));
+        ctx.fillText("HopWorld", width * 0.5, height * 0.45 + Math.min(width * 0.18, 108));
       }
     };
 
@@ -325,6 +326,11 @@
 
     try {
       resize();
+      if (!targets.length) {
+        // Retry once after a short wait if glyph sampling failed (font race).
+        await new Promise((r) => setTimeout(r, 120));
+        targets = sampleGlyphTargets();
+      }
       particles = Array.from({ length: particleCount() }, (_, i) => makeParticle(i));
       bindFormTargets();
       window.addEventListener("resize", resize);
@@ -335,11 +341,7 @@
     }
   };
 
-  try {
-    runIntro();
-  } catch (_) {
-    finishIntro();
-  }
+  runIntro().catch(() => finishIntro());
 
   const header = document.querySelector(".site-header");
   const onScroll = () => {
