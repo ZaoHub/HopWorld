@@ -250,7 +250,7 @@
   const arrivalAt = (k) => (k === 0 ? T.intro * 0.45 : T.intro + (k - 1) * T.hop + T.travel * T.hop);
 
   const makeParticles = () => {
-    const cap = W * H < 600000 ? 650 : 1000;
+    const cap = W * H < 600000 ? 700 : 1500;
     const count = glyph.pts.length ? Math.min(cap, glyph.pts.length) : 500;
     particles = Array.from({ length: count }, () => {
       const lag = Math.random() ** 1.7 * MAX_LAG;
@@ -407,7 +407,7 @@
       } else {
         ctx.font = `500 11px ${GLYPH_FONT}`;
         ctx.fillStyle = `rgba(199, 212, 227, ${0.4 * labelFade * mapAlpha})`;
-        ctx.fillText(n.country, lx, n.y - 14);
+        ctx.fillText(n.country, lx, k % 2 ? n.y - 14 : n.y + 22);
       }
     });
     return current;
