@@ -1,0 +1,16 @@
+// 复制为 Configs/Signing.local.xcconfig 后修改；该文件不会被提交。
+// 需要付费 Apple Developer Program 账号（免费 Apple ID 不支持 Network Extension）。
+
+// Xcode → Settings → Accounts 中的 10 位 Team ID
+HOPWORLD_DEVELOPMENT_TEAM = ABCDE12345
+
+// Bundle ID / App Group 在 Apple 后台全局唯一，请换成你自己的反向域名
+HOPWORLD_BUNDLE_PREFIX = com.example.hopworld
+
+HOPWORLD_SYSTEM_VPN = YES
+HOPWORLD_APP_ENTITLEMENTS = HopWorld/HopWorld.vpn.entitlements
+HOPWORLD_TUNNEL_ENTITLEMENTS = HopWorldTunnel/HopWorldTunnel.vpn.entitlements
+
+HOPWORLD_CODE_SIGN_STYLE = Automatic
+HOPWORLD_CODE_SIGN_IDENTITY = Apple Development
+HOPWORLD_CODE_SIGNING_REQUIRED = YES

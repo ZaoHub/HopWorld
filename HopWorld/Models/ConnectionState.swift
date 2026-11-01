@@ -523,7 +523,7 @@ enum ConnectionCaptureMode: String, Codable, CaseIterable, Sendable {
         case .systemProxy:
             return "通过 macOS 系统 HTTP/HTTPS/SOCKS 代理（现有方式）。部分 App 可能不遵循系统代理。"
         case .systemVPN:
-            return "通过 Packet Tunnel 出现在「系统设置 → 网络」VPN 列表。需开启 Network Extension 签名权限；首次连接会请求 VPN 许可。"
+            return "通过 Packet Tunnel 接管全部应用，并出现在「系统设置 → 网络」VPN 列表，不依赖应用是否遵循系统代理。仅自行签名、带 Network Extension 权限的构建可用；首次连接会请求添加 VPN 配置。"
         case .globalTun:
             return "所有 App 自动进入 TUN 并通过当前节点连接，无需应用白名单；需要管理员授权。"
         case .applications:

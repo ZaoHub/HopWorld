@@ -2,8 +2,7 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<!-- Mirror HopWorld capabilities when signing with a Development Team:
-	     Network Extensions (packet-tunnel-provider) + App Group group.com.hopworld.app -->
+	<!-- Ad-hoc build. System VPN builds use HopWorldTunnel.vpn.entitlements (see Configs/Signing.xcconfig). -->
 	<key>com.apple.security.app-sandbox</key>
 	<true/>
 	<key>com.apple.security.network.client</key>

@@ -24,14 +24,20 @@
 	<string>1.0.0</string>
 	<key>CFBundleVersion</key>
 	<string>1</string>
+	<key>HopWorldAppGroupIdentifier</key>
+	<string>$(HOPWORLD_APP_GROUP)</string>
+	<key>HopWorldSystemVPNEnabled</key>
+	<string>$(HOPWORLD_SYSTEM_VPN)</string>
+	<key>HopWorldTunnelBundleIdentifier</key>
+	<string>$(HOPWORLD_TUNNEL_BUNDLE_ID)</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>13.0</string>
 	<key>LSUIElement</key>
 	<false/>
-	<key>NSHighResolutionCapable</key>
-	<true/>
 	<key>NSAppleEventsUsageDescription</key>
 	<string>在你启用 Codex 通知后，跃界通过“信息”向所选收件人发送重置提醒。</string>
+	<key>NSHighResolutionCapable</key>
+	<true/>
 	<key>NSHumanReadableCopyright</key>
 	<string>Copyright © 2026 HopWorld</string>
 	<key>NSPrincipalClass</key>

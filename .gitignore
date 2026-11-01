@@ -27,6 +27,7 @@ __pycache__/
 *~
 
 # Credentials and local application data
+Configs/Signing.local.xcconfig
 .env
 .env.*
 !.env.example

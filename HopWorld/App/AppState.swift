@@ -1291,8 +1291,8 @@ final class AppState: ObservableObject {
         }
         settings = store.loadSettings()
         applyTheme()
-        // System VPN UI is hidden without a Developer account — always stay on system proxy.
-        if settings.connectionCaptureMode == .systemVPN {
+        // Ad-hoc builds cannot start the Packet Tunnel — fall back to system proxy.
+        if settings.connectionCaptureMode == .systemVPN, !HopWorldAppGroup.isSystemVPNAvailable {
             settings.connectionCaptureMode = .systemProxy
             store.saveSettings(settings)
         }
@@ -3950,6 +3950,10 @@ final class AppState: ObservableObject {
             return
         }
         guard mode != .globalTun || settings.routingMode == .global else { return }
+        guard mode != .systemVPN || HopWorldAppGroup.isSystemVPNAvailable else {
+            statusBanner = "当前构建未包含 Network Extension 权限，无法使用系统 VPN。"
+            return
+        }
         guard settings.connectionCaptureMode != mode else { return }
         let wasConnected = connection.state.status == .connected
         let node = currentNode

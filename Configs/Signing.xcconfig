@@ -1,0 +1,18 @@
+// 默认：ad-hoc 签名，无需 Apple 开发者账号，系统 VPN 不可用。
+// 启用系统 VPN：复制 Signing.local.xcconfig.example 为 Signing.local.xcconfig（已被 git 忽略）并填写。
+
+HOPWORLD_BUNDLE_PREFIX = com.hopworld
+HOPWORLD_APP_BUNDLE_ID = $(HOPWORLD_BUNDLE_PREFIX).app
+HOPWORLD_TUNNEL_BUNDLE_ID = $(HOPWORLD_APP_BUNDLE_ID).PacketTunnel
+HOPWORLD_APP_GROUP = group.$(HOPWORLD_APP_BUNDLE_ID)
+
+HOPWORLD_SYSTEM_VPN = NO
+HOPWORLD_APP_ENTITLEMENTS = HopWorld/HopWorld.entitlements
+HOPWORLD_TUNNEL_ENTITLEMENTS = HopWorldTunnel/HopWorldTunnel.entitlements
+
+HOPWORLD_CODE_SIGN_STYLE = Manual
+HOPWORLD_CODE_SIGN_IDENTITY = -
+HOPWORLD_CODE_SIGNING_REQUIRED = NO
+HOPWORLD_DEVELOPMENT_TEAM =
+
+#include? "Signing.local.xcconfig"

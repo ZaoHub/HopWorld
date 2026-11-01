@@ -2,9 +2,17 @@ import Foundation
 
 /// Shared between the main app and Packet Tunnel extension (same source compiled into both).
 enum HopWorldAppGroup {
-    static let identifier = "group.com.hopworld.app"
-    static let tunnelBundleIdentifier = "com.hopworld.app.PacketTunnel"
+    /// Injected via Info.plist from Configs/Signing.xcconfig so forks can use their own Team's IDs.
+    static let identifier = infoString("HopWorldAppGroupIdentifier") ?? "group.com.hopworld.app"
+    static let tunnelBundleIdentifier = infoString("HopWorldTunnelBundleIdentifier") ?? "com.hopworld.app.PacketTunnel"
+    /// False for ad-hoc builds: they lack the Network Extension entitlement.
+    static let isSystemVPNAvailable = infoString("HopWorldSystemVPNEnabled") == "YES"
     static let vpnDisplayName = "跃界"
+
+    private static func infoString(_ key: String) -> String? {
+        guard let value = Bundle.main.object(forInfoDictionaryKey: key) as? String, !value.isEmpty else { return nil }
+        return value
+    }
 
     private static var defaults: UserDefaults {
         UserDefaults(suiteName: identifier) ?? .standard

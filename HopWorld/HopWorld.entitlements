@@ -4,9 +4,6 @@
 <dict>
 	<key>com.apple.security.automation.apple-events</key>
 	<true/>
-	<!-- Enable in Xcode → Signing & Capabilities (requires Apple Developer Team):
-	     • Network Extensions → Packet Tunnel
-	     • App Groups → group.com.hopworld.app
-	     Until then, System Proxy mode works; System VPN start will error with a clear message. -->
+	<!-- Ad-hoc build. System VPN builds use HopWorld.vpn.entitlements (see Configs/Signing.xcconfig). -->
 </dict>
 </plist>

@@ -147,7 +147,7 @@ enum VPNManagerError: LocalizedError {
         case .startFailed(let message):
             return "启动系统 VPN 失败：\(message)"
         case .permissionOrStartFailed:
-            return "系统 VPN 未能连接。请在「系统设置 → 网络」允许跃界 VPN，并确认已用带 Network Extension 权限的开发者证书签名。"
+            return "系统 VPN 未能连接。请在「系统设置 → 网络」允许跃界 VPN，并确认当前构建已按 README「启用系统 VPN」配置开发者签名。"
         }
     }
 }

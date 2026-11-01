@@ -40,7 +40,7 @@ HopWorld 自有源码采用 [MIT License](LICENSE)。外部代理内核及规则
 - Xcode 15+
 - [XcodeGen](https://github.com/yonaskolb/XcodeGen)
 
-> **系统 VPN**（Network Extension）代码已预留，设置页暂隐藏；启用需 Apple Developer 账号并配置 Packet Tunnel / App Groups。
+> **系统 VPN**（Network Extension）仅在自行签名的构建中可用，需付费 Apple Developer 账号，见下文「启用系统 VPN」。公开发布的安装包不显示该选项。
 
 ## 从源码构建
 
@@ -61,7 +61,21 @@ xcodebuild -project HopWorld.xcodeproj -scheme HopWorld -configuration Debug -de
 
 分发安装包时须另外核对所含内核架构、第三方许可证、应用签名和公证状态。
 
-若日后启用系统 VPN：为 **HopWorld** 与 **HopWorldTunnel** 选择同一 Development Team，勾选 Network Extensions → Packet Tunnel、App Groups → `group.com.hopworld.app`，并在设置中重新打开「连接方式」选项。
+### 启用系统 VPN（本机测试）
+
+默认构建为 ad-hoc 签名，不含 Network Extension 权限，系统 VPN 不可用。本机测试系统 VPN 需要**付费** Apple Developer Program 账号（免费 Apple ID 不支持 Network Extension）：
+
+```bash
+cp Configs/Signing.local.xcconfig.example Configs/Signing.local.xcconfig
+# 编辑：填写 HOPWORLD_DEVELOPMENT_TEAM，并把 HOPWORLD_BUNDLE_PREFIX 换成你自己的反向域名
+xcodegen generate
+```
+
+`Signing.local.xcconfig` 已被 git 忽略。Bundle ID 与 App Group（`group.<前缀>.app`）在 Apple 后台全局唯一，fork 时必须使用自己的前缀。在 Xcode 登录该账号后构建一次，自动签名会注册 App ID、App Group 与本机。
+
+构建后建议把 App 放到 `/Applications` 再运行。在 **路由** 选择「规则代理」，会出现「接管方式」卡片，切换为「系统 VPN」后连接节点；首次连接时 macOS 会请求添加 VPN 配置。系统 VPN 不依赖应用是否遵循系统代理，并显示在「系统设置 → 网络」的 VPN 列表中。
+
+这种 Development 签名的包只能在已登记的 Mac 上运行，因此公开发布的安装包仅支持系统代理等其他模式；需要系统 VPN 的用户请按上述步骤自行构建。
 
 ## 安装 Xray / 组件更新
 
@@ -95,7 +109,7 @@ chmod +x Scripts/fetch_xray.sh
 1. 打开 App → **订阅** → 添加订阅地址或导入分享链接
 2. 若识别为日期型 URL，确认使用自动日期模板
 3. 进入 **测试** 或等待更新后自动测速；需要时可在 [应用连通](#应用连通) 检查 ChatGPT、Claude 等能否打开
-4. 在 **路由** 选择接管方式：规则代理下的系统代理（默认）、全局 TUN，或规则代理下的「仅指定应用」TUN；再在 **概览 / 国家 / 菜单栏** 连接节点
+4. 在 **路由** 选择接管方式：规则代理下的系统代理（默认）、全局 TUN，或规则代理下的「仅指定应用」TUN（自行签名构建还可选系统 VPN）；再在 **概览 / 国家 / 菜单栏** 连接节点
 5. （可选）在测试设置中开启节点元数据中文城市显示；首次会从 GeoNames 生成离线库到本机 Application Support，之后优先离线匹配
 
 默认本地端口（系统代理入口，可在设置中修改）：

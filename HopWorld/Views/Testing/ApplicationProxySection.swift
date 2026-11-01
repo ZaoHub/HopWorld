@@ -16,6 +16,12 @@ struct ApplicationProxySection: View {
         colorScheme == .dark ? Color(red: 0.60, green: 0.68, blue: 0.70) : Color(red: 0.42, green: 0.49, blue: 0.51)
     }
 
+    private var currentWholeMachineMode: String {
+        appState.settings.connectionCaptureMode == .systemVPN
+            ? "系统 VPN：所有应用都会走节点"
+            : "系统代理：所有遵循系统代理的应用都会走节点"
+    }
+
     private var rowFill: Color {
         colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03)
     }
@@ -69,8 +75,8 @@ struct ApplicationProxySection: View {
             } else if appState.settings.connectionCaptureMode != .applications {
                 Label(
                     applications.isEmpty
-                        ? "当前仍是系统代理：所有遵循系统代理的应用都会走节点。添加应用并切换后，才仅名单生效。"
-                        : "名单尚未生效：当前仍是系统代理，所有遵循系统代理的应用都会走节点。请点击「切换为应用代理」。",
+                        ? "当前仍是\(currentWholeMachineMode)。添加应用并切换后，才仅名单生效。"
+                        : "名单尚未生效：当前仍是\(currentWholeMachineMode)。请点击「切换为应用代理」。",
                     systemImage: "exclamationmark.triangle.fill"
                 )
                 .font(.caption)

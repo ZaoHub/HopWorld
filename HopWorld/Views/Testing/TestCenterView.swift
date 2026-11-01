@@ -1894,6 +1894,9 @@ struct RoutingView: View {
                     if previewMode == .global {
                         globalCard
                     }
+                    if previewMode == .rules, HopWorldAppGroup.isSystemVPNAvailable {
+                        captureModeCard
+                    }
                     if previewMode == .rules {
                         RouteCard(title: "按应用代理", icon: "app.badge", tint: .orange, palette: palette, footnote: "实验性", helpText: """
                         所选应用走代理，其他应用直连。仅在「仅指定应用（TUN）」生效时，名单中的应用走代理。
@@ -2041,6 +2044,46 @@ struct RoutingView: View {
         ) {
             pendingRoutingMode = mode
         }
+    }
+
+    // MARK: - 接管方式（仅带 Network Extension 权限的构建）
+
+    private var captureModeCard: some View {
+        RouteCard(
+            title: "接管方式", icon: "lock.shield", tint: palette.accent, palette: palette,
+            helpText: [ConnectionCaptureMode.systemProxy, .systemVPN]
+                .map { "\($0.displayName)\n\($0.helpText)" }
+                .joined(separator: "\n\n")
+        ) {
+            Picker("接管方式", selection: captureModeSelection) {
+                Text(ConnectionCaptureMode.systemProxy.displayName).tag(ConnectionCaptureMode.systemProxy)
+                Text(ConnectionCaptureMode.systemVPN.displayName).tag(ConnectionCaptureMode.systemVPN)
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .disabled(modeBusy || previewMode != appState.settings.routingMode)
+            if previewMode != appState.settings.routingMode {
+                Text("先应用规则代理模式，再选择接管方式。")
+                    .font(.caption).foregroundStyle(.secondary)
+            } else if appState.settings.connectionCaptureMode == .applications {
+                Text("当前为「仅指定应用（TUN）」；选择上方任一方式将改为全应用接管。")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            infoRow(title: "实际接管状态", value: captureText)
+        }
+    }
+
+    private var captureModeSelection: Binding<ConnectionCaptureMode> {
+        Binding(
+            get: { appState.settings.connectionCaptureMode },
+            set: { mode in
+                Task {
+                    saving = true
+                    await appState.setConnectionCaptureMode(mode)
+                    saving = false
+                }
+            }
+        )
     }
 
     // MARK: - 全局 TUN
