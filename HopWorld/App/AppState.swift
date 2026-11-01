@@ -1361,6 +1361,18 @@ final class AppState: ObservableObject {
         if testingFixed > 0 {
             logger.info("已将 \(testingFixed) 个卡住的「测试中」恢复为未测试")
         }
+        var badSinceFixed = 0
+        for index in loadedNodes.indices {
+            let status = loadedNodes[index].lastTestStatus
+            guard status == .unavailable || status == .failed,
+                  loadedNodes[index].unavailableSince == nil,
+                  let lastTest = loadedNodes[index].lastTestDate else { continue }
+            loadedNodes[index].unavailableSince = lastTest
+            badSinceFixed += 1
+        }
+        if badSinceFixed > 0 {
+            logger.info("已为 \(badSinceFixed) 个不可用或失败节点补上最初计时")
+        }
         if !settings.testSpeedTuned {
             settings.testConcurrency = max(settings.testConcurrency, 16)
             settings.testSpeedTuned = true
@@ -1394,6 +1406,15 @@ final class AppState: ObservableObject {
             logger.info("跃界已启动，节点 \(nodes.count)，订阅 \(subscriptions.count)")
         } else {
             logger.warning("跃界已启动，但数据尚未读取，已暂停自动更新和自动连接；列表为空不代表原数据被删除")
+        }
+        Task.detached(priority: .utility) {
+            let result = StorageCleaner.cleanTemporaryLeftovers()
+            guard result.removed > 0 || result.failures > 0 else { return }
+            let freed = ByteCountFormatter.string(fromByteCount: result.bytes, countStyle: .file)
+            let failures = result.failures > 0 ? "；\(result.failures) 项无法删除" : ""
+            await MainActor.run {
+                AppLogger.shared.info("启动清理：删除上次留下的 \(result.removed) 个临时目录，释放 \(freed)\(failures)")
+            }
         }
     }
 
@@ -1845,6 +1866,7 @@ final class AppState: ObservableObject {
         let previous = subscriptions[index]
         var updated = subscription
         updated.cleanupHistory = previous.cleanupHistory
+        updated.suppressedUnavailableFingerprints = previous.suppressedUnavailableFingerprints
         updated.nextUpdateAt = subscriptionManager.computeNextUpdateAt(for: updated)
         subscriptions[index] = updated
         persist()
@@ -1988,6 +2010,7 @@ final class AppState: ObservableObject {
             merged.autoCleanupUnavailableNodes = current.autoCleanupUnavailableNodes
             merged.unavailableCleanupDays = current.unavailableCleanupDays
             merged.cleanupHistory = current.cleanupHistory
+            merged.suppressedUnavailableFingerprints = current.suppressedUnavailableFingerprints
             merged.smartMergeMissingLimit = current.smartMergeMissingLimit
             merged.nextUpdateAt = subscriptionManager.computeNextUpdateAt(for: merged)
             subscriptions[index] = merged
@@ -2414,11 +2437,11 @@ final class AppState: ObservableObject {
             guard $0.subscriptionID == subscriptionID, !$0.pendingRemoval,
                   includingFavorites || !$0.isFavorite,
                   (includingFavorites && $0.isFavorite) || $0.id != connection.state.currentNodeID,
-                  $0.lastTestStatus == .unavailable
+                  $0.lastTestStatus == .unavailable || $0.lastTestStatus == .failed
             else { return false }
-            let unavailableStart = $0.unavailableSince ?? $0.lastTestDate
-            guard let unavailableStart, unavailableStart <= cutoff,
-                  let lastTest = $0.lastTestDate, lastTest >= cutoff
+            // 计时保持最初的不可用/失败时间；期限内还要有一次正常测速，确认仍未恢复。
+            guard let unavailableStart = $0.unavailableSince, unavailableStart <= cutoff,
+                  let lastTest = $0.lastTestDate, lastTest >= cutoff, lastTest > unavailableStart
             else { return false }
             return true
         }.map(\.id))
@@ -2470,7 +2493,7 @@ final class AppState: ObservableObject {
     func cleanupUnavailableNodes(subscriptionID: UUID, automatic: Bool = false) {
         let ids = unavailableCleanupCandidates(subscriptionID: subscriptionID)
         guard !ids.isEmpty else {
-            if !automatic { statusBanner = "没有符合期限的不可用节点，或正在更新/测试" }
+            if !automatic { statusBanner = "没有符合期限的不可用或失败节点，或正在更新/测试" }
             return
         }
         let subscriptionName = subscription(for: subscriptionID)?.name ?? "未知订阅"
@@ -2482,15 +2505,25 @@ final class AppState: ObservableObject {
             history.insert(SubscriptionCleanupRecord(cleanedAt: Date(), automatic: automatic,
                                                       removedCount: ids.count), at: 0)
             subscriptions[index].cleanupHistory = history
-            // An unchanged remote payload must be allowed to repopulate cleaned nodes.
-            subscriptions[index].contentHash = nil
-            subscriptions[index].etag = nil
-            subscriptions[index].lastModified = nil
+            var suppressed = Set(subscriptions[index].suppressedUnavailableFingerprints ?? [])
+            for node in nodes where ids.contains(node.id) {
+                suppressed.insert(node.nodeFingerprint ?? NodeFingerprint.make(from: node))
+            }
+            subscriptions[index].suppressedUnavailableFingerprints = suppressed.sorted()
         }
         deleteNodes(ids)
-        let result = "\(automatic ? "自动" : "手动")清理了 \(ids.count) 个长期不可用节点"
+        let result = "\(automatic ? "自动" : "手动")清理了 \(ids.count) 个长期不可用或失败节点"
         statusBanner = result
         logger.info("\(subscriptionName)：\(result)", category: .subscription)
+    }
+
+    func allowCleanedUnavailableNodesToReturn(subscriptionID: UUID) {
+        guard let index = subscriptions.firstIndex(where: { $0.id == subscriptionID }) else { return }
+        let count = subscriptions[index].suppressedUnavailableFingerprints?.count ?? 0
+        guard count > 0 else { return }
+        subscriptions[index].suppressedUnavailableFingerprints = nil
+        persist()
+        statusBanner = "下次更新会重新导入这 \(count) 个曾清理的节点"
     }
 
     func deleteNode(_ id: UUID) {
@@ -2649,6 +2682,7 @@ final class AppState: ObservableObject {
             cleared[index].lastTestStatus = .untested
             cleared[index].lastTestErrorMessage = nil
             cleared[index].lastTestDate = nil
+            cleared[index].unavailableSince = nil
             cleared[index].lastLatency = nil
             cleared[index].lastAppProbePassedIDs = nil
             cleared[index].lastAppProbeDate = nil
@@ -3079,6 +3113,7 @@ final class AppState: ObservableObject {
             if nodes.allSatisfy({ !$0.enabled || $0.pendingRemoval || ids.contains($0.id) }) {
                 lastFullNodeTestAt = Date()
             }
+            cleanupAutoUnavailableNodes()
             enqueueAutomaticAppProbes(onlyIDs: ids, forceRetest: !silent)
             checkConnectedNodeEligibility()
         }
@@ -3307,7 +3342,7 @@ final class AppState: ObservableObject {
             list = list.filter { $0.subscriptionID == id }
         }
         if scope == .availableOnly {
-            list = list.filter { $0.lastTestStatus.isUsable }
+            list = list.filter(\.lastTestStatus.isUsable)
         } else if scope == .favoritesOnly {
             list = list.filter(\.isFavorite)
         }
@@ -3335,6 +3370,9 @@ final class AppState: ObservableObject {
             }
             if copy[index].lastTestStatus.isUsable, connected || copy[index].isFavorite {
                 continue
+            }
+            if copy[index].lastTestStatus == .unavailable || copy[index].lastTestStatus == .failed {
+                copy[index].unavailableSince = copy[index].unavailableSince ?? copy[index].lastTestDate
             }
             copy[index].lastTestStatus = .testing
             copy[index].lastLatency = nil
@@ -3419,12 +3457,10 @@ final class AppState: ObservableObject {
         let reason = result.errorMessage?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         updated[index].lastTestErrorMessage = updated[index].lastTestStatus.isUsable || reason.isEmpty || reason == "TCP_PASS"
             ? nil : reason
-        if result.success {
+        if updated[index].lastTestStatus.isUsable {
             updated[index].unavailableSince = nil
-        } else if !result.isConfigFailure, updated[index].lastTestStatus == .unavailable {
+        } else if updated[index].lastTestStatus == .unavailable || updated[index].lastTestStatus == .failed {
             updated[index].unavailableSince = updated[index].unavailableSince ?? result.finishedAt
-        } else {
-            updated[index].unavailableSince = nil
         }
         if let metadata = updated[index].exitMetadata {
             localizeCity(nodeID: id, metadata: metadata, eligible: settings.shouldResolveChineseCity(for: updated[index]))
@@ -3676,6 +3712,47 @@ final class AppState: ObservableObject {
             }
         }
 
+        extendUnavailableClockSkippedByAvailableOnlyTests(now: now)
+        cleanupAutoUnavailableNodes()
+    }
+
+    /// 「仅当前可用」不测不可用/失败节点。超过期限但仍没有新的相同状态结果时，把计时顺延到现在。
+    private func extendUnavailableClockSkippedByAvailableOnlyTests(now: Date) {
+        guard settings.scheduledTestEnabled, settings.scheduledTestScope == .availableOnly,
+              isLibraryReady, !testManager.isTesting, !testManager.isProbingApps,
+              !subscriptionRefreshInProgress else { return }
+        var copy = nodes
+        var changed = false
+        for index in copy.indices {
+            let node = copy[index]
+            guard node.enabled, !node.pendingRemoval, !node.isFavorite,
+                  node.id != connection.state.currentNodeID,
+                  node.lastTestStatus == .unavailable || node.lastTestStatus == .failed,
+                  scheduledTestIncludes(node),
+                  let sub = node.subscriptionID.flatMap({ subscription(for: $0) }),
+                  sub.isEnabled, sub.autoCleanupUnavailableNodes == true,
+                  let start = node.unavailableSince
+            else { continue }
+            let cutoff = now.addingTimeInterval(-Double(min(30, max(1, sub.unavailableCleanupDays ?? 3))) * 86400)
+            let hasRecentSameStatus = node.lastTestDate.map { $0 >= cutoff && $0 > start } == true
+            guard start <= cutoff, !hasRecentSameStatus else { continue }
+            copy[index].unavailableSince = now
+            changed = true
+        }
+        if changed {
+            nodes = copy
+            persist()
+        }
+    }
+
+    private func scheduledTestIncludes(_ node: ProxyNode) -> Bool {
+        let raw = settings.scheduledTestSubscriptionRaw
+        guard raw.hasPrefix("subscription:"),
+              let id = UUID(uuidString: String(raw.dropFirst("subscription:".count))) else { return true }
+        return node.subscriptionID == id
+    }
+
+    private func cleanupAutoUnavailableNodes() {
         for sub in subscriptions where sub.isEnabled && sub.autoCleanupUnavailableNodes == true {
             cleanupUnavailableNodes(subscriptionID: sub.id, automatic: true)
         }

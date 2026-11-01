@@ -2681,7 +2681,8 @@ final class OptionalChineseCityLibraryTests: XCTestCase {
             ["3", "1", "en", "Greater London", "1", "", "", "", "", ""],
             ["4", "1", "en", "Old London", "1", "", "1", "", "", ""]
         ].map { $0.joined(separator: "\t") }.joined(separator: "\n")
-        try Data((city + "\n").utf8).write(to: directory.appendingPathComponent("cities500.txt"))
+        // Trailing blanks / non-city rows must be skipped (used to abort the whole build as invalidData).
+        try Data((city + "\n\n#comment\n").utf8).write(to: directory.appendingPathComponent("cities500.txt"))
         try Data((alternates + "\n").utf8).write(to: directory.appendingPathComponent("alternateNamesV2.txt"))
         try Data("GB.ENG\tEngland\tEngland\t1\n".utf8).write(to: directory.appendingPathComponent("admin1CodesASCII.txt"))
         for name in ["cities500", "alternateNamesV2"] {

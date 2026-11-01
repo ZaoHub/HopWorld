@@ -618,7 +618,7 @@ struct SubscriptionDetailView: View {
                             }
                         }
 
-                        Section("长期不可用节点清理") {
+                        Section("长期不可用 / 失败节点清理") {
                             Toggle("自动清理", isOn: Binding(
                                 get: { subscription?.autoCleanupUnavailableNodes ?? false },
                                 set: { value in
@@ -627,7 +627,7 @@ struct SubscriptionDetailView: View {
                                     appState.updateSubscription(latest)
                                 }
                             ))
-                            Stepper("持续不可用期限：\(min(30, max(1, sub.unavailableCleanupDays ?? 3))) 天", value: Binding(
+                            Stepper("持续不可用或失败：\(min(30, max(1, sub.unavailableCleanupDays ?? 3))) 天", value: Binding(
                                 get: { min(30, max(1, subscription?.unavailableCleanupDays ?? 3)) },
                                 set: { value in
                                     guard var latest = subscription else { return }
@@ -638,19 +638,28 @@ struct SubscriptionDetailView: View {
                                     }
                                 }
                             ), in: 1...30)
-                            Button("清理当前组长期不可用节点", role: .destructive) {
+                            Button("清理当前组长期不可用或失败节点", role: .destructive) {
                                 confirmCleanup = true
                             }
                             .disabled(appState.unavailableCleanupCandidates(subscriptionID: subscriptionID).isEmpty)
                             let protectedCount = appState.protectedCleanupFavoriteCount(subscriptionID: subscriptionID)
                             if protectedCount > 0 {
-                                Label("本组有 \(protectedCount) 个收藏节点已达到不可用期限，仍会一直保留。如需移除，请在节点列表中手动删除。", systemImage: "star.fill")
+                                Label("本组有 \(protectedCount) 个收藏节点已达到不可用或失败期限，仍会一直保留。如需移除，请在节点列表中手动删除。", systemImage: "star.fill")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
+                            let suppressedCount = sub.suppressedUnavailableFingerprints?.count ?? 0
+                            if suppressedCount > 0 {
+                                Text("有 \(suppressedCount) 个已清理节点不会在订阅更新时重新导入。")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                Button("允许这些节点在下次更新时重新导入") {
+                                    appState.allowCleanedUnavailableNodesToReturn(subscriptionID: subscriptionID)
+                                }
+                            }
                             HStack {
                                 Text("清理规则").font(.caption).foregroundStyle(.secondary)
-                                UsageHelpButton(title: "清理规则", text: "需在期限开始及近期测速中均不可用；恢复可用后重新计时。收藏节点不会被自动或批量清理，会一直保留，除非在节点列表中手动删除。未测试、配置失败和当前连接节点均保留。订阅地址保留，更新可能重新导入节点。")
+                                UsageHelpButton(title: "清理规则", text: "不可用或失败达到设定天数后删除。计时从第一次标成不可用或失败开始，两种结果来回切换不会重计；只有测成可用才重新计时。定时测速选「仅当前可用」时，这两类节点不测；设定天数内如果没有新的相同状态结果，计时顺延，如果有且已超过天数，则立即删除。收藏和当前连接节点保留。已清理的节点不会在下次订阅更新时自动加回。")
                             }
                         }
 
@@ -681,7 +690,7 @@ struct SubscriptionDetailView: View {
                     UnavailablePlaceholder("订阅不存在", systemImage: "link")
                 }
             }
-            .confirmationDialog("清理当前组长期不可用节点？", isPresented: $confirmCleanup, titleVisibility: .visible) {
+            .confirmationDialog("清理当前组长期不可用或失败节点？", isPresented: $confirmCleanup, titleVisibility: .visible) {
                 Button("清理 \(appState.unavailableCleanupCandidates(subscriptionID: subscriptionID).count) 个节点", role: .destructive) {
                     appState.cleanupUnavailableNodes(subscriptionID: subscriptionID)
                 }
@@ -1542,10 +1551,10 @@ struct SubscriptionEditorView: View {
                     }
                 }
 
-                Section("长期不可用节点清理") {
+                Section("长期不可用 / 失败节点清理") {
                     Toggle("自动清理", isOn: $autoCleanupUnavailableNodes)
-                    Stepper("持续不可用期限：\(unavailableCleanupDays) 天", value: $unavailableCleanupDays, in: 1...30)
-                    Text("在订阅详情中可手动清理。需在期限开始及近期测速中均不可用；恢复可用后重新计时。未测试、配置失败、收藏和当前连接节点均保留。")
+                    Stepper("持续不可用或失败：\(unavailableCleanupDays) 天", value: $unavailableCleanupDays, in: 1...30)
+                    Text("在订阅详情中可手动清理。不可用或失败达到设定天数后删除。定时测速选「仅当前可用」时这两类节点不测，没有新的相同状态结果就顺延计时。收藏和当前连接节点保留。")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

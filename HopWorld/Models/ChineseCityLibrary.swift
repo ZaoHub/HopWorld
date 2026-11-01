@@ -17,9 +17,11 @@ enum CityLibraryError: LocalizedError {
     static let didInstall = Notification.Name("ChineseCityLibraryDidInstall")
     @Published private(set) var catalog = ChineseCityCatalog.shared
     @Published private(set) var stage: String?
+    @Published private(set) var progress: Double?
     @Published private(set) var error: String?
     private var task: Task<Void, Never>?
     var isInstalled: Bool { catalog.cityCount > 0 }
+    var isDownloading: Bool { task != nil }
 
     /// Validate before replacing the installed file so interrupted downloads never erase a working library.
     nonisolated static func install(_ data: Data, at url: URL = ChineseCityCatalog.installedURL) throws -> ChineseCityCatalog {
@@ -34,45 +36,71 @@ enum CityLibraryError: LocalizedError {
     func download() {
         guard task == nil else { return }
         error = nil
+        progress = 0
         stage = "准备下载…"
         task = Task {
             let directory = FileManager.default.temporaryDirectory.appendingPathComponent("HopWorld-Cities-\(UUID().uuidString)")
-            defer { try? FileManager.default.removeItem(at: directory); stage = nil; task = nil }
+            defer {
+                try? FileManager.default.removeItem(at: directory)
+                stage = nil
+                progress = nil
+                task = nil
+            }
             do {
                 try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-                let configuration = URLSessionConfiguration.ephemeral
-                configuration.timeoutIntervalForRequest = 60
-                configuration.timeoutIntervalForResource = 3600
-                let session = URLSession(configuration: configuration)
-                defer { session.invalidateAndCancel() }
                 let files = ["cities500.zip", "alternateNamesV2.zip", "admin1CodesASCII.txt"]
                 for (offset, file) in files.enumerated() {
                     try Task.checkCancellation()
-                    stage = "下载 GeoNames（\(offset + 1)/3）…"
+                    let base = Double(offset) / Double(files.count)
+                    let span = 1 / Double(files.count)
+                    stage = "下载 GeoNames（\(offset + 1)/\(files.count)）…"
+                    progress = base
                     let url = URL(string: "https://download.geonames.org/export/dump/\(file)")!
-                    let (temporary, response) = try await session.download(from: url)
+                    let (temporary, response) = try await XrayInstaller.downloadFile(
+                        from: url,
+                        timeoutRequest: 60,
+                        timeoutResource: 3600
+                    ) { fraction in
+                        let value = base + span * fraction * 0.92
+                        Task { @MainActor in
+                            self.progress = value
+                        }
+                    }
+                    defer { try? FileManager.default.removeItem(at: temporary) }
                     guard (response as? HTTPURLResponse)?.statusCode == 200,
                           (try temporary.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0) <= 512 * 1024 * 1024 else {
                         throw CityLibraryError.downloadFailed
                     }
                     try FileManager.default.moveItem(at: temporary, to: directory.appendingPathComponent(file))
+                    progress = base + span * 0.92
                 }
                 stage = "生成中文离线库…"
+                progress = 0.94
                 let worker = Task.detached(priority: .utility) {
                     let data = try GeoNamesCityBuilder.build(in: directory).encodedData()
                     return try Self.install(data)
                 }
                 let installed = try await withTaskCancellationHandler { try await worker.value } onCancel: { worker.cancel() }
+                progress = 1
                 ChineseCityCatalog.useInstalled(installed)
                 catalog = installed
+                error = nil
                 NotificationCenter.default.post(name: Self.didInstall, object: nil)
             } catch is CancellationError {
                 // A cancelled download keeps the previously installed catalog.
             } catch {
-                if !Task.isCancelled { self.error = error.localizedDescription }
+                if !Task.isCancelled {
+                    // Keep a clearer message when generation fails after downloads finished.
+                    self.error = error.localizedDescription
+                }
             }
         }
     }
 
     func cancel() { task?.cancel() }
+
+    /// Drop a stale failure banner once the installed library is readable again.
+    func clearErrorIfInstalled() {
+        if isInstalled { error = nil }
+    }
 }

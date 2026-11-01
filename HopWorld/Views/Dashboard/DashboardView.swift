@@ -58,13 +58,20 @@ struct DashboardView: View {
     private var heroCard: some View {
         HStack(alignment: .center, spacing: 16) {
             VStack(alignment: .leading, spacing: 8) {
-                VStack(alignment: .leading, spacing: 1) {
-                    Text("跃界")
-                        .font(.system(size: 28, weight: .bold))
-                        .foregroundStyle(heroPrimary)
-                    Text("HopWorld")
-                        .font(.subheadline)
-                        .foregroundStyle(heroSecondary)
+                HStack(alignment: .center, spacing: 10) {
+                    Image("AppLogo")
+                        .resizable()
+                        .interpolation(.high)
+                        .frame(width: 44, height: 44)
+                        .accessibilityHidden(true)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("跃界")
+                            .font(.system(size: 28, weight: .bold))
+                            .foregroundStyle(heroPrimary)
+                        Text("HopWorld")
+                            .font(.subheadline)
+                            .foregroundStyle(heroSecondary)
+                    }
                 }
 
                 if let node = appState.activeOrLastNode {

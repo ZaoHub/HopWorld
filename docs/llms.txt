@@ -10,7 +10,7 @@
 - 平台：macOS 13.0+
 - 技术栈：SwiftUI；代理内核 Xray、sing-box
 - 许可：自有源码 MIT；第三方内核遵循上游许可证
-- 版本：v1.0.0（2026-10-31 DMG）
+- 版本：v1.0.1（2026-11-01 DMG）
 - 开发者组织：ZaoHub
 
 ## 支持的节点协议
@@ -24,13 +24,15 @@ VLESS、VMess、Trojan、Shadowsocks、Hysteria2、MASQUE、TUIC、AnyTLS、Wire
 - 按国家一键连接与自动故障切换
 - 应用内安装更新 Xray、sing-box、GeoFiles
 - 加密节点库与选择性口令便携备份
-- 可选 Codex 重置 iMessage 提醒
+- Codex / Cursor / Claude 用量卡片；可选 Codex 重置 iMessage 提醒
+- 长期不可用 / 失败节点自动清理；设置中可清理临时文件与旧版核心
+- 自行签名构建可启用系统 VPN（Network Extension）
 
 ## 下载
 
-- Apple Silicon DMG：https://github.com/ZaoHub/HopWorld/releases/download/v1.0.0/HopWorld-2026-10-31-arm64.dmg
-- Intel DMG：https://github.com/ZaoHub/HopWorld/releases/download/v1.0.0/HopWorld-2026-10-31-x86_64.dmg
-- 全部 Release：https://github.com/ZaoHub/HopWorld/releases/tag/v1.0.0
+- Apple Silicon DMG：https://github.com/ZaoHub/HopWorld/releases/download/v1.0.1/HopWorld-2026-11-01-arm64.dmg
+- Intel DMG：https://github.com/ZaoHub/HopWorld/releases/download/v1.0.1/HopWorld-2026-11-01-x86_64.dmg
+- 全部 Release：https://github.com/ZaoHub/HopWorld/releases/tag/v1.0.1
 - 安装包为 ad-hoc 签名，未做 Apple 公证
 
 ## 链接

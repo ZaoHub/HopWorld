@@ -326,6 +326,7 @@ struct CodexUsageCard: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ObservedObject var monitor: CodexUsageMonitor
     @StateObject private var cursorMonitor = CursorUsageMonitor()
+    @StateObject private var claudeMonitor = ClaudeUsageMonitor()
     @State private var showDetails = false
     @State private var showStatistics = false
     private struct UsageSettingsDraft {
@@ -342,6 +343,11 @@ struct CodexUsageCard: View {
         var showCursorTotal = true
         var showCursorModels = true
         var showCursorOtherModels = true
+        var showClaudeFiveHour = true
+        var showClaudeWeekly = true
+        var showClaudeModels = true
+        var museUsageURL = Self.defaultMuseUsageURL
+        static let defaultMuseUsageURL = "https://www.meta.ai/"
     }
     @State private var usageSettingsDraft = UsageSettingsDraft()
     @State private var showSettings = false
@@ -365,13 +371,44 @@ struct CodexUsageCard: View {
     @AppStorage("usageCard.cursorTotal") private var showCursorTotal = true
     @AppStorage("usageCard.cursorModels") private var showCursorModels = true
     @AppStorage("usageCard.cursorOtherModels") private var showCursorOtherModels = true
+    @AppStorage("usageCard.claudeFiveHour") private var showClaudeFiveHour = true
+    @AppStorage("usageCard.claudeWeekly") private var showClaudeWeekly = true
+    @AppStorage("usageCard.claudeModels") private var showClaudeModels = true
+    @AppStorage("usageCard.museUsageURL") private var museUsageURL = UsageSettingsDraft.defaultMuseUsageURL
 
+    private static let providerOrder = ["codex", "cursor", "claude", "muse"]
     private var activeProvider: String { cursorFace ? backProvider : frontProvider }
+    private var otherProvider: String { cursorFace ? frontProvider : backProvider }
     private var isCursorFace: Bool { activeProvider == "cursor" }
     private var isCodexFace: Bool { activeProvider == "codex" }
+    private var isClaudeFace: Bool { activeProvider == "claude" }
+    private var isMuseFace: Bool { activeProvider == "muse" }
+    private var providersAreDistinct: Bool { usageSettingsDraft.frontProvider != usageSettingsDraft.backProvider }
     private var shouldShowCredits: Bool { showCredits && monitor.snapshot?.hasZeroCreditBalance != true }
     private var shouldShowReserve: Bool { showReserve && monitor.snapshot?.reserveWindow != nil }
-    private var providerName: String { activeProvider == "cursor" ? "Cursor" : activeProvider == "claude" ? "Claude" : "Codex" }
+    private var providerName: String { Self.providerTitle(activeProvider) }
+    private static func providerTitle(_ provider: String) -> String {
+        switch provider {
+        case "cursor": return "Cursor"
+        case "claude": return "Claude"
+        case "muse": return "Muse"
+        default: return "Codex"
+        }
+    }
+    private var activeMessage: String? {
+        isCursorFace ? cursorMonitor.message : isClaudeFace ? claudeMonitor.message : monitor.message
+    }
+    private var activeUpdatedAt: Date? {
+        isCursorFace ? cursorMonitor.updatedAt : isClaudeFace ? claudeMonitor.updatedAt : monitor.updatedAt
+    }
+    private var activeIsRefreshing: Bool {
+        isCursorFace ? cursorMonitor.isRefreshing : isClaudeFace ? claudeMonitor.isRefreshing : monitor.isRefreshing
+    }
+    private var claudeModelWindows: [(id: String, title: String, window: ClaudeUsageSnapshot.Window)] {
+        guard let snapshot = claudeMonitor.snapshot else { return [] }
+        return [("opus", "Opus 一周", snapshot.sevenDayOpus), ("sonnet", "Sonnet 一周", snapshot.sevenDaySonnet)]
+            .compactMap { item in item.2.map { (item.0, item.1, $0) } }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -390,6 +427,10 @@ struct CodexUsageCard: View {
                     usageSettingsDraft.showCursorTotal = showCursorTotal
                     usageSettingsDraft.showCursorModels = showCursorModels
                     usageSettingsDraft.showCursorOtherModels = showCursorOtherModels
+                    usageSettingsDraft.showClaudeFiveHour = showClaudeFiveHour
+                    usageSettingsDraft.showClaudeWeekly = showClaudeWeekly
+                    usageSettingsDraft.showClaudeModels = showClaudeModels
+                    usageSettingsDraft.museUsageURL = museUsageURL
                     notificationDraft = appState.codexNotifications.settings
                     showSettings = true
                 } label: { Image(systemName: "gearshape") }
@@ -411,10 +452,21 @@ struct CodexUsageCard: View {
                 }
                 .buttonStyle(.borderless)
                 .disabled(isFlipping)
-                .help(isCursorFace ? "翻转到 Codex 用量" : "翻转到 Cursor 用量")
-                .accessibilityLabel(isCursorFace ? "翻转到 Codex 用量" : "翻转到 Cursor 用量")
+                .help("翻转到 " + Self.providerTitle(otherProvider) + " 用量")
+                .accessibilityLabel("翻转到 " + Self.providerTitle(otherProvider) + " 用量")
             }
-            if isCursorFace {
+            if isMuseFace {
+                museUsageContent
+            } else if isClaudeFace {
+                if claudeMonitor.snapshot == nil {
+                    Text(claudeMonitor.message ?? "尚未获取用量").font(.caption2).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else if displayMode == "rings" {
+                    UsageRingsView(items: claudeRingItems, centerValue: nil, centerTitle: "", centerExpiration: nil, showTimes: showResetTime)
+                } else {
+                    claudeUsageContent
+                }
+            } else if isCursorFace {
                 if displayMode == "rings" {
                     UsageRingsView(items: cursorRingItems, centerValue: nil, centerTitle: "", centerExpiration: nil, showTimes: showResetTime)
                 } else {
@@ -448,17 +500,19 @@ struct CodexUsageCard: View {
                 }
             }
             HStack(spacing: 3) {
-                if !isCursorFace && !monitor.proxyConnected {
+                if isMuseFace {
+                    Text("暂未接入自动读取")
+                } else if isCodexFace && !monitor.proxyConnected {
                     Text("连接代理后获取用量")
-                } else if (isCursorFace ? cursorMonitor.message : monitor.message) != nil {
+                } else if activeMessage != nil {
                     Text("更新失败，请重试。")
-                } else if let updated = isCursorFace ? cursorMonitor.updatedAt : monitor.updatedAt {
+                } else if let updated = activeUpdatedAt {
                     Text("更新于")
                     Text(updated, style: .time)
                 } else {
-                    Text((isCursorFace ? cursorMonitor.isRefreshing : monitor.isRefreshing) ? "正在读取…" : "尚未更新")
+                    Text(activeIsRefreshing ? "正在读取…" : "尚未更新")
                 }
-                if isCursorFace ? cursorMonitor.isRefreshing : monitor.isRefreshing {
+                if !isMuseFace && activeIsRefreshing {
                     ProgressView().controlSize(.mini)
                 }
                 Spacer(minLength: 4)
@@ -471,30 +525,15 @@ struct CodexUsageCard: View {
                     .help("Token 消耗统计")
                     .accessibilityLabel("查看 Codex Token 消耗统计")
                 }
-                Button {
-                    let refreshingCursor = isCursorFace
-                    Task {
-                        if refreshingCursor {
-                            guard !cursorMonitor.isRefreshing else { return }
-                            appState.flashToast("正在刷新 Cursor 用量…")
-                            await cursorMonitor.refresh(allowKeychainInteraction: true)
-                            appState.flashToast(cursorMonitor.message.map { "刷新失败：" + $0 } ?? "Cursor 用量已更新")
-                        } else {
-                            guard monitor.proxyConnected else {
-                                appState.flashToast("请先连接代理，再获取 Codex 用量")
-                                return
-                            }
-                            guard !monitor.isRefreshing else { return }
-                            appState.flashToast("正在刷新 Codex 用量…")
-                            await monitor.refresh(force: true)
-                            appState.flashToast(monitor.message.map { "刷新失败：" + $0 } ?? "Codex 用量已更新")
-                        }
-                    }
-                } label: { Image(systemName: "arrow.clockwise") }
-                    .buttonStyle(.borderless)
-                    .disabled(isCursorFace ? cursorMonitor.isRefreshing : monitor.isRefreshing)
-                    .help("刷新用量")
-                    .accessibilityLabel(isCursorFace ? "刷新 Cursor 用量" : "刷新 Codex 用量")
+                if !isMuseFace {
+                    Button {
+                        Task { await refreshActiveProvider() }
+                    } label: { Image(systemName: "arrow.clockwise") }
+                        .buttonStyle(.borderless)
+                        .disabled(activeIsRefreshing)
+                        .help("刷新用量")
+                        .accessibilityLabel("刷新 " + providerName + " 用量")
+                }
             }
             .font(.caption2).foregroundStyle(.secondary)
         }
@@ -515,7 +554,19 @@ struct CodexUsageCard: View {
         .popover(isPresented: $showDetails) {
             VStack(alignment: .leading, spacing: 14) {
                 Text(providerName + " 用量").font(.headline)
-                if isCursorFace {
+                if isMuseFace {
+                    Text("Muse 暂未接入自动读取。可在用量设置中配置打开页面，查看 Meta AI 侧的用量或配额信息。")
+                        .font(.caption).foregroundStyle(.secondary)
+                    Button("打开 Muse 页面") { openExternal(normalizedMuseURL(museUsageURL)) }
+                } else if isClaudeFace {
+                    claudeUsageDetails
+                    Text("读取本机 Claude Code 登录账号，每 5 分钟刷新；刷新失败时保留上次数据。")
+                        .font(.caption).foregroundStyle(.secondary)
+                    if let message = claudeMonitor.message { Text(message).font(.caption).foregroundStyle(.orange) }
+                    Button("打开 Claude 用量页面") {
+                        openExternal("https://claude.ai/settings/usage")
+                    }
+                } else if isCursorFace {
                     cursorUsageDetails
                     Text("读取本机 Cursor 登录账号，每 5 分钟刷新；刷新失败时保留上次数据。")
                         .font(.caption).foregroundStyle(.secondary)
@@ -540,13 +591,25 @@ struct CodexUsageCard: View {
             .padding(20).frame(width: 340)
         }
         .task {
-            await cursorMonitor.refresh()
+            normalizeDistinctProviders()
+            syncProviderMonitors()
+            await refreshEnabledProviderMonitors()
+        }
+        .onChange(of: frontProvider) { _ in
+            normalizeDistinctProviders()
+            syncProviderMonitors()
+            Task { await refreshEnabledProviderMonitors() }
+        }
+        .onChange(of: backProvider) { _ in
+            normalizeDistinctProviders()
+            syncProviderMonitors()
+            Task { await refreshEnabledProviderMonitors() }
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-            Task { await cursorMonitor.refresh() }
+            Task { await refreshEnabledProviderMonitors() }
         }
         .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didWakeNotification)) { _ in
-            Task { await cursorMonitor.refresh() }
+            Task { await refreshEnabledProviderMonitors() }
         }
     }
 
@@ -597,6 +660,40 @@ struct CodexUsageCard: View {
         value.map { String(format: "%.1f%%", $0) } ?? "未获取"
     }
 
+    private func usesProvider(_ provider: String) -> Bool {
+        frontProvider == provider || backProvider == provider
+    }
+
+    private func draftUsesProvider(_ provider: String) -> Bool {
+        usageSettingsDraft.frontProvider == provider || usageSettingsDraft.backProvider == provider
+    }
+
+    private static func alternateProvider(excluding: String, preferring: String? = nil) -> String {
+        if let preferring, preferring != excluding, providerOrder.contains(preferring) { return preferring }
+        return providerOrder.first { $0 != excluding } ?? "codex"
+    }
+
+    private func normalizeDistinctProviders() {
+        if frontProvider == backProvider {
+            backProvider = Self.alternateProvider(excluding: frontProvider, preferring: "cursor")
+        }
+        if usageSettingsDraft.frontProvider == usageSettingsDraft.backProvider {
+            usageSettingsDraft.backProvider = Self.alternateProvider(
+                excluding: usageSettingsDraft.frontProvider,
+                preferring: frontProvider == usageSettingsDraft.frontProvider ? backProvider : frontProvider)
+        }
+    }
+
+    private func syncProviderMonitors() {
+        cursorMonitor.isMonitoringEnabled = usesProvider("cursor")
+        claudeMonitor.isMonitoringEnabled = usesProvider("claude")
+    }
+
+    private func refreshEnabledProviderMonitors() async {
+        if usesProvider("cursor") { await cursorMonitor.refresh() }
+        if usesProvider("claude") { await claudeMonitor.refresh() }
+    }
+
     private var settingsView: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("用量设置").font(.title2.weight(.semibold))
@@ -615,15 +712,52 @@ struct CodexUsageCard: View {
                         Text("Codex").tag("codex")
                         Text("Cursor").tag("cursor")
                         Text("Claude").tag("claude")
+                        Text("Muse").tag("muse")
+                    }
+                    .onChange(of: usageSettingsDraft.frontProvider) { newValue in
+                        guard newValue == usageSettingsDraft.backProvider else { return }
+                        usageSettingsDraft.backProvider = Self.alternateProvider(
+                            excluding: newValue, preferring: frontProvider)
                     }
                     Picker("背面", selection: $usageSettingsDraft.backProvider) {
                         Text("Codex").tag("codex")
                         Text("Cursor").tag("cursor")
                         Text("Claude").tag("claude")
+                        Text("Muse").tag("muse")
                     }
-                    Text("点击卡片右下角翻转按钮切换两面。Codex 与 Cursor 支持自动读取，Claude 当前显示接入状态。")
+                    .onChange(of: usageSettingsDraft.backProvider) { newValue in
+                        guard newValue == usageSettingsDraft.frontProvider else { return }
+                        usageSettingsDraft.frontProvider = Self.alternateProvider(
+                            excluding: newValue, preferring: backProvider)
+                    }
+                    Text("正反两面不能选择同一应用。点击卡片右下角翻转按钮切换两面。Codex、Cursor、Claude 支持自动读取；Muse 当前显示接入状态与用量页面入口。")
                         .font(.caption).foregroundStyle(.secondary)
                 }
+                Section("显示样式") {
+                    Picker("显示模式", selection: $usageSettingsDraft.displayMode) {
+                        Text("列表").tag("list")
+                        Text("圆环").tag("rings")
+                    }
+                    Toggle("显示用量进度条", isOn: $usageSettingsDraft.showProgress)
+                    Toggle("显示重置时间", isOn: $usageSettingsDraft.showResetTime)
+                    if draftUsesProvider("codex") {
+                        Text("Codex 圆环由外向内：5 小时、Luna Reserve、一周、额度；中心显示可用重置次数。额度无总额时仅显示数值。")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    if draftUsesProvider("cursor") {
+                        Text("Cursor 圆环由外向内：综合、Cursor 模型、其他模型；时间图例显示计费周期重置时间。")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    if draftUsesProvider("claude") {
+                        Text("Claude 圆环由外向内：5 小时、一周、Opus 一周、Sonnet 一周。")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    if draftUsesProvider("muse") {
+                        Text("Muse 暂未接入用量数据，列表和圆环均显示接入状态与页面入口，不受此处样式影响。")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                if draftUsesProvider("codex") {
                 Section("Codex 卡片显示内容") {
                     Toggle("5 小时剩余用量", isOn: $usageSettingsDraft.showFiveHour)
                     Toggle("一周剩余用量", isOn: $usageSettingsDraft.showWeekly)
@@ -663,16 +797,8 @@ struct CodexUsageCard: View {
                         }
                     }
                 }
-                Section("显示样式") {
-                    Picker("显示模式", selection: $usageSettingsDraft.displayMode) {
-                        Text("列表").tag("list")
-                        Text("圆环").tag("rings")
-                    }
-                    Text("圆环由外向内：5 小时、Luna Reserve、一周、额度；中心显示可用重置次数。额度无总额时仅显示数值。")
-                        .font(.caption).foregroundStyle(.secondary)
-                    Toggle("显示用量进度条", isOn: $usageSettingsDraft.showProgress)
-                    Toggle("显示重置时间", isOn: $usageSettingsDraft.showResetTime)
                 }
+                if draftUsesProvider("cursor") {
                 Section("Cursor 卡片显示内容") {
                     Toggle("综合剩余用量", isOn: $usageSettingsDraft.showCursorTotal)
                     Toggle("Cursor 模型剩余用量", isOn: $usageSettingsDraft.showCursorModels)
@@ -684,8 +810,38 @@ struct CodexUsageCard: View {
                     }
                 }
                 }
+                if draftUsesProvider("claude") {
+                Section("Claude 卡片显示内容") {
+                    Toggle("5 小时剩余用量", isOn: $usageSettingsDraft.showClaudeFiveHour)
+                    Toggle("一周剩余用量", isOn: $usageSettingsDraft.showClaudeWeekly)
+                    Toggle("模型一周限额（Opus / Sonnet）", isOn: $usageSettingsDraft.showClaudeModels)
+                    Text("自动读取本机 Claude Code 登录账号。首次手动刷新时可能需要允许访问“Claude Code-credentials”钥匙串；之后后台刷新不重复弹授权。")
+                        .font(.caption).foregroundStyle(.secondary)
+                    Button("打开 Claude 用量页面") {
+                        openExternal("https://claude.ai/settings/usage")
+                    }
+                }
+                }
+                if draftUsesProvider("muse") {
+                Section("Muse 卡片设置") {
+                    TextField("用量页面网址", text: $usageSettingsDraft.museUsageURL)
+                    Text("Muse 暂未接入自动读取。这里只保存打开页面的网址，卡片上会显示接入状态与入口。")
+                        .font(.caption).foregroundStyle(.secondary)
+                    HStack {
+                        Button("打开 Muse 页面") {
+                            openExternal(normalizedMuseURL(usageSettingsDraft.museUsageURL))
+                        }
+                        Button("恢复默认网址") {
+                            usageSettingsDraft.museUsageURL = UsageSettingsDraft.defaultMuseUsageURL
+                        }
+                    }
+                }
+                }
+                }
             }
             .formStyle(.grouped)
+            .animation(.default, value: usageSettingsDraft.frontProvider)
+            .animation(.default, value: usageSettingsDraft.backProvider)
             HStack {
                 if settingsTab == "notifications" {
                     CodexNotificationInfoButton("查看保存与测试说明", text: "点击“应用设置”保存自动通知和收件人修改。测试发送使用当前勾选的账号，不必先保存，也不会改变自动通知开关或监测基线。")
@@ -695,6 +851,8 @@ struct CodexUsageCard: View {
                 Spacer()
                 Button("取消", role: .cancel) { showSettings = false }
                 Button("应用设置") {
+                    normalizeDistinctProviders()
+                    guard providersAreDistinct || settingsTab == "notifications" else { return }
                     frontProvider = usageSettingsDraft.frontProvider
                     backProvider = usageSettingsDraft.backProvider
                     showFiveHour = usageSettingsDraft.showFiveHour
@@ -708,10 +866,18 @@ struct CodexUsageCard: View {
                     showCursorTotal = usageSettingsDraft.showCursorTotal
                     showCursorModels = usageSettingsDraft.showCursorModels
                     showCursorOtherModels = usageSettingsDraft.showCursorOtherModels
+                    showClaudeFiveHour = usageSettingsDraft.showClaudeFiveHour
+                    showClaudeWeekly = usageSettingsDraft.showClaudeWeekly
+                    showClaudeModels = usageSettingsDraft.showClaudeModels
+                    museUsageURL = normalizedMuseURL(usageSettingsDraft.museUsageURL)
+                    usageSettingsDraft.museUsageURL = museUsageURL
+                    syncProviderMonitors()
                     appState.codexNotifications.apply(notificationDraft)
                     showSettings = false
+                    Task { await refreshEnabledProviderMonitors() }
                 }
-                .disabled(notificationDraft.validationError != nil)
+                .disabled((settingsTab != "notifications" && !providersAreDistinct)
+                          || notificationDraft.validationError != nil)
                 .keyboardShortcut(.defaultAction)
             }
         }
@@ -746,14 +912,80 @@ struct CodexUsageCard: View {
         }
     }
 
+    private var museUsageContent: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Muse 用量暂未接入自动读取")
+                .font(.caption2).foregroundStyle(.secondary)
+            Text("可在用量设置中配置打开页面。")
+                .font(.caption2).foregroundStyle(.secondary)
+            Button("打开 Muse") { openExternal(normalizedMuseURL(museUsageURL)) }
+                .buttonStyle(.borderless)
+                .controlSize(.small)
+        }
+    }
+
+    @ViewBuilder
+    private var claudeUsageContent: some View {
+        if showClaudeFiveHour { claudeUsageRow("5 小时", window: claudeMonitor.snapshot?.fiveHour) }
+        if showClaudeWeekly { claudeUsageRow("一周", window: claudeMonitor.snapshot?.sevenDay) }
+        if showClaudeModels {
+            ForEach(claudeModelWindows, id: \.id) { item in
+                claudeUsageRow(item.title, window: item.window)
+            }
+        }
+        if !showClaudeFiveHour && !showClaudeWeekly && !showClaudeModels {
+            Text("在用量设置中选择显示内容").font(.caption2).foregroundStyle(.secondary)
+        }
+    }
+
+    private var claudeUsageDetails: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            claudeUsageRow("5 小时使用限额", window: claudeMonitor.snapshot?.fiveHour, detailed: true)
+            claudeUsageRow("一周使用限额", window: claudeMonitor.snapshot?.sevenDay, detailed: true)
+            ForEach(claudeModelWindows, id: \.id) { item in
+                claudeUsageRow(item.title + "限额", window: item.window, detailed: true)
+            }
+        }
+    }
+
+    private var claudeRingItems: [UsageRingItem] {
+        var items: [UsageRingItem] = []
+        if showClaudeFiveHour {
+            let window = claudeMonitor.snapshot?.fiveHour
+            items.append(.init(id: "claudeFiveHour", title: "5小时", value: window.map { "\(Int($0.remaining.rounded()))%" } ?? "未获取", remaining: window?.remaining, color: .blue, time: ringTime(window?.resetsAt?.timeIntervalSince1970)))
+        }
+        if showClaudeWeekly {
+            let window = claudeMonitor.snapshot?.sevenDay
+            items.append(.init(id: "claudeWeekly", title: "一周", value: window.map { "\(Int($0.remaining.rounded()))%" } ?? "未获取", remaining: window?.remaining, color: .orange, time: ringTime(window?.resetsAt?.timeIntervalSince1970)))
+        }
+        if showClaudeModels {
+            for item in claudeModelWindows {
+                let color: Color = item.id == "opus" ? .purple : .pink
+                items.append(.init(id: "claude-" + item.id, title: item.title.replacingOccurrences(of: " 一周", with: ""), value: "\(Int(item.window.remaining.rounded()))%", remaining: item.window.remaining, color: color, time: ringTime(item.window.resetsAt?.timeIntervalSince1970)))
+            }
+        }
+        return items
+    }
+
+    private func claudeUsageRow(_ title: String, window: ClaudeUsageSnapshot.Window?, detailed: Bool = false) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            valueRow(title, value: window.map { "剩余 \(Int($0.remaining.rounded()))%" } ?? "未获取")
+            if let window {
+                if showProgress || detailed {
+                    ProgressView(value: window.remaining, total: 100).tint(usageColor(window.remaining))
+                }
+                if (showResetTime || detailed), let reset = window.resetsAt {
+                    Text("重置：" + reset.formatted(.dateTime.month().day().hour().minute()))
+                        .font(.caption2).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+    }
+
     @ViewBuilder
     private var cursorUsageContent: some View {
-        if activeProvider == "claude" {
-            Text("Claude 用量暂未接入读取")
-                .font(.caption2).foregroundStyle(.secondary)
-            Text("请在 Claude 用量设置或账单页面查看。")
-                .font(.caption2).foregroundStyle(.secondary)
-        } else if showCursorTotal { cursorUsageRow("综合剩余", remaining: cursorMonitor.snapshot?.planUsage?.totalRemaining) }
+        if showCursorTotal { cursorUsageRow("综合剩余", remaining: cursorMonitor.snapshot?.planUsage?.totalRemaining) }
         if showCursorModels { cursorUsageRow("Cursor 模型", remaining: cursorMonitor.snapshot?.planUsage?.cursorModelsRemaining) }
         if showCursorOtherModels { cursorUsageRow("其他模型", remaining: cursorMonitor.snapshot?.planUsage?.otherModelsRemaining) }
         if !showCursorTotal && !showCursorModels && !showCursorOtherModels {
@@ -787,6 +1019,36 @@ struct CodexUsageCard: View {
     private func openExternal(_ string: String) {
         guard let url = URL(string: string) else { return }
         NSWorkspace.shared.open(url)
+    }
+
+    private func normalizedMuseURL(_ raw: String) -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return UsageSettingsDraft.defaultMuseUsageURL }
+        if trimmed.contains("://") { return trimmed }
+        return "https://" + trimmed
+    }
+
+    private func refreshActiveProvider() async {
+        if isCursorFace {
+            guard !cursorMonitor.isRefreshing else { return }
+            appState.flashToast("正在刷新 Cursor 用量…")
+            await cursorMonitor.refresh(allowKeychainInteraction: true)
+            appState.flashToast(cursorMonitor.message.map { "刷新失败：" + $0 } ?? "Cursor 用量已更新")
+        } else if isClaudeFace {
+            guard !claudeMonitor.isRefreshing else { return }
+            appState.flashToast("正在刷新 Claude 用量…")
+            await claudeMonitor.refresh(allowKeychainInteraction: true)
+            appState.flashToast(claudeMonitor.message.map { "刷新失败：" + $0 } ?? "Claude 用量已更新")
+        } else {
+            guard monitor.proxyConnected else {
+                appState.flashToast("请先连接代理，再获取 Codex 用量")
+                return
+            }
+            guard !monitor.isRefreshing else { return }
+            appState.flashToast("正在刷新 Codex 用量…")
+            await monitor.refresh(force: true)
+            appState.flashToast(monitor.message.map { "刷新失败：" + $0 } ?? "Codex 用量已更新")
+        }
     }
 
     private func flipCard() {

@@ -237,7 +237,7 @@ actor SingBoxConnectionBridge {
         try FileManager.default.createDirectory(at: session, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
         directory = session
         do {
-            let executable = try await SingBoxInstaller.prepare(in: session)
+            let executable = try await SingBoxBridgeBinary.shared.url()
             binary = executable
             let reservation = try LocalTestPorts(count: indices.count)
             var inbounds: [[String: Any]] = []

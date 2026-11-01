@@ -318,9 +318,13 @@ final class SubscriptionManager: ObservableObject {
             updateState = .merging
             let oldNodes = existingNodes.filter { $0.subscriptionID == sub.id }
             let otherNodes = existingNodes.filter { $0.subscriptionID != sub.id }
+            let incoming = SubscriptionMerger.excludingCleanedNodes(
+                normalized, oldNodes: oldNodes,
+                suppressedFingerprints: mergeInput.suppressedUnavailableFingerprints
+            )
             let plan = await Task.detached(priority: .utility) {
                 SubscriptionMerger.buildPlan(
-                    mode: mergeInput.updateMode, oldNodes: oldNodes, newNodes: normalized,
+                    mode: mergeInput.updateMode, oldNodes: oldNodes, newNodes: incoming,
                     missingLimit: mergeInput.smartMergeMissingLimit, preserveNodeIDs: preserveNodeIDs
                 )
             }.value
@@ -444,9 +448,13 @@ final class SubscriptionManager: ObservableObject {
         updateState = .merging
         let others = existingNodes.filter { $0.subscriptionID != sub.id }
         let oldForSub = existingNodes.filter { $0.subscriptionID == sub.id }
+        let incoming = SubscriptionMerger.excludingCleanedNodes(
+            imported, oldNodes: oldForSub,
+            suppressedFingerprints: mergeInput.suppressedUnavailableFingerprints
+        )
         let plan = await Task.detached(priority: .utility) {
             SubscriptionMerger.buildPlan(
-                mode: mergeInput.updateMode, oldNodes: oldForSub, newNodes: imported,
+                mode: mergeInput.updateMode, oldNodes: oldForSub, newNodes: incoming,
                 missingLimit: mergeInput.smartMergeMissingLimit, preserveNodeIDs: preserveNodeIDs
             )
         }.value

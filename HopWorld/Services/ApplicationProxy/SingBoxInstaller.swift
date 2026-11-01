@@ -161,3 +161,48 @@ enum SingBoxInstaller {
         return directory.appendingPathComponent(folder).appendingPathComponent("sing-box")
     }
 }
+
+/// Unprivileged connection bridges reuse one extracted binary per version. Launching
+/// a fresh copy each session makes Gatekeeper re-scan it, and when its notarization
+/// lookup stalls macOS flashes a "Verifying…" window behind the app.
+actor SingBoxBridgeBinary {
+    static let shared = SingBoxBridgeBinary()
+
+    private var verifiedDigests: [String: String] = [:]
+    private var pending: [String: Task<URL, Error>] = [:]
+
+    private static var directory: URL {
+        XrayInstaller.supportDirectory.appendingPathComponent("sing-box-bridge", isDirectory: true)
+    }
+
+    func url(version: String = SingBoxInstaller.selectedVersion) async throws -> URL {
+        let target = Self.directory.appendingPathComponent("sing-box-\(version)-darwin-\(SingBoxInstaller.architecture)")
+        if let expected = verifiedDigests[version], (try? SingBoxInstaller.digest(target)) == expected {
+            return target
+        }
+        if let task = pending[version] { return try await task.value }
+        let task = Task { try await Self.install(version: version, at: target) }
+        pending[version] = task
+        defer { pending[version] = nil }
+        let installed = try await task.value
+        verifiedDigests[version] = try SingBoxInstaller.digest(installed)
+        return installed
+    }
+
+    /// Extract from the pinned archive once per run; keep the existing file when its
+    /// bytes already match so Gatekeeper's verdict for that path stays cached.
+    private static func install(version: String, at target: URL) async throws -> URL {
+        let fileManager = FileManager.default
+        let staging = fileManager.temporaryDirectory.appendingPathComponent("hopworld-singbox-stage-\(UUID().uuidString)")
+        try fileManager.createDirectory(at: staging, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        defer { try? fileManager.removeItem(at: staging) }
+        let extracted = try await SingBoxInstaller.prepare(in: staging, version: version)
+        if (try? SingBoxInstaller.digest(target)) != (try SingBoxInstaller.digest(extracted)) {
+            try fileManager.createDirectory(at: directory, withIntermediateDirectories: true,
+                                            attributes: [.posixPermissions: 0o700])
+            try? fileManager.removeItem(at: target)
+            try fileManager.moveItem(at: extracted, to: target)
+        }
+        return target
+    }
+}

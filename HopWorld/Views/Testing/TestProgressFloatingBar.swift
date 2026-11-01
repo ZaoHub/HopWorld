@@ -45,16 +45,20 @@ struct TestProgressFloatingBar: View {
 
     private var batchTestingContent: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
+            HStack(spacing: 6) {
                 ProgressView()
                     .controlSize(.small)
                 Text(testManager.statusText.isEmpty ? "正在测速…" : testManager.statusText)
                     .font(.caption.weight(.medium))
                     .lineLimit(2)
-                Spacer(minLength: 4)
+                    .minimumScaleFactor(0.65)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 Text(testManager.phase.displayName)
                     .font(.caption2.weight(.semibold))
                     .foregroundStyle(batchPhaseColor)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                    .layoutPriority(1)
             }
 
             ProgressView(value: testManager.progress)
@@ -88,7 +92,8 @@ struct TestProgressFloatingBar: View {
             .font(.caption2.monospacedDigit())
             .foregroundStyle(color)
             .lineLimit(1)
-            .minimumScaleFactor(0.5)
+            .minimumScaleFactor(0.4)
+            .multilineTextAlignment(.center)
             .frame(maxWidth: .infinity)
             .help(value)
     }
@@ -103,16 +108,10 @@ struct TestProgressFloatingBar: View {
                 total: appState.appProbeBatch.total,
                 statusText: appState.appProbeBatch.statusText
             )
-            HStack(spacing: 0) {
-                Spacer(minLength: 0)
-                Button("详情") { appState.selectedSidebar = .testing }
-                Spacer(minLength: 4)
-                Button("停止") { appState.stopAppProbeBatch() }
-                Spacer(minLength: 0)
+            HStack(spacing: 4) {
+                compactBarButton("详情") { appState.selectedSidebar = .testing }
+                compactBarButton("停止") { appState.stopAppProbeBatch() }
             }
-            .font(.caption2)
-            .buttonStyle(.bordered)
-            .controlSize(.small)
         }
     }
 
@@ -125,18 +124,12 @@ struct TestProgressFloatingBar: View {
                 statusText: testManager.appProbeNodeLabel.map { appState.settings.nodeDisplayName($0) }
                     ?? testManager.appProbeStatusText
             )
-            HStack(spacing: 0) {
-                Spacer(minLength: 0)
-                Button("详情") { appState.selectedSidebar = .testing }
-                Spacer(minLength: 4)
-                Button("取消探测") {
+            HStack(spacing: 4) {
+                compactBarButton("详情") { appState.selectedSidebar = .testing }
+                compactBarButton("取消探测") {
                     testManager.resetAppProbes(targets: appState.settings.automaticAppProbeTargets)
                 }
-                Spacer(minLength: 0)
             }
-            .font(.caption2)
-            .buttonStyle(.bordered)
-            .controlSize(.small)
         }
     }
 
@@ -215,39 +208,50 @@ struct TestProgressFloatingBar: View {
     }
 
     private var testActionButtons: some View {
-        HStack(spacing: 0) {
-            Spacer(minLength: 0)
-            Button("详情") {
+        HStack(spacing: 4) {
+            compactBarButton("详情") {
                 appState.selectedSidebar = .testing
             }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
-
             if testManager.canPause {
-                Spacer(minLength: 4)
-                Button("停止") {
+                compactBarButton("停止", prominent: true) {
                     appState.stopTesting()
                 }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.small)
-                Spacer(minLength: 4)
-                Button("暂停") {
+                compactBarButton("暂停") {
                     appState.pauseTesting()
                 }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
             }
             if testManager.canResume {
-                Spacer(minLength: 4)
-                Button("继续") {
+                compactBarButton("继续", prominent: true) {
                     Task { await appState.resumeTesting() }
                 }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.small)
             }
-            Spacer(minLength: 0)
         }
-        .font(.caption2)
+    }
+
+    /// 侧栏极窄时均分宽度并缩小文字，避免「详情」被裁成「…」。
+    @ViewBuilder
+    private func compactBarButton(
+        _ title: String,
+        prominent: Bool = false,
+        action: @escaping () -> Void
+    ) -> some View {
+        let label = Text(title)
+            .font(.caption2)
+            .lineLimit(1)
+            .minimumScaleFactor(0.55)
+            .frame(maxWidth: .infinity)
+        Group {
+            if prominent {
+                Button(action: action) { label }
+                    .buttonStyle(.borderedProminent)
+            } else {
+                Button(action: action) { label }
+                    .buttonStyle(.bordered)
+            }
+        }
+        .controlSize(.small)
+        .frame(maxWidth: .infinity)
+        .help(title)
     }
 
     private var connectionHeadline: String {
@@ -378,12 +382,17 @@ struct AppProbeProgressView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 8) {
+            HStack(spacing: 6) {
                 Text(title)
                     .fontWeight(.medium)
-                Spacer(minLength: 4)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.65)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 Text("\(completed)/\(total)")
                     .monospacedDigit()
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                    .layoutPriority(1)
             }
             .font(.caption)
             ProgressView(value: Double(completed), total: Double(max(1, total)))
@@ -392,6 +401,7 @@ struct AppProbeProgressView: View {
                 .font(.caption2)
                 .foregroundStyle(.secondary)
                 .lineLimit(2)
+                .minimumScaleFactor(0.65)
                 .help(statusText)
         }
     }

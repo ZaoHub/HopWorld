@@ -17,9 +17,10 @@ enum GeoNamesCityBuilder {
     static func build(in directory: URL) throws -> ChineseCityCatalog {
         var records: [Int: Record] = [:]
         try lines(in: directory.appendingPathComponent("cities500.zip"), member: "cities500.txt") { f in
-            guard f.count == 19, f[6] == "P", let id = Int(f[0]),
+            // Skip blank / non-city rows; only abort later if nothing usable remains.
+            guard f.count >= 19, f[6] == "P", let id = Int(f[0]),
                   let lat = Double(f[4]), let lon = Double(f[5]), ChineseCityCatalog.validCoordinates(lat, lon) else {
-                throw CityLibraryError.invalidData
+                return
             }
             let chinese = ["CN", "TW", "HK", "MO"].contains(f[8]) ? ChineseCityCatalog.chineseName(f[1]) : nil
             records[id] = Record(country: f[8], admin: f[10], latitude: lat, longitude: lon,

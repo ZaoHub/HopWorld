@@ -288,6 +288,9 @@ struct Subscription: Identifiable, Codable, Hashable, Sendable {
     var autoCleanupUnavailableNodes: Bool?
     var unavailableCleanupDays: Int?
     var cleanupHistory: [SubscriptionCleanupRecord]?
+    /// Fingerprints removed by unavailable-node cleanup. Later subscription updates skip these
+    /// so an unchanged or lightly changed payload cannot immediately import them again.
+    var suppressedUnavailableFingerprints: [String]?
 
     func automaticCleanupCountToday(now: Date = Date(), calendar: Calendar = .current) -> Int {
         (cleanupHistory ?? []).filter {

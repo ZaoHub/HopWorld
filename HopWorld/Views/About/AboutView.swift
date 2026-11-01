@@ -6,9 +6,7 @@ struct AboutView: View {
     @State private var enlarged: SupportPayChannel?
 
     private var appVersion: String {
-        let short = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
-        let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1"
-        return "\(short) (\(build))"
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
     }
 
     var body: some View {
@@ -31,16 +29,23 @@ struct AboutView: View {
     }
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("跃界")
-                .font(.system(size: 34, weight: .bold, design: .rounded))
-            Text("HopWorld")
-                .font(.system(size: 14, weight: .medium, design: .rounded))
-                .foregroundStyle(.secondary)
-            Text("基于 Xray 的 macOS 代理客户端。测速、收藏、故障切换与订阅更新，尽量少打扰。")
-                .font(.body)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+        HStack(alignment: .center, spacing: 16) {
+            Image("AppLogo")
+                .resizable()
+                .interpolation(.high)
+                .frame(width: 72, height: 72)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 10) {
+                Text("跃界")
+                    .font(.system(size: 34, weight: .bold, design: .rounded))
+                Text("HopWorld")
+                    .font(.system(size: 14, weight: .medium, design: .rounded))
+                    .foregroundStyle(.secondary)
+                Text("基于 Xray 的 macOS 代理客户端。测速、收藏、故障切换与订阅更新，尽量少打扰。")
+                    .font(.body)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
     }
 

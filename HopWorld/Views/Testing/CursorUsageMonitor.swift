@@ -235,6 +235,8 @@ final class CursorUsageMonitor: ObservableObject {
     @Published var updatedAt: Date?
     @Published var message: String?
     @Published var isRefreshing = false
+    /// When false, timers and callers skip refresh so unused faces do not touch Keychain or network.
+    var isMonitoringEnabled = true
     private var refreshTimer: Timer?
     private let readSnapshot: @Sendable (Bool) async throws -> CursorUsageSnapshot
     init(refreshInterval: TimeInterval = 300,
@@ -250,7 +252,7 @@ final class CursorUsageMonitor: ObservableObject {
     }
     deinit { refreshTimer?.invalidate() }
     func refresh(allowKeychainInteraction: Bool = false) async {
-        guard !isRefreshing else { return }
+        guard isMonitoringEnabled, !isRefreshing else { return }
         isRefreshing = true
         defer { isRefreshing = false }
         do {

@@ -922,7 +922,7 @@ enum ScheduledTestNodeScope: String, Codable, CaseIterable, Sendable {
         case .all:
             return "对当前订阅范围内的全部节点定时测速（含不可用）。"
         case .availableOnly:
-            return "只对当前标记为可用（含各延迟档次）的节点定时测速，节省时间。"
+            return "只对当前可用节点定时测速。不可用和失败节点不测；没有新的相同状态结果时顺延计时，已超过设定天数且天数内仍是同一状态则立即删除。"
         case .favoritesOnly:
             return "只对已收藏节点定时测速。"
         }

@@ -271,6 +271,7 @@ struct TestCenterView: View {
     @State private var draftAppProbeSettings: AppSettings?
     @State private var appProbeBaseline: AppSettings?
     @State private var resultPage = 1
+    @State private var testTargetStatus: TestTargetStatus = .all
 
     /// Shared with 节点 page subscription chips.
     private var testScope: NodeListFilter.Source {
@@ -343,6 +344,9 @@ struct TestCenterView: View {
             if appProbeScope != .all, !scopes.contains(appProbeScope) { appProbeScope = .all }
         }
         .onChange(of: testScope) { _ in
+            resultPage = 1
+        }
+        .onChange(of: testTargetStatus) { _ in
             resultPage = 1
         }
         .sheet(item: $selectedStatistic) { statistic in
@@ -570,10 +574,7 @@ struct TestCenterView: View {
     }
 
     private var scopePicker: some View {
-        HStack(spacing: 8) {
-            Text("订阅范围")
-                .font(.system(size: 12))
-                .foregroundStyle(palette.subtext)
+        HStack(spacing: 12) {
             Picker("订阅", selection: testScopeBinding) {
                 Text("全部").tag(NodeListFilter.Source.all)
                 ForEach(subscriptionScopeOptions) { option in
@@ -581,9 +582,19 @@ struct TestCenterView: View {
                 }
             }
             .pickerStyle(.menu)
-            .frame(maxWidth: 220)
+            .frame(maxWidth: 180)
+            .disabled(testManager.isTesting)
+
+            Picker("状态", selection: $testTargetStatus) {
+                ForEach(TestTargetStatus.allCases) { status in
+                    Text(status.title).tag(status)
+                }
+            }
+            .pickerStyle(.menu)
+            .frame(maxWidth: 140)
             .disabled(testManager.isTesting)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var controlButtons: some View {
@@ -937,7 +948,7 @@ struct TestCenterView: View {
                     }
                 }
                 .pickerStyle(.segmented)
-                if appProbePreviewSettings.effectiveAppProbeSource != .defaults {
+                if appProbePreviewSettings.effectiveAppProbeSource == .custom {
                     InstalledAppProbeSettings(settings: Binding(get: { appProbePreviewSettings }, set: { updated in updateAppProbeDraft { $0 = updated } }))
                 }
                 Stepper(
@@ -1385,7 +1396,19 @@ struct TestCenterView: View {
     }
 
     private var scopedTargets: [ProxyNode] {
-        NodeListFilter.nodes(in: appState.nodes, source: testScope, subscriptions: appState.subscriptions)
+        let nodes = NodeListFilter.nodes(in: appState.nodes, source: testScope, subscriptions: appState.subscriptions)
+        switch testTargetStatus {
+        case .all:
+            return nodes
+        case .available:
+            return nodes.filter { $0.lastTestStatus.isUsable }
+        case .untested:
+            return nodes.filter { $0.lastTestStatus == .untested }
+        case .unavailable:
+            return nodes.filter { $0.lastTestStatus == .unavailable }
+        case .failed:
+            return nodes.filter { $0.lastTestStatus == .failed }
+        }
     }
 
     private var usableResults: [ProxyNode] {
@@ -1530,6 +1553,26 @@ private struct SubscriptionScopeOption: Identifiable {
     var id: String
     var title: String
     var scope: NodeListFilter.Source
+}
+
+private enum TestTargetStatus: String, CaseIterable, Identifiable {
+    case all
+    case available
+    case untested
+    case unavailable
+    case failed
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .all: return "全部"
+        case .available: return "可用"
+        case .untested: return "未测试"
+        case .unavailable: return "不可用"
+        case .failed: return "失败"
+        }
+    }
 }
 
 /// 路由页「信号塔」主题调色板，深浅色自适应。
@@ -2591,6 +2634,10 @@ struct SettingsView: View {
     @State private var includeManualNodesInBackup = true
     @State private var selectedBackupSubscriptionIDs: Set<UUID> = []
     @State private var backupFeedback: String?
+    @State private var cleanupCategories: [StorageCleaner.Category]?
+    @State private var cleanupBusy = false
+    @State private var cleanupFeedback: String?
+    @State private var confirmingCleanup = false
     @State private var backupDialogFeedback: String?
     @State private var pendingImportData: Data?
     @State private var pendingImportPassphrase = ""
@@ -2604,19 +2651,19 @@ struct SettingsView: View {
             LazyVStack(spacing: 12) {
                 settingsHeader
                 themeSettings
-                SetCard(title: "中文地名离线库", icon: "globe.asia.australia", palette: palette) {
-                    ChineseCityLibrarySettings()
+                SetCard(title: "中文地名", icon: "globe.asia.australia", palette: palette) {
+                    ChineseCityLibrarySettings(
+                        showChinese: Binding(
+                            get: { previewSettings.showChineseNodeMetadata },
+                            set: { value in updateDraftSettings { $0.showChineseNodeMetadata = value } }
+                        )
+                    )
                 }
                 SetCard(title: "常规", icon: "gearshape", palette: palette) {
                 Toggle("登录时启动", isOn: Binding(
                     get: { previewSettings.launchAtLogin },
                     set: { value in updateDraftSettings { $0.launchAtLogin = value } }
                 ))
-                Toggle("节点信息显示中文", isOn: Binding(
-                    get: { previewSettings.showChineseNodeMetadata },
-                    set: { value in updateDraftSettings { $0.showChineseNodeMetadata = value } }
-                ))
-                .help("默认开启。仅可用节点会自动在线匹配中文城市；未找到可靠中文名时显示原名，悬停提示中文名待补充。")
                 NodeNameAdFilterSettings(isEnabled: Binding(
                     get: { previewSettings.filterNodeNameAds },
                     set: { value in updateDraftSettings { $0.filterNodeNameAds = value } }
@@ -2978,14 +3025,19 @@ struct SettingsView: View {
                         get: { previewSettings.autoAppProbeUsableNodes },
                         set: { value in updateDraftSettings { $0.autoAppProbeUsableNodes = value } }
                     ))
-                    UsageHelpButton(title: "自动应用连通说明", text: "关闭（默认）时，手动与后台测速完成后都不自动继续应用探测，自动优选只按测速延迟排序。开启后，测速结束会补测可用节点，并按应用优先顺序比较连通结果，再结合收藏偏好和延迟优选。也可在「应用连通 → 可用」中独立手动测试；进度显示在「测试仪表」。\n\n探测名单默认来自「路由 → 按应用代理」，也可改用默认应用或自定义应用；只检查网址能否打开，不会启动应用，也不会改变哪些应用走代理。浏览器默认测 Google，没有对应网址的应用需要填写。")
+                    UsageHelpButton(
+                        title: "自动应用连通说明",
+                        text: "关闭（默认）时，手动与后台测速完成后都不自动继续应用探测，自动优选只按测速延迟排序。开启后，测速结束会补测可用节点，并按应用优先顺序比较连通结果，再结合收藏偏好和延迟优选。也可在「应用连通 → 可用」中独立手动测试；进度显示在「测试仪表」。\n\n探测名单来自「路由 → 按应用代理」，增删请到那里；也可改用默认应用或自定义应用。只检查网址能否打开，不会启动应用，也不会改变哪些应用走代理。浏览器默认测 Google，没有对应网址的应用需要在「自定义应用」里填写。"
+                    )
                 }
-                InstalledAppProbeSettings(settings: Binding(
-                    get: { previewSettings },
-                    set: { updated in
-                        updateDraftSettings { $0.installedAppProbes = updated.installedAppProbes }
-                    }
-                ))
+                if previewSettings.effectiveAppProbeSource == .custom {
+                    InstalledAppProbeSettings(settings: Binding(
+                        get: { previewSettings },
+                        set: { updated in
+                            updateDraftSettings { $0.installedAppProbes = updated.installedAppProbes }
+                        }
+                    ))
+                }
                 Stepper(
                     "应用连通超时：\(previewSettings.appProbeTimeoutSeconds) 秒",
                     value: Binding(
@@ -3094,6 +3146,10 @@ struct SettingsView: View {
 
             SetCard(title: "数据备份", icon: "externaldrive", palette: palette) {
                 backupSettings
+            }
+
+            SetCard(title: "清理", icon: "trash", palette: palette) {
+                storageCleanupSettings
             }
 
             SetCard(title: "高级", icon: "wrench", palette: palette) {
@@ -3390,6 +3446,85 @@ struct SettingsView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
+    }
+
+    private var cleanupTotalBytes: Int64 { cleanupCategories?.reduce(0) { $0 + $1.bytes } ?? 0 }
+    private var cleanupHasItems: Bool { cleanupCategories?.contains { !$0.items.isEmpty } ?? false }
+
+    private var storageCleanupSettings: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if let categories = cleanupCategories {
+                HStack(alignment: .firstTextBaseline, spacing: 28) {
+                    ForEach(categories) { category in
+                        HStack(alignment: .firstTextBaseline, spacing: 6) {
+                            Text(category.kind.title)
+                            UsageHelpButton(title: category.kind.title, text: category.kind.detail)
+                            Text(category.items.isEmpty
+                                 ? "无"
+                                 : "\(category.items.count) 项 · \(ByteCountFormatter.string(fromByteCount: category.bytes, countStyle: .file))")
+                                .monospacedDigit()
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    Spacer(minLength: 0)
+                }
+            } else {
+                Text("正在统计…").foregroundStyle(.secondary)
+            }
+            HStack(spacing: 8) {
+                Group {
+                    Button("重新统计") { Task { await scanStorage() } }
+                    Button("清理…") { confirmingCleanup = true }
+                        .disabled(!cleanupHasItems)
+                }
+                .buttonStyle(.bordered)
+                .disabled(cleanupBusy)
+                if cleanupCategories != nil, !cleanupHasItems, !cleanupBusy {
+                    Text("暂无可清理的文件")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            Text("只清理跃界自己留下的临时文件和不再使用的核心，不会删除节点、订阅、设置、日志或规则数据。")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            if let cleanupFeedback {
+                Text(cleanupFeedback)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .task { if cleanupCategories == nil { await scanStorage() } }
+        .confirmationDialog(
+            "清理 \(ByteCountFormatter.string(fromByteCount: cleanupTotalBytes, countStyle: .file))？",
+            isPresented: $confirmingCleanup
+        ) {
+            Button("清理", role: .destructive) { Task { await cleanStorage() } }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("删除后无法恢复；正在使用的文件不会被删除。")
+        }
+    }
+
+    private func scanStorage() async {
+        cleanupBusy = true
+        cleanupCategories = await Task.detached(priority: .utility) { StorageCleaner.scan() }.value
+        cleanupBusy = false
+    }
+
+    private func cleanStorage() async {
+        guard let categories = cleanupCategories else { return }
+        cleanupBusy = true
+        let result = await Task.detached(priority: .utility) { StorageCleaner.clean(categories) }.value
+        let freed = ByteCountFormatter.string(fromByteCount: result.bytes, countStyle: .file)
+        cleanupFeedback = result.failures == 0
+            ? "已清理 \(result.removed) 项，释放 \(freed)。"
+            : "已清理 \(result.removed) 项，释放 \(freed)；\(result.failures) 项无法删除，可能正在使用或权限不足。"
+        appState.logger.info("存储清理：删除 \(result.removed) 项，释放 \(freed)，失败 \(result.failures) 项")
+        cleanupCategories = await Task.detached(priority: .utility) { StorageCleaner.scan() }.value
+        cleanupBusy = false
     }
 
     private func backupDialog(for operation: BackupOperation) -> some View {
@@ -4151,52 +4286,37 @@ private struct InstalledAppProbeSettings: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(settings.effectiveAppProbeSource == .custom
-                ? "添加本机应用，并填写要探测的网址。只检查网址能否打开，不会启动应用，也不会改变哪些应用走代理。"
-                : "探测名单来自「路由 → 按应用代理」，增删请到那里。只检查网址能否打开，不会启动应用，也不会改变哪些应用走代理。浏览器默认测 Google，没有对应网址的应用需要填写。")
-                .font(.caption).foregroundStyle(.secondary)
-            if settings.effectiveAppProbeSource == .custom {
-                ForEach(settings.installedAppProbes) { probe in
-                    HStack {
-                        Text(probe.application.name).frame(width: 100, alignment: .leading)
-                        TextField("https://应用服务地址", text: Binding(
-                            get: { settings.installedAppProbes.first { $0.id == probe.id }?.endpoint ?? "" },
-                            set: { value in
-                                updateSettings { settings in
-                                    if let index = settings.installedAppProbes.firstIndex(where: { $0.id == probe.id }) {
-                                        settings.installedAppProbes[index].endpoint = value
-                                    }
+            ForEach(settings.installedAppProbes) { probe in
+                HStack {
+                    Text(probe.application.name).frame(width: 100, alignment: .leading)
+                    TextField("https://应用服务地址", text: Binding(
+                        get: { settings.installedAppProbes.first { $0.id == probe.id }?.endpoint ?? "" },
+                        set: { value in
+                            updateSettings { settings in
+                                if let index = settings.installedAppProbes.firstIndex(where: { $0.id == probe.id }) {
+                                    settings.installedAppProbes[index].endpoint = value
                                 }
                             }
-                        ))
-                        if probe.target == nil { Text("请输入有效地址").font(.caption).foregroundStyle(.orange) }
-                        Button("移除") {
-                            updateSettings { $0.installedAppProbes.removeAll { $0.id == probe.id } }
                         }
+                    ))
+                    if probe.target == nil { Text("请输入有效地址").font(.caption).foregroundStyle(.orange) }
+                    Button("移除") {
+                        updateSettings { $0.installedAppProbes.removeAll { $0.id == probe.id } }
                     }
+                }
             }
-                Button("添加已安装应用…") {
-                    let panel = NSOpenPanel()
-                    panel.title = "选择要测试连通的已安装应用"
-                    panel.directoryURL = URL(fileURLWithPath: "/Applications")
-                    panel.allowsMultipleSelection = true
-                    panel.canChooseDirectories = false
-                    panel.allowedContentTypes = [.applicationBundle]
-                    guard panel.runModal() == .OK else { return }
-                    do {
-                        for url in panel.urls { add(try ProxyApplication(url: url)) }
-                        error = nil
-                    } catch { self.error = error.localizedDescription }
-            }
-            } else {
-                ForEach(settings.proxyApplications.filter { application in
-                    !settings.ruleAppProbeTargets.contains { $0.id == application.id && !$0.probeURLs.isEmpty }
-                }) { application in
-                    HStack {
-                        Text("\(application.name) 还没有探测网址").font(.caption).foregroundStyle(.orange)
-                        Text("请在「自定义应用」里填写").font(.caption).foregroundStyle(.secondary)
-                    }
-            }
+            Button("添加已安装应用…") {
+                let panel = NSOpenPanel()
+                panel.title = "选择要测试连通的已安装应用"
+                panel.directoryURL = URL(fileURLWithPath: "/Applications")
+                panel.allowsMultipleSelection = true
+                panel.canChooseDirectories = false
+                panel.allowedContentTypes = [.applicationBundle]
+                guard panel.runModal() == .OK else { return }
+                do {
+                    for url in panel.urls { add(try ProxyApplication(url: url)) }
+                    error = nil
+                } catch { self.error = error.localizedDescription }
             }
             if let error { Text(error).font(.caption).foregroundStyle(.red) }
         }
@@ -4327,16 +4447,26 @@ struct AppProbeIcon: View {
 
 
 private struct ChineseCityLibrarySettings: View {
+    @Binding var showChinese: Bool
     @ObservedObject private var library = ChineseCityLibrary.shared
+
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 4) {
+                Toggle("节点信息显示中文", isOn: $showChinese)
+                UsageHelpButton(
+                    title: "中文地名说明",
+                    text: "开启后，节点出口城市优先匹配本机离线库；离线库没有的可用节点，会再在线向系统地理编码补充中文名。关闭后只显示原文。"
+                )
+            }
+
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 4) {
-                        Text("GeoNames 中文地名").font(.headline)
+                        Text("GeoNames 离线库").font(.headline)
                         UsageHelpButton(
                             title: "中文地名离线库说明",
-                            text: "从 GeoNames 官方源下载约 220 MB 数据，生成的离线库约 10 MB，保存在本机。开启中文显示后优先使用离线库，仅对可用节点在线补充。"
+                            text: "从 GeoNames 官方源下载约 220 MB 数据，生成的离线库约 10 MB，保存在本机。开启「节点信息显示中文」后优先使用离线库，仅对可用节点在线补充。"
                         )
                     }
                     if library.isInstalled {
@@ -4345,7 +4475,12 @@ private struct ChineseCityLibrarySettings: View {
                     }
                 }
                 Spacer()
-                if library.stage != nil {
+                if library.isDownloading {
+                    if let progress = library.progress {
+                        Text("\(Int((progress * 100).rounded()))%")
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                    }
                     ProgressView().controlSize(.small)
                     Button("取消") { library.cancel() }
                 } else {
@@ -4353,9 +4488,18 @@ private struct ChineseCityLibrarySettings: View {
                         .disabled(library.isInstalled)
                 }
             }
-            if let stage = library.stage { Text(stage).font(.caption).foregroundStyle(.secondary) }
-            if let error = library.error { Text(error).font(.caption).foregroundStyle(.red).textSelection(.enabled) }
+            if library.isDownloading {
+                ProgressView(value: library.progress ?? 0)
+                    .controlSize(.small)
+            }
+            if let stage = library.stage {
+                Text(stage).font(.caption).foregroundStyle(.secondary)
+            }
+            if let error = library.error {
+                Text(error).font(.caption).foregroundStyle(.red).textSelection(.enabled)
+            }
             Link("GeoNames · CC BY 4.0", destination: URL(string: "https://www.geonames.org/")!).font(.caption)
         }
+        .onAppear { library.clearErrorIfInstalled() }
     }
 }

@@ -14,6 +14,7 @@
 		0AF1618233E30D77AF67F0BF /* HopWorldTunnel.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = F0701A62C132842701751264 /* HopWorldTunnel.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		0EC525DD88602D14BDDB9AB9 /* ChineseCityLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = DAEFE8CED94DF23661EB4A35 /* ChineseCityLibrary.swift */; };
 		0FAF9F04E27FD7B67052D0F5 /* TrojanParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7499D9C3719C212C9947303E /* TrojanParser.swift */; };
+		0FBD1A8E85B9DF3F64963022 /* StorageCleaner.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8B34BBE2998B1B9582774C8 /* StorageCleaner.swift */; };
 		0FE5CCC7BACE73BCBED084F4 /* ComponentUpdates.swift in Sources */ = {isa = PBXBuildFile; fileRef = 892F3C56EF580E2804EA444A /* ComponentUpdates.swift */; };
 		11A1CB6A0A99E8F6B5268F67 /* WarmCardHover.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8ACFBA3C93E4CCD170FAAFD /* WarmCardHover.swift */; };
 		121514924B731252E6CF6DB6 /* SubscriptionListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B6F965419009A28AE1F45CF /* SubscriptionListView.swift */; };
@@ -131,6 +132,7 @@
 		A241BCA9581F62501C468318 /* TunSessionStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = C95FDDFF2B53604EC7D0FB09 /* TunSessionStatus.swift */; };
 		A55E55318C5D22F1CE17D208 /* ConnectionOperations.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70AFFFB7B9315D641EF28FB8 /* ConnectionOperations.swift */; };
 		A5919A534899FA9998515DF6 /* CryptoUtil.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E4ADD57F38DC298B5B6B54E /* CryptoUtil.swift */; };
+		A5A41BF9E200D4D3059FA99F /* ClaudeUsageMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B573F6A375BC74DFC5C03EE /* ClaudeUsageMonitor.swift */; };
 		A7CBD72860ED9414665A1C65 /* ChineseCityLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = DAEFE8CED94DF23661EB4A35 /* ChineseCityLibrary.swift */; };
 		A84212CC4F398812C0A4C4AE /* CodexRuntimeHealthReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = E9220A7CF81419809461BB4A /* CodexRuntimeHealthReader.swift */; };
 		A97EACF54DB209A46FB8EB0B /* GeoNamesCityBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38E3273F422520DAAD75B7FE /* GeoNamesCityBuilder.swift */; };
@@ -241,6 +243,7 @@
 		16B82F349D9EA5B6A6C52D74 /* ApplicationPickerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApplicationPickerTests.swift; sourceTree = "<group>"; };
 		1AB2CE6F2D599AC0F3C82441 /* BatchTestingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BatchTestingTests.swift; sourceTree = "<group>"; };
 		1B0120C8B03E267B25E2420F /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		1B573F6A375BC74DFC5C03EE /* ClaudeUsageMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeUsageMonitor.swift; sourceTree = "<group>"; };
 		1C77F0CD72907009FBE42AFB /* ClashCompatibilityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClashCompatibilityTests.swift; sourceTree = "<group>"; };
 		20B548F4A640ADA7AB3A2483 /* CountryResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CountryResolver.swift; sourceTree = "<group>"; };
 		286B96CEA82E049C1C49C05E /* DockActivation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockActivation.swift; sourceTree = "<group>"; };
@@ -309,6 +312,7 @@
 		9E620C454D1A17464525607B /* ProxyNode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProxyNode.swift; sourceTree = "<group>"; };
 		9FE1CFC9ADBCEAE5E6E3463B /* VLESSParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VLESSParser.swift; sourceTree = "<group>"; };
 		A52511E9A272D52784C8AA0B /* CodexRuntimeHealthReaderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexRuntimeHealthReaderTests.swift; sourceTree = "<group>"; };
+		A8B34BBE2998B1B9582774C8 /* StorageCleaner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StorageCleaner.swift; sourceTree = "<group>"; };
 		ABA31DF70357EEF0C24C4C81 /* CodexHealthMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexHealthMonitor.swift; sourceTree = "<group>"; };
 		BFBBDFAE14FF20AF8D10B27D /* PacketTunnelProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PacketTunnelProvider.swift; sourceTree = "<group>"; };
 		C18B18CA026CB40EF6DC632A /* ShareLinkComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareLinkComponents.swift; sourceTree = "<group>"; };
@@ -369,6 +373,7 @@
 				70AFFFB7B9315D641EF28FB8 /* ConnectionOperations.swift */,
 				882241696DE3A13818C870E2 /* IMessageSender.swift */,
 				9877D158C27F6AA69A06E4B2 /* NetworkRecoveryCoordinator.swift */,
+				A8B34BBE2998B1B9582774C8 /* StorageCleaner.swift */,
 				5953F56083A63810E4A97582 /* SystemProxyManager.swift */,
 				D31D7DF356C037964B67DD0F /* VPNManager.swift */,
 			);
@@ -682,6 +687,7 @@
 			isa = PBXGroup;
 			children = (
 				6141161F3B33D738F70B9AD3 /* ApplicationProxySection.swift */,
+				1B573F6A375BC74DFC5C03EE /* ClaudeUsageMonitor.swift */,
 				55C05A92596A7CC2D54F902F /* CodexResetNotificationSettingsFields.swift */,
 				E0445672094F216C81048AAB /* CodexTokenStatisticsView.swift */,
 				4CFC7FFC7EBC2F6636A091AC /* CodexUsageCard.swift */,
@@ -1038,6 +1044,7 @@
 				F89318A76EC9F1B9E0EC2AEC /* ChineseCityCatalog.swift in Sources */,
 				A7CBD72860ED9414665A1C65 /* ChineseCityLibrary.swift in Sources */,
 				8714306F712936156D721D0F /* ClashYAMLParser.swift in Sources */,
+				A5A41BF9E200D4D3059FA99F /* ClaudeUsageMonitor.swift in Sources */,
 				69AE619BC9F02D29A21D3AFC /* CodexConnectionQuality.swift in Sources */,
 				DDA2C06E1FF6A82B51985CD3 /* CodexHealthMonitor.swift in Sources */,
 				6516368B70F44B0A049DE288 /* CodexInterfaceHealthReader.swift in Sources */,
@@ -1089,6 +1096,7 @@
 				566B7D385B17BA1EB7AB606D /* ShareLinkComponents.swift in Sources */,
 				D6968569221967580A212E83 /* ShareLinkExporter.swift in Sources */,
 				5694729C700906C72A884DF9 /* SingBoxInstaller.swift in Sources */,
+				0FBD1A8E85B9DF3F64963022 /* StorageCleaner.swift in Sources */,
 				73E90112E56FDC42158D7BAD /* Subscription.swift in Sources */,
 				FA75DC8B8DEFFEF98CDF2749 /* SubscriptionDateTemplate.swift in Sources */,
 				B16678B765EEA9618C3ABC07 /* SubscriptionFetcher.swift in Sources */,
@@ -1172,11 +1180,11 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = "$(HOPWORLD_APP_ENTITLEMENTS)";
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = HopWorld/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/../Frameworks";
-				MARKETING_VERSION = 1.0.0;
+				MARKETING_VERSION = 1.0.1;
 				PRODUCT_BUNDLE_IDENTIFIER = "$(HOPWORLD_APP_BUNDLE_ID)";
 				PRODUCT_MODULE_NAME = HopWorld;
 				PRODUCT_NAME = HopWorld;
@@ -1209,11 +1217,11 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = "$(HOPWORLD_APP_ENTITLEMENTS)";
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = HopWorld/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/../Frameworks";
-				MARKETING_VERSION = 1.0.0;
+				MARKETING_VERSION = 1.0.1;
 				PRODUCT_BUNDLE_IDENTIFIER = "$(HOPWORLD_APP_BUNDLE_ID)";
 				PRODUCT_MODULE_NAME = HopWorld;
 				PRODUCT_NAME = HopWorld;
@@ -1389,11 +1397,11 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = "$(HOPWORLD_TUNNEL_ENTITLEMENTS)";
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = HopWorldTunnel/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/../../../../Frameworks";
-				MARKETING_VERSION = 1.0.0;
+				MARKETING_VERSION = 1.0.1;
 				PRODUCT_BUNDLE_IDENTIFIER = "$(HOPWORLD_TUNNEL_BUNDLE_ID)";
 				PRODUCT_MODULE_NAME = HopWorldTunnel;
 				PRODUCT_NAME = HopWorldTunnel;
@@ -1408,11 +1416,11 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = "$(HOPWORLD_TUNNEL_ENTITLEMENTS)";
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = HopWorldTunnel/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/../../../../Frameworks";
-				MARKETING_VERSION = 1.0.0;
+				MARKETING_VERSION = 1.0.1;
 				PRODUCT_BUNDLE_IDENTIFIER = "$(HOPWORLD_TUNNEL_BUNDLE_ID)";
 				PRODUCT_MODULE_NAME = HopWorldTunnel;
 				PRODUCT_NAME = HopWorldTunnel;

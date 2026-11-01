@@ -92,6 +92,22 @@ enum SubscriptionMerger {
         return true
     }
 
+    /// Drop fingerprints already removed by unavailable-node cleanup, unless that node is still
+    /// in the local library (then keep it so the merge can update it instead of treating it as missing).
+    static func excludingCleanedNodes(
+        _ newNodes: [ProxyNode],
+        oldNodes: [ProxyNode],
+        suppressedFingerprints: [String]?
+    ) -> [ProxyNode] {
+        guard let suppressedFingerprints, !suppressedFingerprints.isEmpty else { return newNodes }
+        let blocked = Set(suppressedFingerprints)
+        let kept = Set(oldNodes.map { $0.nodeFingerprint ?? NodeFingerprint.make(from: $0) })
+        return newNodes.filter { node in
+            let fp = node.nodeFingerprint ?? NodeFingerprint.make(from: node)
+            return kept.contains(fp) || !blocked.contains(fp)
+        }
+    }
+
     static func buildPlan(
         mode: SubscriptionUpdateMode,
         oldNodes: [ProxyNode],
