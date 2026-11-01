@@ -114,6 +114,7 @@
 		8D06799C0667028E55985101 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE82CA130645C100E28F1F71 /* ContentView.swift */; };
 		8DA74EA9AFB51A6B9D89DD5A /* NodeTesters.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C6AFC76B9A5CF2A077CBE5C /* NodeTesters.swift */; };
 		8E52947426550812A9137A2A /* VMessParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 647B1355A784B665A5703AE7 /* VMessParser.swift */; };
+		90ADDCDB8212C5FD3C5807D7 /* AppReleaseChecker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 07FDA554984004C708A0CB51 /* AppReleaseChecker.swift */; };
 		91CC6293BABECE720234DFE5 /* CodexConnectionQualityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FCFFA51DF56F2E8A3C57CB04 /* CodexConnectionQualityTests.swift */; };
 		934B808B475C24DA52B5D8E6 /* NetworkHealth.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79F6CE1A1C28A12918156EF9 /* NetworkHealth.swift */; };
 		956CEDEC3C6AFCA333F4F999 /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = C731E0FC258D39A115125A41 /* main.swift */; };
@@ -232,6 +233,7 @@
 
 /* Begin PBXFileReference section */
 		06DBA5201BC389B5047D8EFC /* NetworkHealthView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkHealthView.swift; sourceTree = "<group>"; };
+		07FDA554984004C708A0CB51 /* AppReleaseChecker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppReleaseChecker.swift; sourceTree = "<group>"; };
 		0B20C4B2DA4877F87BE8B497 /* NetworkHealthTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkHealthTests.swift; sourceTree = "<group>"; };
 		0B6F965419009A28AE1F45CF /* SubscriptionListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubscriptionListView.swift; sourceTree = "<group>"; };
 		0C3754E6A4A8D4E9106B6120 /* CodexResetHistory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexResetHistory.swift; sourceTree = "<group>"; };
@@ -369,6 +371,7 @@
 		01265225E04FEAF8F5162145 /* System */ = {
 			isa = PBXGroup;
 			children = (
+				07FDA554984004C708A0CB51 /* AppReleaseChecker.swift */,
 				54CB11FF4464CC93362C1CC2 /* ConnectionManager.swift */,
 				70AFFFB7B9315D641EF28FB8 /* ConnectionOperations.swift */,
 				882241696DE3A13818C870E2 /* IMessageSender.swift */,
@@ -1031,6 +1034,7 @@
 				867F10E3494F159816BC224B /* AboutView.swift in Sources */,
 				1B5DD0897288988BEC4A57F3 /* AppKitBridge.swift in Sources */,
 				36168704AE61718B45C9A89B /* AppProbe.swift in Sources */,
+				90ADDCDB8212C5FD3C5807D7 /* AppReleaseChecker.swift in Sources */,
 				37F9322EFB237735C4AD2FE0 /* AppState.swift in Sources */,
 				9B010B7EDD05EAC7FCF7D652 /* ApplicationHealthFailover.swift in Sources */,
 				26BA14135E1FAFB86DD34C14 /* ApplicationPickerEntry.swift in Sources */,

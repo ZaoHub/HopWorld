@@ -3,6 +3,7 @@ import SwiftUI
 
 struct AboutView: View {
     @EnvironmentObject private var appState: AppState
+    @StateObject private var appReleaseChecker = AppReleaseChecker()
     @State private var enlarged: SupportPayChannel?
 
     private var appVersion: String {
@@ -20,6 +21,9 @@ struct AboutView: View {
             .padding(28)
             .frame(maxWidth: 760, alignment: .leading)
             .frame(maxWidth: .infinity, alignment: .center)
+        }
+        .task {
+            await appReleaseChecker.checkIfNeeded(currentVersion: appVersion)
         }
         .sheet(item: $enlarged) { channel in
             EnlargedPayCodeView(channel: channel) {
@@ -51,13 +55,28 @@ struct AboutView: View {
 
     private var componentUpdatesEntry: some View {
         HStack(spacing: 16) {
-            Text("应用版本 \(appVersion)")
-                .font(.callout).foregroundStyle(.secondary)
+            HStack(spacing: 6) {
+                Text("应用版本 \(appVersion)")
+                    .foregroundStyle(.secondary)
+                if let newer = appReleaseChecker.newerVersion {
+                    Link(destination: AppReleaseChecker.homepageURL) {
+                        Text("（GitHub）\(newer)")
+                            .fontWeight(.medium)
+                    }
+                    .help("打开产品主页查看 GitHub 新版本 \(newer)")
+                    .accessibilityLabel("GitHub 新版本 \(newer)，打开产品主页")
+                }
+            }
+            .font(.callout)
+            .lineLimit(1)
+            .minimumScaleFactor(0.75)
+            .layoutPriority(1)
+
             HStack(spacing: 6) {
                 Text("组件更新").font(.headline)
                 UsageHelpButton(title: "组件更新说明", text: "统一管理 Xray、sing-box 与 GeoFiles 的版本和自动更新。")
             }
-            Spacer()
+            Spacer(minLength: 8)
             Button("管理更新") { appState.showComponentUpdates = true }
                 .buttonStyle(.bordered)
         }
