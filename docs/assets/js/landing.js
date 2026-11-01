@@ -4,8 +4,6 @@
 
   const header = document.querySelector(".site-header");
   const progress = document.querySelector(".scroll-progress");
-  const heroImg = document.querySelector(".hero-img-desktop");
-  const canParallax = heroImg && !reduce && window.matchMedia("(min-width: 641px)").matches;
 
   let scrollQueued = false;
   const onScroll = () => {
@@ -15,10 +13,6 @@
     if (progress) {
       const max = document.documentElement.scrollHeight - window.innerHeight;
       progress.style.setProperty("--progress", max > 0 ? (y / max).toFixed(4) : "0");
-    }
-    if (canParallax) {
-      const py = Math.min(y, window.innerHeight);
-      heroImg.style.transform = `scale(1.04) translate3d(0, ${py * 0.12}px, 0)`;
     }
   };
   onScroll();
