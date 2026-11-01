@@ -902,6 +902,13 @@ struct NodeConfigChecker {
             catch { return (false, error.localizedDescription) }
         case .vless, .vmess:
             guard let uuid = node.uuid, !uuid.isEmpty else { return (false, "缺少 UUID") }
+            // 公网明文 VLESS：Xray 禁止；sing-box 又不接受 FinalMask。提前标明，避免变成「Xray 启动失败」长日志。
+            if node.protocolType == .vless,
+               node.security == .none,
+               !isLoopbackOrPrivateHost(node.server),
+               FinalMaskCodec.isPresent(on: node) {
+                return (false, "公网无 TLS 的 VLESS 无法使用 FinalMask（Xray 禁止明文，sing-box 不支持 FinalMask）")
+            }
         case .hysteria2:
             guard !(node.password ?? "").isEmpty else { return (false, "缺少密码") }
         case .trojan:

@@ -2404,6 +2404,19 @@ final class SingBoxConnectionTests: XCTestCase {
         await manager.stop()
     }
 
+    func testPlainPublicVLESSWithFinalMaskFailsValidationClearly() {
+        var node = ProxyNode(name: "VLESS-FM", protocolType: .vless, server: "example.com", port: 80,
+                             uuid: "11111111-1111-4111-8111-111111111111", transport: .tcp, security: .none)
+        XCTAssertTrue(SingBoxConnectionConfig.requiresSingBox(node))
+        node.finalMaskJSON = #"{"tcp":[{"type":"fragment"}]}"#
+        let (ok, error) = NodeConfigChecker.validate(node)
+        XCTAssertFalse(ok)
+        XCTAssertEqual(error, "公网无 TLS 的 VLESS 无法使用 FinalMask（Xray 禁止明文，sing-box 不支持 FinalMask）")
+        var privateNode = node
+        privateNode.server = "10.0.0.2"
+        XCTAssertTrue(NodeConfigChecker.validate(privateNode).0, "内网明文 VLESS + FinalMask 仍可由 Xray 承载")
+    }
+
     func testAutomaticSelectionAndMixedBatch() throws {
         var node = ProxyNode(name: "VLESS", protocolType: .vless, server: "example.com", port: 80,
                              uuid: "11111111-1111-4111-8111-111111111111", transport: .ws, host: "cdn.example.com", path: "/ws")

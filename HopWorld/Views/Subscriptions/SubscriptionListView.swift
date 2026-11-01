@@ -444,7 +444,7 @@ struct SubscriptionCard: View {
             Spacer(minLength: 12)
 
             VStack(alignment: .trailing, spacing: 3) {
-                Text("\(appState.nodes.filter { $0.subscriptionID == subscription.id && !$0.pendingRemoval }.count)")
+                Text("\(liveNodeCount)")
                     .font(.system(.title3, design: .rounded).weight(.bold))
                     .foregroundStyle(palette.text)
                 Text("节点")
@@ -526,9 +526,23 @@ struct SubscriptionCard: View {
         return "\(subscription.updateInterval.displayName) \(String(format: "%02d:%02d", subscription.updateHour, subscription.updateMinute))"
     }
 
+    private var liveNodeCount: Int {
+        appState.nodes.filter { $0.subscriptionID == subscription.id && !$0.pendingRemoval }.count
+    }
+
     private var detailLine: String {
         if let retry = subscription.updateRetryStatusLine { return retry }
         if let error = subscription.lastError, !error.isEmpty { return error }
+        // 右侧节点数为准：已清空时不再展示过期的「已导入 N 个」。
+        if subscription.isShareLinksBundle, liveNodeCount == 0 {
+            if let message = subscription.statusMessage, message.contains("当前无节点") {
+                return message
+            }
+            if shareLinkCount > 0 {
+                return "\(shareLinkCount) 条分享链接 · 编辑可重新导入"
+            }
+            return "暂无节点"
+        }
         if let message = subscription.statusMessage, !message.isEmpty { return message }
         if subscription.isShareLinksBundle {
             if shareLinkCount > 0 {
@@ -565,14 +579,18 @@ struct SubscriptionCard: View {
 
     private var statusText: String {
         if !subscription.isEnabled { return "禁用" }
-        if subscription.isShareLinksBundle, subscription.nodeCount > 0 { return "已导入" }
+        if subscription.isShareLinksBundle {
+            if liveNodeCount > 0 { return "已导入" }
+            return "暂无节点"
+        }
         if subscription.isHealthy { return "正常" }
         if subscription.lastError != nil { return "异常" }
-        return subscription.isShareLinksBundle ? "待导入" : "待更新"
+        return "待更新"
     }
 
     private var statusColor: Color {
         if !subscription.isEnabled { return .secondary }
+        if subscription.isShareLinksBundle, liveNodeCount == 0 { return .orange }
         if subscription.isHealthy { return .green }
         if subscription.lastError != nil { return .red }
         return .orange

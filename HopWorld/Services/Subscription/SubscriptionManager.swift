@@ -459,12 +459,20 @@ final class SubscriptionManager: ObservableObject {
             )
         }.value
         let merged = others + plan.resultingNodes
-        sub.nodeCount = plan.resultingNodes.filter { !$0.pendingRemoval }.count
+        let kept = plan.resultingNodes.filter { !$0.pendingRemoval }.count
+        sub.nodeCount = kept
         sub.lastSuccessAt = Date()
         sub.lastError = nil
         clearFailureRetry(for: &sub)
         sub.lastHTTPStatus = nil
-        sub.statusMessage = "已导入 \(parsed.validNodes.count) 个分享节点" + parsed.skippedLinksSummary
+        // 文案跟实际入库数对齐，避免「已导入 153」但列表为 0（例如被清理指纹全部压制）。
+        if kept == 0 {
+            sub.statusMessage = "解析到 \(parsed.validNodes.count) 个链接，当前无节点" + parsed.skippedLinksSummary
+        } else if kept == parsed.validNodes.count {
+            sub.statusMessage = "已导入 \(kept) 个分享节点" + parsed.skippedLinksSummary
+        } else {
+            sub.statusMessage = "已导入 \(kept) 个分享节点（解析 \(parsed.validNodes.count)）" + parsed.skippedLinksSummary
+        }
         sub.contentHash = String(text.hashValue)
         sub.nextUpdateAt = nil
         sub.autoUpdate = false

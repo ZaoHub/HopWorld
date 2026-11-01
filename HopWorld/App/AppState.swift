@@ -2498,9 +2498,13 @@ final class AppState: ObservableObject {
         }
         let subscriptionName = subscription(for: subscriptionID)?.name ?? "未知订阅"
         if let index = subscriptions.firstIndex(where: { $0.id == subscriptionID }) {
-            subscriptions[index].nodeCount = nodes.filter {
+            let remainingCount = nodes.filter {
                 $0.subscriptionID == subscriptionID && !ids.contains($0.id)
             }.count
+            subscriptions[index].nodeCount = remainingCount
+            if remainingCount == 0 {
+                subscriptions[index].statusMessage = nil
+            }
             var history = subscriptions[index].cleanupHistory ?? []
             history.insert(SubscriptionCleanupRecord(cleanedAt: Date(), automatic: automatic,
                                                       removedCount: ids.count), at: 0)
@@ -2538,7 +2542,11 @@ final class AppState: ObservableObject {
         for index in subscriptions.indices where affectedSubscriptions.contains(subscriptions[index].id) {
             let subscriptionID = subscriptions[index].id
             let remaining = nodes.filter { $0.subscriptionID == subscriptionID }
-            subscriptions[index].nodeCount = remaining.filter { !$0.pendingRemoval }.count
+            let remainingCount = remaining.filter { !$0.pendingRemoval }.count
+            subscriptions[index].nodeCount = remainingCount
+            if remainingCount == 0 {
+                subscriptions[index].statusMessage = nil
+            }
             if subscriptions[index].isShareLinksBundle {
                 let remainingFingerprints = Set(remaining.map { $0.nodeFingerprint ?? NodeFingerprint.make(from: $0) })
                 let removedFingerprints = Set(removed.filter { $0.subscriptionID == subscriptionID }
