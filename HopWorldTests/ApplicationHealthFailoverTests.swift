@@ -899,8 +899,13 @@ final class CodexInviteEligibilityProbeTests: XCTestCase {
                        "A probe transport blip must not replace Codex's unresolved menu-load failure")
         observation.observe(.init(date: now.addingTimeInterval(30), kind: .workspaceRecovered,
                                   workspaceFeature: .inviteMenu))
+        XCTAssertEqual(observation.inviteEligibilityFailure, codexFailure,
+                       "An enabled invite menu is reference-only and cannot clear Codex's menu-load failure")
+        observation.observe(CodexHealthEvent(date: now.addingTimeInterval(35), kind: .workspaceRecovered,
+                                             observationID: CodexInviteCache.observationID,
+                                             recoveryOrigin: .request, workspaceFeature: .inviteEligibility))
         XCTAssertNil(observation.inviteEligibilityFailure,
-                     "Invite menu becoming enabled clears Codex's menu-load failure")
+                     "Codex reloading eligibility itself clears its menu-load failure")
 
         observation.observe(CodexInviteCheckResult.networkFailure.healthEvent(at: now.addingTimeInterval(40)))
         XCTAssertEqual(observation.inviteEligibilityFailure?.observationID, CodexInviteCheckResult.probeObservationID)
@@ -952,7 +957,8 @@ final class CodexInviteEligibilityProbeTests: XCTestCase {
         """
         try Data(script.utf8).write(to: executable)
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
-        guard case .credential(let credential) = CodexInviteEligibilityProbe.readCredential(executablePath: executable.path, timeout: 2) else {
+        // Generous timeout: the full suite runs many cores at once and the handshake returns as soon as it completes.
+        guard case .credential(let credential) = CodexInviteEligibilityProbe.readCredential(executablePath: executable.path, timeout: 10) else {
             return XCTFail("The fake local app-server handshake failed")
         }
         XCTAssertEqual(credential.token, token)

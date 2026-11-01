@@ -32,15 +32,24 @@ enum LibraryStoreError: LocalizedError {
 final class SecureLibraryStore: @unchecked Sendable {
     private let directory: URL
     private let keyProvider: @Sendable (Bool) throws -> Data
+    private let keyCandidates: @Sendable () throws -> [Data]
     private let lock = NSLock()
     private var loaded = false
     private var cachedKey: SymmetricKey?
     private(set) var recoveredBackup = false
     private let legacyNames = ["nodes.json", "subscriptions.json", "subscription-logs.json"]
 
-    init(directory: URL, keyProvider: @escaping @Sendable (Bool) throws -> Data = { try KeychainStore.libraryEncryptionKey(createIfMissing: $0) }) {
+    /// Without an injected provider, existing files are tried against every Keychain key
+    /// candidate (including legacy ones); an injected provider is the only key source.
+    init(directory: URL, keyProvider: (@Sendable (Bool) throws -> Data)? = nil) {
         self.directory = directory
-        self.keyProvider = keyProvider
+        if let keyProvider {
+            self.keyProvider = keyProvider
+            self.keyCandidates = { [try keyProvider(false)] }
+        } else {
+            self.keyProvider = { try KeychainStore.libraryEncryptionKey(createIfMissing: $0) }
+            self.keyCandidates = { try KeychainStore.libraryEncryptionKeyCandidates(createIfMissing: false) }
+        }
     }
 
     private var primary: URL { directory.appendingPathComponent("library.enc") }
@@ -53,7 +62,7 @@ final class SecureLibraryStore: @unchecked Sendable {
         let fm = FileManager.default
         let encryptedExists = fm.fileExists(atPath: primary.path) || fm.fileExists(atPath: backup.path)
         if encryptedExists {
-            let keys = try KeychainStore.libraryEncryptionKeyCandidates(createIfMissing: false)
+            let keys = try keyCandidates()
             var lastFailure: String?
             for keyData in keys {
                 let sym = SymmetricKey(data: keyData)

@@ -361,7 +361,7 @@ final class DashboardLatencyTests: XCTestCase {
         XCTAssertNil(state.latency)
         XCTAssertNil(state.lastSuccessfulLatency)
         // 连接时不再做连通性验证；可显示测速延迟，但不能沿用上一段会话的成功延迟。
-        XCTAssertEqual(state.dashboardLatencyText(lastTestLatency: 200), "200 ms")
+        XCTAssertEqual(state.dashboardLatencyText(lastTestLatency: 200), "0.20 秒")
         XCTAssertEqual(state.dashboardLatencyText(lastTestLatency: nil), "连接中")
         state.status = .connected
         XCTAssertEqual(state.dashboardLatencyText(lastTestLatency: nil), "暂不可测")
@@ -2284,6 +2284,12 @@ final class SingBoxConnectionTests: XCTestCase {
                 defer { stop(server) }
                 let target = try start("/usr/bin/python3", ["-m", "http.server", "\(ports[1])", "--bind", "127.0.0.1", "--directory", directory.path])
                 defer { stop(target) }
+                // A freshly extracted server binary can wait seconds on its first Gatekeeper check.
+                for _ in 0..<100 {
+                    if await TCPTester.measure(host: "127.0.0.1", port: ports[0], timeout: 0.1) != nil,
+                       await TCPTester.measure(host: "127.0.0.1", port: ports[1], timeout: 0.1) != nil { break }
+                    try await Task.sleep(nanoseconds: 100_000_000)
+                }
                 var node = ProxyNode(name: "H2 fixture", protocolType: protocolType, server: "127.0.0.1", port: ports[0],
                     uuid: uuid, password: "fixture", transport: .h2, security: useTLS ? .tls : .none,
                     sni: "localhost", host: "transport.example", path: "/legacy", allowInsecure: useTLS)
@@ -2548,8 +2554,13 @@ final class SingBoxConnectionTests: XCTestCase {
         try await manager.start(configURL: file)
         let executables = await manager.connectionCoreExecutables()
         XCTAssertEqual(executables.count, 1)
-        for _ in 0..<30 {
-            if await TCPTester.measure(host: "127.0.0.1", port: ports[1], timeout: 0.1) != nil,
+        // A freshly extracted server binary can wait seconds on its first Gatekeeper check.
+        // The legacy Python server serves a single connection, so never probe it.
+        for _ in 0..<100 {
+            var serverReady = legacyShadowsocks
+            if !serverReady { serverReady = await TCPTester.measure(host: "127.0.0.1", port: ports[0], timeout: 0.1) != nil }
+            if serverReady,
+               await TCPTester.measure(host: "127.0.0.1", port: ports[1], timeout: 0.1) != nil,
                await TCPTester.measure(host: "127.0.0.1", port: ports[2], timeout: 0.1) != nil { break }
             try await Task.sleep(nanoseconds: 100_000_000)
         }
@@ -2564,7 +2575,8 @@ final class SingBoxConnectionTests: XCTestCase {
         await manager.stop()
         let running = await manager.isRunning()
         XCTAssertFalse(running)
-        XCTAssertFalse(FileManager.default.fileExists(atPath: try XCTUnwrap(executables.first)))
+        // The bridge binary is shared across sessions so Gatekeeper evaluates it only once.
+        XCTAssertTrue(FileManager.default.fileExists(atPath: try XCTUnwrap(executables.first)))
     }
 }
 

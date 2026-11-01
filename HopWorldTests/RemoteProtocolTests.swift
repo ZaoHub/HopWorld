@@ -410,8 +410,17 @@ final class RemoteProtocolTests: XCTestCase {
         target.standardError = FileHandle.nullDevice
         try target.run()
         defer { if target.isRunning { target.terminate(); target.waitUntilExit() } }
-        for _ in 0..<30 {
-            if await TCPTester.measure(host: "127.0.0.1", port: ports[1], timeout: 0.1) != nil { break }
+        // A freshly extracted server binary can wait seconds on its first Gatekeeper check.
+        // TUIC and WireGuard listen on UDP, so wait for the core's own "started" log line instead.
+        let tcpServer = proto != .tuic && proto != .wireguard
+        for _ in 0..<100 {
+            var serverReady: Bool
+            if tcpServer {
+                serverReady = await TCPTester.measure(host: "127.0.0.1", port: ports[0], timeout: 0.1) != nil
+            } else {
+                serverReady = ((try? String(contentsOf: serverLog, encoding: .utf8)) ?? "").contains("started")
+            }
+            if serverReady, await TCPTester.measure(host: "127.0.0.1", port: ports[1], timeout: 0.1) != nil { break }
             try await Task.sleep(nanoseconds: 100_000_000)
         }
         XCTAssertTrue(server.isRunning, (try? String(contentsOf: serverLog)) ?? "")

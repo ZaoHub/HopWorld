@@ -319,7 +319,12 @@ with Server(('127.0.0.1', 0), Proxy) as server:
         process.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
         process.arguments = [script.path, portFile.path]
         try process.run()
-        defer { process.terminate(); process.waitUntilExit() }
+        // Bounded: an unbounded waitUntilExit can hang the async test if the exit notification is missed.
+        defer {
+            process.terminate()
+            let deadline = Date().addingTimeInterval(3)
+            while process.isRunning && Date() < deadline { Thread.sleep(forTimeInterval: 0.02) }
+        }
         for _ in 0..<100 {
             if FileManager.default.fileExists(atPath: portFile.path) { break }
             try await Task.sleep(nanoseconds: 20_000_000)
