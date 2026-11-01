@@ -230,25 +230,31 @@ button,
 
 .hero {
   position: relative;
-  min-height: 100svh;
-  display: grid;
-  align-items: end;
-  overflow: hidden;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  overflow: visible;
+  /* Keep poster clear of fixed header */
+  padding-top: calc(3.6rem + env(safe-area-inset-top, 0px));
 }
 
 .hero-media {
-  position: absolute;
-  inset: 0;
+  position: relative;
+  inset: auto;
   z-index: 0;
+  width: 100%;
+  flex: 0 0 auto;
+  background: #050b14;
 }
 
 .hero-img {
   width: 100%;
-  height: 100%;
-  object-fit: cover;
-  object-position: center center;
-  transform: scale(1.03);
-  will-change: transform;
+  height: auto;
+  display: block;
+  object-fit: contain;
+  object-position: center top;
+  transform: none;
 }
 
 /* PC / tablet: landscape promo only */
@@ -260,50 +266,10 @@ button,
   display: none;
 }
 
-.hero-veil {
-  position: absolute;
-  inset: 0;
-  background:
-    linear-gradient(180deg, rgba(7, 17, 31, 0.12) 0%, rgba(7, 17, 31, 0.22) 42%, rgba(7, 17, 31, 0.86) 100%),
-    linear-gradient(90deg, rgba(7, 17, 31, 0.22) 0%, transparent 58%);
-  pointer-events: none;
-}
-
+/* Poster already has copy; don't veil or decorate over it */
+.hero-veil,
 .hero-orbit {
-  position: absolute;
-  width: min(70vw, 640px);
-  height: min(70vw, 640px);
-  border: 1px solid rgba(227, 155, 74, 0.22);
-  border-radius: 50%;
-  left: 55%;
-  top: 18%;
-  animation: orbit-spin 48s linear infinite;
-  pointer-events: none;
-}
-
-.hero-orbit::before,
-.hero-orbit::after {
-  content: "";
-  position: absolute;
-  border-radius: 50%;
-  background: var(--amber);
-  box-shadow: 0 0 18px rgba(227, 155, 74, 0.55);
-}
-
-.hero-orbit::before {
-  width: 8px;
-  height: 8px;
-  top: 12%;
-  left: 50%;
-}
-
-.hero-orbit::after {
-  width: 6px;
-  height: 6px;
-  bottom: 18%;
-  right: 16%;
-  background: var(--teal);
-  box-shadow: 0 0 16px rgba(61, 184, 168, 0.55);
+  display: none;
 }
 
 @keyframes orbit-spin {
@@ -317,7 +283,13 @@ button,
   z-index: 1;
   width: min(100% - 2.5rem, var(--max));
   margin: 0 auto;
-  padding: 7.5rem 0 4.5rem;
+  padding: 1.5rem 0 2.25rem;
+}
+
+/* Desktop poster already contains brand / slogan / feature strip */
+.hero-brand,
+.hero-lead {
+  display: none;
 }
 
 .hero-brand {
@@ -749,7 +721,8 @@ main,
   border-radius: 20px;
   background: rgba(7, 17, 31, 0.55);
   backdrop-filter: blur(10px);
-  transform: translateY(-2.5rem);
+  transform: none;
+  margin-top: 0.25rem;
   position: relative;
   z-index: 2;
 }
@@ -976,25 +949,6 @@ main,
     display: none;
   }
 
-  .hero-img {
-    object-position: center center;
-    transform: scale(1.02);
-  }
-
-  .hero-orbit {
-    left: 35%;
-    top: 8%;
-    width: min(90vw, 520px);
-    height: min(90vw, 520px);
-    opacity: 0.55;
-  }
-
-  .hero-veil {
-    background:
-      linear-gradient(180deg, rgba(7, 17, 31, 0.22) 0%, rgba(7, 17, 31, 0.32) 42%, rgba(7, 17, 31, 0.9) 100%),
-      linear-gradient(90deg, rgba(7, 17, 31, 0.22) 0%, transparent 72%);
-  }
-
   .section {
     width: min(100% - 2rem, var(--max));
     padding: 4rem 0;
@@ -1028,19 +982,7 @@ main,
   }
 
   .hero {
-    min-height: 0;
-    display: flex;
-    flex-direction: column;
-    align-items: stretch;
-    overflow: visible;
     padding-top: calc(3.4rem + env(safe-area-inset-top, 0px));
-  }
-
-  .hero-media {
-    position: relative;
-    inset: auto;
-    width: 100%;
-    flex: 0 0 auto;
   }
 
   .hero-img-desktop {
@@ -1049,24 +991,17 @@ main,
 
   .hero-img-mobile {
     display: block;
-    width: 100%;
-    height: auto;
-    max-height: none;
-    object-fit: contain;
-    object-position: center top;
-    transform: none;
-  }
-
-  .hero-veil {
-    display: none;
   }
 
   .hero-content {
-    position: relative;
-    z-index: 1;
     width: min(100% - 1.5rem, var(--max));
-    margin: 0 auto;
     padding: 1.35rem 0 calc(2.5rem + env(safe-area-inset-bottom, 0px));
+  }
+
+  /* Portrait promo is art-only enough that HTML brand still helps on phones */
+  .hero-brand,
+  .hero-lead {
+    display: block;
   }
 
   .hero-brand {
@@ -1082,10 +1017,6 @@ main,
   .hero-lead {
     font-size: 1.02rem;
     margin-bottom: 1.35rem;
-  }
-
-  .hero-orbit {
-    display: none;
   }
 
   .cta-row {
