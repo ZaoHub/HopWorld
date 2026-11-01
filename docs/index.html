@@ -47,7 +47,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=Syne:wght@600;700;800&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
-  <link rel="stylesheet" href="./assets/css/landing.css?v=20261101h">
+  <link rel="stylesheet" href="./assets/css/landing.css?v=20261101i">
   <script type="application/ld+json">
   {
     "@context": "https://schema.org",
@@ -214,10 +214,25 @@
   <main id="top">
     <section class="hero" aria-label="首屏">
       <div class="hero-media" aria-hidden="true">
-        <picture>
-          <source media="(min-width: 641px)" srcset="./assets/screenshots/promo-desktop.jpg" type="image/jpeg" width="1024" height="576">
-          <img src="./assets/screenshots/promo.png" alt="" width="1024" height="1536" fetchpriority="high" decoding="async">
-        </picture>
+        <!-- Desktop default: landscape. Phone only swaps to portrait. -->
+        <img
+          class="hero-img hero-img-desktop"
+          src="./assets/screenshots/promo-desktop.jpg"
+          alt=""
+          width="1024"
+          height="576"
+          fetchpriority="high"
+          decoding="async"
+        >
+        <img
+          class="hero-img hero-img-mobile"
+          src="./assets/screenshots/promo.png"
+          alt=""
+          width="1024"
+          height="1536"
+          decoding="async"
+          loading="lazy"
+        >
         <div class="hero-veil"></div>
         <div class="hero-orbit"></div>
       </div>
@@ -396,6 +411,6 @@
   </footer>
 
   <script src="./assets/js/intro.js?v=20261101d" defer></script>
-  <script src="./assets/js/landing.js?v=20261101d" defer></script>
+  <script src="./assets/js/landing.js?v=20261101i" defer></script>
 </body>
 </html>

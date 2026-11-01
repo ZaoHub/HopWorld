@@ -4,7 +4,7 @@
 
   const header = document.querySelector(".site-header");
   const progress = document.querySelector(".scroll-progress");
-  const heroImg = document.querySelector(".hero-media img");
+  const heroImg = document.querySelector(".hero-img-desktop");
   const canParallax = heroImg && !reduce && window.matchMedia("(min-width: 641px)").matches;
 
   let scrollQueued = false;

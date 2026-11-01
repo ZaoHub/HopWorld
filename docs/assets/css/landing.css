@@ -242,19 +242,22 @@ button,
   z-index: 0;
 }
 
-.hero-media picture {
-  display: block;
-  width: 100%;
-  height: 100%;
-}
-
-.hero-media img {
+.hero-img {
   width: 100%;
   height: 100%;
   object-fit: cover;
   object-position: center center;
   transform: scale(1.03);
   will-change: transform;
+}
+
+/* PC / tablet: landscape promo only */
+.hero-img-desktop {
+  display: block;
+}
+
+.hero-img-mobile {
+  display: none;
 }
 
 .hero-veil {
@@ -973,7 +976,7 @@ main,
     display: none;
   }
 
-  .hero-media img {
+  .hero-img {
     object-position: center center;
     transform: scale(1.02);
   }
@@ -1040,11 +1043,12 @@ main,
     flex: 0 0 auto;
   }
 
-  .hero-media picture {
-    height: auto;
+  .hero-img-desktop {
+    display: none;
   }
 
-  .hero-media img {
+  .hero-img-mobile {
+    display: block;
     width: 100%;
     height: auto;
     max-height: none;
@@ -1210,7 +1214,7 @@ main,
   }
 
   .hero-orbit,
-  .hero-media img,
+  .hero-img,
   .hero-word,
   .btn-primary::after,
   .protocol-chip,
