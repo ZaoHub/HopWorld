@@ -81,30 +81,30 @@ struct CodexHealthEvent: Codable, Equatable, Sendable {
         }
         if workspaceFeature == .inviteMenu {
             return kind == .workspaceFailure
-                ? "界面菜单控件读数仅供参考；状态 1 跟随菜单加载所用的资格接口经当前节点检查。"
-                : "界面菜单控件可能沿用上次连接；状态 1 跟随菜单加载所用的资格接口经当前节点检查。"
+                ? "界面菜单控件读数仅供参考；状态 1 由经当前节点的检查判定。"
+                : "界面菜单控件可能沿用上次连接；状态 1 由经当前节点的检查判定。"
         }
         if workspaceFeature == .inviteEligibility {
             let note: String
             switch kind {
             case .workspaceRecovered:
                 note = observationID == CodexInviteCache.observationID
-                    ? "Codex 自身重新加载邀请资格成功（HTTP 200，读取 Codex 本机网络缓存，不读菜单）。"
+                    ? "Codex 自身重新检查状态 1 成功（HTTP 200，读取 Codex 本机网络缓存）。"
                     : inviteEligible == false
-                    ? "经当前节点完成资格检查；当前账号暂无邀请入口，不会因此切换节点。"
-                    : "经当前节点调用与菜单相同的资格接口检查通过；状态 2 至 4 仍会分别观察。"
+                    ? "经当前节点检查状态 1 异常；当前账号无此项，不会因此切换节点。"
+                    : "经当前节点检查状态 1 正常；状态 2 至 4 仍会分别观察。"
             case .requestFailure:
                 note = observationID == CodexInviteCheckResult.probeObservationID
-                    ? "经当前节点访问资格接口超时或失败，多半是节点偏慢或不稳；稍后会自动重试，不会单独因此切换节点。"
-                    : "Codex 打开菜单时加载邀请资格失败（与菜单灰显同源）；稍后会自动重试，不会单独因此切换节点。"
+                    ? "经当前节点检查状态 1 超时或失败，多半是节点偏慢或不稳；稍后会自动重试，不会单独因此切换节点。"
+                    : "Codex 检查状态 1 失败；稍后会自动重试，不会单独因此切换节点。"
             case .authenticationFailure:
                 note = "登录或访问验证异常，请检查 Codex 登录状态；不单独据此切换节点。"
             case .rateLimited:
-                note = "资格检查被限流，稍后重试即可，不将其判作节点网络失效。"
+                note = "状态 1 检查被限流，稍后重试即可，不将其判作节点网络失效。"
             case .serviceFailure:
                 note = "ChatGPT 服务端暂时异常，不将其判作节点网络失效。"
             default:
-                note = "邀请资格检查未完成，稍后会自动重试。"
+                note = "状态 1 检查未完成，稍后会自动重试。"
             }
             return CodexVisibleStatus.inviteCheck.recordDetail(abnormal: statusOneAbnormal, note: note)
         }

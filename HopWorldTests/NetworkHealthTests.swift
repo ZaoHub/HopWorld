@@ -1014,7 +1014,7 @@ extension NetworkHealthTests {
             XCTAssertFalse(event.isNetworkFailure, "A relative app route is not public-node provenance")
             XCTAssertEqual(event.title, "状态 1 异常")
             XCTAssertTrue(event.detail.hasPrefix("状态 1 异常"))
-            XCTAssertTrue(event.detail.contains("菜单灰显同源") || event.detail.contains("资格"),
+            XCTAssertTrue(event.detail.contains("状态 1"),
                           event.detail)
             let diagnostic = AppDiagnosticSnapshot(events: [event], now: event.date)
             XCTAssertTrue(diagnostic.workspaceSummary.contains("状态 1 异常"))

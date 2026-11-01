@@ -365,12 +365,16 @@ private struct NetworkHealthContent: View {
         let pendingSettings = isCurrent ? (interfaceFailure?.workspaceFeature == .settings ? interfaceFailure : runtime.pendingSettingsFailure) : nil
         let runtimeResponse = currentConnectionEvent(runtime.lastResponseAt)
         let responseAt = [diagnostic.lastResponseAt, runtimeResponse].compactMap { $0 }.max()
+        let transportConfirmedAt = [runtime.lastTransportReadyAt, runtime.lastResponseAt]
+            .compactMap { currentConnectionEvent($0) }.max()
         let statusVerdicts = codexVisibleStatusVerdicts(
             isConnected: isConnected, isCurrent: isCurrent, diagnostic: diagnostic,
             statusOne: statusOneVerdict,
             interfaceKinds: interfaceFailure != nil ? interface.activeKinds : [],
             pendingSettings: pendingSettings,
-            pendingRecovery: isCurrent ? runtime.pendingRecoveryFailure : nil)
+            pendingRecovery: isCurrent ? runtime.pendingRecoveryFailure : nil,
+            interfaceSnapshot: appState.codexInterfaceSnapshot,
+            transportConfirmed: transportConfirmedAt != nil && runtime.pendingNetworkFailure == nil)
         let abnormalStatuses = CodexVisibleStatus.allCases.filter { statusVerdicts[$0] == .abnormal }
         healthCard("Codex 应用状态", symbol: "app.connected.to.app.below.fill") {
             if isCurrent && !isConnected {
@@ -400,19 +404,19 @@ private struct NetworkHealthContent: View {
             if isConnected, connection.applicationHealthSettings?.routingMode != .direct {
                 if currentConnectionEvent(runtime.lastCodexInviteLoadAt) == nil {
                     Label(statusOneVerdict == .normal
-                          ? "Codex 尚未经当前节点重新加载邀请资格；目前依据探测经当前节点成功判为正常，Codex 实际加载后以其结果为准。"
-                          : "Codex 尚未经当前节点重新加载邀请资格；Codex 实际加载后以其结果为准。",
+                          ? "Codex 尚未经当前节点重新检查状态 1；目前依据探测成功判为正常，Codex 实际检查后以其结果为准。"
+                          : "Codex 尚未经当前节点重新检查状态 1；Codex 实际检查后以其结果为准。",
                           systemImage: "info.circle")
                         .font(.callout).foregroundStyle(.secondary)
                 } else if let loadedAt = runtime.lastCodexInviteLoadAt {
-                    Label("Codex 已于 \(loadedAt.formatted(date: .omitted, time: .standard)) 经当前节点"
-                          + (inviteMenuLoadFailure == nil ? "加载邀请资格成功。" : "加载邀请资格失败。"),
+                    Label("Codex 已于 \(loadedAt.formatted(date: .omitted, time: .standard)) 经当前节点检查：状态 1 "
+                          + (inviteMenuLoadFailure == nil ? "正常。" : "异常。"),
                           systemImage: inviteMenuLoadFailure == nil ? "checkmark.circle" : "exclamationmark.triangle")
                         .font(.callout).foregroundStyle(inviteMenuLoadFailure == nil ? Color.secondary : Color.orange)
                 }
             }
             if isConnected, let checkedAt = inviteCheckedAt {
-                LabeledContent("最近资格检查", value: checkedAt.formatted(date: .abbreviated, time: .standard))
+                LabeledContent("最近状态 1 检查", value: checkedAt.formatted(date: .abbreviated, time: .standard))
             }
             LabeledContent(isConnected ? "最近对话响应（有对话时记录）" : "历史最近收到响应", value: responseAt.map {
                 $0.formatted(date: .abbreviated, time: .standard)
@@ -433,7 +437,7 @@ private struct NetworkHealthContent: View {
                     Text("全局监听：" + appState.codexHealthMonitorStatus)
                     LabeledContent("界面状态检测", value: appState.codexInterfaceMonitorStatus)
                     if appState.codexInterfacePermissionRequired {
-                        Text("允许跃界使用“辅助功能”后，可识别状态 2 至 4 的界面提示（出现为异常，未出现为正常）；状态 1 只看资格接口经当前节点的探测结果，以及 Codex 自身该请求是否失败。未授权时仍读取明确重连与工作区日志，不把未知状态当故障。")
+                        Text("允许跃界使用“辅助功能”后，可识别状态 2 至 4 的界面提示（出现为异常，完整读取界面确认未出现为正常）；状态 1 只看经当前节点的探测结果，以及 Codex 自身对应请求是否失败。未授权时仍读取明确重连与工作区日志，不把未知状态当故障。")
                         Button("打开辅助功能设置") {
                             if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
                                 NSWorkspace.shared.open(url)
@@ -454,14 +458,14 @@ private struct NetworkHealthContent: View {
                         if let summary = inviteResult?.userFacingSummary {
                             Text(summary)
                         } else if let failure = inviteMenuLoadFailure {
-                            Text("Codex \(failure.date.formatted(date: .omitted, time: .standard)) 加载邀请资格失败，之后尚无重新加载成功的记录；与菜单灰显同源，但不读菜单是否打开或可点。")
+                            Text("Codex \(failure.date.formatted(date: .omitted, time: .standard)) 检查状态 1 异常，之后尚无重新检查成功的记录。")
                         } else if statusOneVerdict == .checking {
-                            Text("正在经当前节点调用资格接口。")
+                            Text("正在经当前节点检查状态 1。")
                         } else if statusOneVerdict == .unchecked {
-                            Text("尚未完成经当前节点的资格接口检查。")
+                            Text("尚未完成经当前节点的状态 1 检查。")
                         }
                         LabeledContent("连续网络失败", value: "\(invite.network.consecutiveFailures) 次")
-                        Text("状态 1：未检测 / 检测中 / 正常 / 异常。只看经当前节点调用资格接口的结果；探测通过为正常，失败或 Codex 自身该请求失败为异常。状态 2 至 4：出现对应界面提示（如无法加载工作空间设置、正在重新连接、等待网络）为异常，未出现即为正常。")
+                        Text("状态 1：未检测 / 检测中 / 正常 / 异常。只看经当前节点的探测结果；通过为正常，失败或 Codex 自身对应请求失败为异常。状态 2 至 4：出现对应界面提示（如无法加载工作空间设置、正在重新连接、等待网络）为异常；完整读取 Codex 界面确认未出现，或状态 3、4 在本次连接有连接就绪 / 回复记录且之后无故障，才为正常；界面读取中为检测中；读不到界面又无记录为未检测。")
                     }
                     if let node {
                         let capture = appState.applicationHealthCaptureSummary(for: node)
@@ -513,22 +517,29 @@ private struct NetworkHealthContent: View {
     private func codexVisibleStatusVerdicts(
         isConnected: Bool, isCurrent: Bool, diagnostic: AppDiagnosticSnapshot,
         statusOne: CodexVisibleStatus.Verdict, interfaceKinds: [CodexHealthEvent.Kind],
-        pendingSettings: CodexHealthEvent?, pendingRecovery: CodexHealthEvent?
+        pendingSettings: CodexHealthEvent?, pendingRecovery: CodexHealthEvent?,
+        interfaceSnapshot: CodexInterfaceHealthSnapshot, transportConfirmed: Bool
     ) -> [CodexVisibleStatus: CodexVisibleStatus.Verdict] {
-        // Status 2–4: the fault banner/prompt appearing is 异常; not appearing is 正常.
-        func interfaceVerdict(abnormal: Bool) -> CodexVisibleStatus.Verdict {
+        // 正常 needs positive evidence: a complete UI scan confirming the prompt is absent
+        // (`false`), or for 3/4 a transport-ready / response log in this connection with no
+        // later failure. A readable but incomplete scan is 检测中; otherwise 未检测.
+        func verdict(abnormal: Bool, confirmedAbsent: Bool?, logConfirmed: Bool = false) -> CodexVisibleStatus.Verdict {
             if abnormal { return .abnormal }
-            return (isConnected && isCurrent) ? .normal : .unchecked
+            if confirmedAbsent == false || logConfirmed { return .normal }
+            return interfaceSnapshot.readable ? .checking : .unchecked
         }
         if isConnected && isCurrent {
             return [
                 .inviteCheck: statusOne,
-                .workspaceSettings: interfaceVerdict(
-                    abnormal: pendingSettings != nil || interfaceKinds.contains(.workspaceFailure)),
-                .reconnecting: interfaceVerdict(
-                    abnormal: pendingRecovery?.kind == .reconnecting || interfaceKinds.contains(.reconnecting)),
-                .waitingForNetwork: interfaceVerdict(
-                    abnormal: pendingRecovery?.kind == .waitingForNetwork || interfaceKinds.contains(.waitingForNetwork))
+                .workspaceSettings: verdict(
+                    abnormal: pendingSettings != nil || interfaceKinds.contains(.workspaceFailure),
+                    confirmedAbsent: interfaceSnapshot.workspaceUnavailable),
+                .reconnecting: verdict(
+                    abnormal: pendingRecovery?.kind == .reconnecting || interfaceKinds.contains(.reconnecting),
+                    confirmedAbsent: interfaceSnapshot.reconnecting, logConfirmed: transportConfirmed),
+                .waitingForNetwork: verdict(
+                    abnormal: pendingRecovery?.kind == .waitingForNetwork || interfaceKinds.contains(.waitingForNetwork),
+                    confirmedAbsent: interfaceSnapshot.waitingForNetwork, logConfirmed: transportConfirmed)
             ]
         }
         return [

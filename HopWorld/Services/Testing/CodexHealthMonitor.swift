@@ -489,27 +489,27 @@ enum CodexInviteCheckResult: Equatable, Sendable {
         }
     }
 
-    /// 面向用户的说明，不暴露 CFNetwork / URLSession 原始错误。
+    /// 面向用户的说明，不暴露 CFNetwork / URLSession 原始错误；统一用「状态 1」表述。
     var userFacingSummary: String {
         switch self {
         case .available(true):
-            return "经当前节点调用与菜单相同的资格接口，邀请入口可用。"
+            return "经当前节点检查状态 1 正常。"
         case .available(false):
-            return "经当前节点调用与菜单相同的资格接口，当前账号暂无邀请入口。"
+            return "经当前节点检查状态 1 异常；当前账号无此项。"
         case .networkFailure:
-            return "经当前节点访问资格接口超时或失败，多半是节点偏慢或不稳；稍后会自动重试。"
+            return "经当前节点检查状态 1 超时或失败，多半是节点偏慢或不稳；稍后会自动重试。"
         case .authenticationRequired:
             return "登录凭证无效或已过期，请在 Codex 中重新登录。"
         case .accessDenied:
-            return "当前账号无权访问该检查接口。"
+            return "当前账号无权执行状态 1 检查。"
         case .rateLimited:
-            return "请求过于频繁，稍后会自动重试。"
+            return "状态 1 检查过于频繁，稍后会自动重试。"
         case .serviceFailure:
             return "ChatGPT 服务端暂时异常，稍后再试。"
         case .invalidResponse:
-            return "检查返回内容异常，稍后会自动重试。"
+            return "状态 1 检查返回内容异常，稍后会自动重试。"
         case .unavailable:
-            return "当前无法执行检查（直连模式、未连接或缺少探测端口）。"
+            return "当前无法执行状态 1 检查（直连模式、未连接或缺少探测端口）。"
         }
     }
 }

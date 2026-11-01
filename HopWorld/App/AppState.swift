@@ -128,6 +128,8 @@ final class AppState: ObservableObject {
     @Published private(set) var codexInterfaceMonitorStatus = "等待 Codex 界面状态"
     @Published private(set) var codexInterfacePermissionRequired = false
     @Published private(set) var codexInterfaceObservation = CodexInterfaceObservation()
+    /// Latest AX scan; `false` fields mean a complete scan confirmed the prompt is absent.
+    @Published private(set) var codexInterfaceSnapshot = CodexInterfaceHealthSnapshot()
     @Published private(set) var codexHealthLastCheckedAt: Date?
     @Published private(set) var applicationHealthSwitchStatus = "智能应用优选未开启"
     private let codexHealthMonitor = CodexHealthMonitor()
@@ -795,6 +797,10 @@ final class AppState: ObservableObject {
                     self.codexInterfaceObservation = nextInterface
                     published = true
                 }
+                if self.codexInterfaceSnapshot != interface {
+                    self.codexInterfaceSnapshot = interface
+                    published = true
+                }
                 if self.codexInterfaceMonitorStatus != nextInterfaceStatus {
                     self.codexInterfaceMonitorStatus = nextInterfaceStatus
                     published = true
@@ -909,7 +915,7 @@ final class AppState: ObservableObject {
         guard applicationNeedsRecovery(for: current, context: currentContext, now: now) else {
             if let observationUntil = codexRecoveryTiming.observationUntil, now < observationUntil {
                 let remaining = max(0, Int(ceil(observationUntil.timeIntervalSince(now))))
-                applicationHealthSwitchStatus = "邀请好友检查已完成，继续观察 \(remaining) 秒；持续无法使用时再切换"
+                applicationHealthSwitchStatus = "状态 1 检查已完成，继续观察 \(remaining) 秒；持续无法使用时再切换"
                 return
             }
             if let switchAt = codexRecoveryTiming.switchAt {
