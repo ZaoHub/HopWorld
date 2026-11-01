@@ -27,16 +27,16 @@
   <meta property="og:url" content="https://zaohub.github.io/HopWorld/">
   <meta property="og:title" content="跃界 HopWorld — VNP节点可视化代理客户端">
   <meta property="og:description" content="macOS 原生可视化代理客户端。11 种节点协议、订阅测速、按国家连接、TUN 接管与应用连通探测。开源 MIT。">
-  <meta property="og:image" content="https://zaohub.github.io/HopWorld/assets/screenshots/promo.png">
-  <meta property="og:image:type" content="image/png">
+  <meta property="og:image" content="https://zaohub.github.io/HopWorld/assets/screenshots/promo-desktop.jpg">
+  <meta property="og:image:type" content="image/jpeg">
   <meta property="og:image:width" content="1024">
-  <meta property="og:image:height" content="1536">
+  <meta property="og:image:height" content="576">
   <meta property="og:image:alt" content="跃界 HopWorld 宣传视觉">
 
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="跃界 HopWorld — VNP节点可视化代理客户端">
   <meta name="twitter:description" content="macOS 原生可视化代理客户端。多协议节点、订阅测速、国家一键连接与 TUN 接管。">
-  <meta name="twitter:image" content="https://zaohub.github.io/HopWorld/assets/screenshots/promo.png">
+  <meta name="twitter:image" content="https://zaohub.github.io/HopWorld/assets/screenshots/promo-desktop.jpg">
   <meta name="twitter:image:alt" content="跃界 HopWorld 宣传视觉">
 
   <link rel="icon" href="https://zaohub.github.io/HopWorld/assets/screenshots/promo.png" type="image/png">
@@ -44,7 +44,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=Syne:wght@600;700;800&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
-  <link rel="stylesheet" href="./assets/css/landing.css?v=20261101e">
+  <link rel="stylesheet" href="./assets/css/landing.css?v=20261101f">
   <script type="application/ld+json">
   {
     "@context": "https://schema.org",
@@ -200,7 +200,10 @@
   <main id="top">
     <section class="hero" aria-label="首屏">
       <div class="hero-media" aria-hidden="true">
-        <img src="./assets/screenshots/promo.png" alt="" width="1024" height="1536">
+        <picture>
+          <source media="(min-width: 641px)" srcset="./assets/screenshots/promo-desktop.jpg" type="image/jpeg" width="1024" height="576">
+          <img src="./assets/screenshots/promo.png" alt="" width="1024" height="1536" fetchpriority="high" decoding="async">
+        </picture>
         <div class="hero-veil"></div>
         <div class="hero-orbit"></div>
       </div>
