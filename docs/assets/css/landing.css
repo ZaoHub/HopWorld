@@ -283,18 +283,13 @@ button,
   z-index: 1;
   width: min(100% - 2.5rem, var(--max));
   margin: 0 auto;
-  padding: 1.5rem 0 2.25rem;
-}
-
-/* Desktop poster already contains brand / slogan / feature strip */
-.hero-brand,
-.hero-lead {
-  display: none;
+  padding: 1.75rem 0 2.5rem;
 }
 
 .hero-brand {
+  display: block;
   font-family: var(--font-display);
-  font-size: clamp(3rem, 9vw, 6.4rem);
+  font-size: clamp(2.8rem, 6vw, 5.2rem);
   line-height: 0.92;
   letter-spacing: -0.05em;
   font-weight: 800;
@@ -312,6 +307,7 @@ button,
 }
 
 .hero-lead {
+  display: block;
   max-width: 34rem;
   margin: 0 0 1.75rem;
   color: var(--muted);
@@ -996,12 +992,6 @@ main,
   .hero-content {
     width: min(100% - 1.5rem, var(--max));
     padding: 1.35rem 0 calc(2.5rem + env(safe-area-inset-bottom, 0px));
-  }
-
-  /* Portrait promo is art-only enough that HTML brand still helps on phones */
-  .hero-brand,
-  .hero-lead {
-    display: block;
   }
 
   .hero-brand {
