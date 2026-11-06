@@ -29,6 +29,10 @@ struct AppSettings: Equatable {
     var screenLockDisconnectDelayMinutes = 5
     var scheduledTestIntervalMinutes = 60
     var connectTimeoutSeconds = 15
+    var missingExitIPTimeoutSeconds = 10
+    static func normalizedMissingExitIPTimeout(_ seconds: Int) -> Int {
+        [0, 5, 10, 15, 20].contains(seconds) ? seconds : 10
+    }
     var theme = "system"
 }
 @MainActor final class AppState {

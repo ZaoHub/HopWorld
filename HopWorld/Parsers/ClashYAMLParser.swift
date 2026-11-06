@@ -242,7 +242,8 @@ enum ClashYAMLParser {
             if isItem {
                 guard let parent = parents.last, indent >= parent.indent else { throw ParserError.noValidNodes }
                 let key = parents.map(\.key).joined(separator: ".")
-                guard ["alpn", "h2-opts.host", "http-opts.path", "http-opts.headers.Host", "http-opts.headers.host"].contains(key) else { throw ParserError.noValidNodes }
+                // reserved：WireGuard 常见写成多行列表；不支持时不能整份 proxies 失败关闭。
+                guard ["alpn", "h2-opts.host", "http-opts.path", "http-opts.headers.Host", "http-opts.headers.host", "reserved"].contains(key) else { throw ParserError.noValidNodes }
                 let value = try scalar(String(trimmed.dropFirst()).trimmingCharacters(in: .whitespaces))
                 current[key] = current[key].map { $0 + "," + value } ?? value
                 continue

@@ -644,13 +644,15 @@ private struct QuickSwitchList<Content: View>: NSViewRepresentable {
     let rowCount: Int
     let rowHeight: CGFloat
     let verticalPadding: CGFloat
+    let focusIndex: Int?
     let content: (Range<Int>) -> Content
 
-    init(rowCount: Int, rowHeight: CGFloat, verticalPadding: CGFloat,
+    init(rowCount: Int, rowHeight: CGFloat, verticalPadding: CGFloat, focusIndex: Int? = nil,
          @ViewBuilder content: @escaping (Range<Int>) -> Content) {
         self.rowCount = rowCount
         self.rowHeight = rowHeight
         self.verticalPadding = verticalPadding
+        self.focusIndex = focusIndex
         self.content = content
     }
 
@@ -681,6 +683,7 @@ private struct QuickSwitchList<Content: View>: NSViewRepresentable {
     func updateNSView(_ nsView: ScrollContainer, context: Context) {
         (nsView.documentView as? NSHostingView<Root>)?.rootView = root(context: context)
         let coordinator = context.coordinator
+        coordinator.focusIndex = focusIndex
         DispatchQueue.main.async { coordinator.updateWindow() }
     }
 
@@ -706,6 +709,8 @@ private struct QuickSwitchList<Content: View>: NSViewRepresentable {
         var rowCount = 0
         var rowHeight: CGFloat = 1
         var verticalPadding: CGFloat = 0
+        var focusIndex: Int?
+        private var didApplyFocus = false
         private weak var clipView: NSClipView?
         private var observer: NSObjectProtocol?
         private let overscan = 6
@@ -731,6 +736,23 @@ private struct QuickSwitchList<Content: View>: NSViewRepresentable {
             let lower = min(max(0, first), rowCount)
             let range = lower..<min(max(lower, last), rowCount)
             if window.range != range { window.range = range }
+            applyFocusIfNeeded()
+        }
+
+        /// Bring the recalled row on screen once. Later scrolling stays with the user.
+        private func applyFocusIfNeeded() {
+            guard !didApplyFocus, let index = focusIndex, let clipView, rowHeight > 0 else { return }
+            let visibleHeight = clipView.bounds.height
+            guard visibleHeight > 0 else { return }
+            let documentHeight = clipView.documentView?.frame.height ?? 0
+            let visibleRows = max(1, Int((visibleHeight / rowHeight).rounded(.down)))
+            if index >= visibleRows, documentHeight <= visibleHeight + 1 { return }
+            didApplyFocus = true
+            guard index >= visibleRows else { return }
+            let maxY = max(0, documentHeight - visibleHeight)
+            let y = min(maxY, max(0, verticalPadding + CGFloat(index - 1) * rowHeight))
+            clipView.scroll(to: NSPoint(x: 0, y: y))
+            clipView.enclosingScrollView?.reflectScrolledClipView(clipView)
         }
     }
 
@@ -781,7 +803,8 @@ private struct QuickSwitchRows: View {
     var body: some View {
         let marker = makeMarker()
         let entryCount = mergeCountries ? groups.count : nodes.count
-        QuickSwitchList(rowCount: entryCount, rowHeight: rowHeight, verticalPadding: 8) { range in
+        QuickSwitchList(rowCount: entryCount, rowHeight: rowHeight, verticalPadding: 8,
+                        focusIndex: liveNodeID == nil ? focusRow(for: marker.recalledNodeID) : nil) { range in
             if mergeCountries {
                 ForEach(range, id: \.self) { index in
                     let group = groups[index]
@@ -818,12 +841,12 @@ private struct QuickSwitchRows: View {
 
     /// 非连接时是上次连接；已连接后单击了别的节点时是那个节点。
     private func makeMarker() -> QuickSwitchMarker {
-        let recalledID: UUID?
-        if let liveNodeID {
-            recalledID = pickedID == liveNodeID ? nil : pickedID
-        } else {
-            recalledID = pickedID ?? appState.recentNodes.first?.id
-        }
+        let recalledID = quickSwitchRecalledNodeID(
+            liveNodeID: liveNodeID,
+            pickedID: pickedID,
+            recentNodeID: appState.recentNodes.first?.id,
+            lastConnectedNodeID: appState.lastConnectedNodeID
+        )
         var liveCountry: String?
         var recalledCountry: String?
         if mergeCountries {
@@ -835,6 +858,14 @@ private struct QuickSwitchRows: View {
         }
         return QuickSwitchMarker(liveNodeID: liveNodeID, recalledNodeID: recalledID,
                                  liveCountry: liveCountry, recalledCountry: recalledCountry)
+    }
+
+    private func focusRow(for recalledID: UUID?) -> Int? {
+        guard let recalledID else { return nil }
+        if mergeCountries {
+            return groups.firstIndex { group in group.nodes.contains { $0.id == recalledID } }
+        }
+        return nodes.firstIndex { $0.id == recalledID }
     }
 
     /// 单击用同时手势，避免等待双击超时后才显示选中。

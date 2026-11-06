@@ -205,6 +205,33 @@ enum DockReopen {
     }
 }
 
+/// Live status-item updates while a menu is tracking clear the row under the pointer.
+struct StatusMenuLiveUpdate: Equatable {
+    private(set) var menuOpen = false
+    private var chromePending = false
+
+    mutating func willOpenMenu() {
+        menuOpen = true
+    }
+
+    /// False means keep the status button as it is until the menu closes.
+    mutating func consumeChromeUpdate() -> Bool {
+        if menuOpen {
+            chromePending = true
+            return false
+        }
+        return true
+    }
+
+    /// True when a chrome change arrived while the menu was open.
+    mutating func didCloseMenu() -> Bool {
+        menuOpen = false
+        let apply = chromePending
+        chromePending = false
+        return apply
+    }
+}
+
 @MainActor
 enum MainWindowActivation {
     static let sceneID = "main"

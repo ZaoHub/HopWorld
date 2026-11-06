@@ -166,10 +166,55 @@ final class SubscriptionRefreshPromptTests: XCTestCase {
 }
 
 private final class SubscriptionTransportFixture: URLProtocol {
+    private static let lock = NSLock()
+    private static var recordedAgents: [String] = []
+
+    static func resetAgents() {
+        lock.lock()
+        recordedAgents = []
+        lock.unlock()
+    }
+
+    static func agents() -> [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return recordedAgents
+    }
+
+    static func record(_ agent: String) {
+        lock.lock()
+        recordedAgents.append(agent)
+        lock.unlock()
+    }
+
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
         switch request.url!.path {
+        case "/client-flag", "/client-flag-sequence", "/client-flag-none":
+            let agent = request.value(forHTTPHeaderField: "User-Agent") ?? ""
+            Self.record(agent)
+            let accepted = request.url!.path == "/client-flag"
+                ? !agent.lowercased().contains("hopworld")
+                : request.url!.path == "/client-flag-sequence" && agent == "v2rayN/6.45"
+            if accepted {
+                let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil,
+                                               headerFields: ["ETag": "client-tag"])!
+                client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+                client?.urlProtocol(self, didLoad: Data("subscription fixture".utf8))
+                client?.urlProtocolDidFinishLoading(self)
+            } else {
+                let body = Data("bad request: unsupported client flag: \(agent)".utf8)
+                let response = HTTPURLResponse(url: request.url!, statusCode: 400, httpVersion: nil, headerFields: nil)!
+                client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+                client?.urlProtocol(self, didLoad: body)
+                client?.urlProtocolDidFinishLoading(self)
+            }
+        case "/bad-request":
+            let response = HTTPURLResponse(url: request.url!, statusCode: 400, httpVersion: nil, headerFields: nil)!
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: Data("bad token".utf8))
+            client?.urlProtocolDidFinishLoading(self)
         case "/direct", "/http-error", "/origin-certificate-error":
             let status = request.url!.path == "/direct" ? 200 : (request.url!.path == "/origin-certificate-error" ? 526 : 403)
             let response = HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil,
@@ -242,6 +287,33 @@ final class SubscriptionFetcherTests: XCTestCase {
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [SubscriptionTransportFixture.self]
         return SubscriptionFetcher(session: URLSession(configuration: config))
+    }
+
+    func testUnsupportedClientFlagRetriesWithRecognizedAgent() async throws {
+        SubscriptionTransportFixture.resetAgents()
+        let response = try await fetcher().fetch(urlString: "https://fixture.invalid/client-flag")
+        XCTAssertEqual(SubscriptionTransportFixture.agents(), Array(SubscriptionFetcher.subscriptionUserAgents.prefix(2)))
+        XCTAssertEqual(response.statusCode, 200)
+        XCTAssertEqual(response.etag, "client-tag")
+        XCTAssertEqual(String(data: response.data, encoding: .utf8), "subscription fixture")
+        XCTAssertFalse(response.usedTemporaryProxy)
+
+        SubscriptionTransportFixture.resetAgents()
+        let sequenced = try await fetcher().fetch(urlString: "https://fixture.invalid/client-flag-sequence")
+        XCTAssertEqual(sequenced.statusCode, 200)
+        XCTAssertEqual(SubscriptionTransportFixture.agents(), Array(SubscriptionFetcher.subscriptionUserAgents.prefix(4)))
+
+        SubscriptionTransportFixture.resetAgents()
+        do {
+            _ = try await fetcher().fetch(urlString: "https://fixture.invalid/client-flag-none")
+            XCTFail("名单用尽后应保留 HTTP 400")
+        } catch SubscriptionFetcherError.httpError(let status) { XCTAssertEqual(status, 400) }
+        XCTAssertEqual(SubscriptionTransportFixture.agents(), SubscriptionFetcher.subscriptionUserAgents)
+
+        do {
+            _ = try await fetcher().fetch(urlString: "https://fixture.invalid/bad-request")
+            XCTFail("其他 HTTP 400 不能改写")
+        } catch SubscriptionFetcherError.httpError(let status) { XCTAssertEqual(status, 400) }
     }
 
     func testDirectSuccessAndServerErrorsDoNotUseTemporaryProxy() async throws {

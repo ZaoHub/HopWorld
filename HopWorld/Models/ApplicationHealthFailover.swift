@@ -213,6 +213,13 @@ struct CodexRecoveryTracker {
     }
 
     mutating func observe(_ event: CodexHealthEvent, now: Date = Date()) {
+        if scope != nil, event.date >= scopeSince, event.date <= now,
+           now.timeIntervalSince(event.date) <= 120, event.recoveryOrigin == .businessResponse,
+           event.kind == .responseProgress || event.kind == .responseCompleted,
+           let since = unresolvedSettingsSince, event.date >= since {
+            unresolvedSettingsSince = nil
+            failures.removeAll { $0.workspaceFeature == .settings }
+        }
         guard scope != nil, event.date >= scopeSince, event.date <= now,
               event.workspaceFeature != .inviteEligibility,
               now.timeIntervalSince(event.date) <= 120,
@@ -252,7 +259,8 @@ struct CodexRecoveryTracker {
             latestProgressAt = event.date
             unresolvedBridgeSince = nil
             unresolvedRequestSince = nil
-            failures.removeAll { $0.workspaceFeature == nil }
+            unresolvedSettingsSince = nil
+            failures.removeAll()
         case .authenticationFailure, .rateLimited, .serviceFailure:
             lastServiceFailureAt = event.date
             if event.workspaceFeature == .settings {

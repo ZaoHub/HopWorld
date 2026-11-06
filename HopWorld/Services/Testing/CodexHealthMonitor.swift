@@ -212,6 +212,10 @@ actor CodexHealthMonitor {
         lastSessionEvents = lastSessionEvents.filter { paths.contains($0.key) }
         events.sort { $0.date < $1.date }
         for event in events where event.date >= bootstrapSince { applicationObservation.observe(event) }
+        if let response = events.last(where: { $0.recoveryOrigin == .businessResponse && ($0.kind == .responseProgress || $0.kind == .responseCompleted) }),
+           let recovery = interfaceObservation.clearWorkspaceAfterResponse(at: response.date) {
+            events.append(recovery)
+        }
         if let recovery = confirmWorkspaceInterfaceRecovery(now: now) { events.append(recovery) }
         let backlog = files.reduce(UInt64(0)) { total, file in
             total + (file.1 > (cursors[file.0.path]?.offset ?? file.1) ? file.1 - (cursors[file.0.path]?.offset ?? file.1) : 0)
@@ -892,6 +896,23 @@ struct CodexInterfaceObservation: Equatable, Sendable {
     private(set) var inviteEnabled: Bool?
     private var failure: CodexHealthEvent?
     private var lastRecordedAt: Date?
+    private var ignoreWorkspaceUntilAbsent = false
+
+    mutating func clearWorkspaceAfterResponse(at date: Date) -> CodexHealthEvent? {
+        guard activeKinds.contains(.workspaceFailure), failureSince.map({ date >= $0 }) ?? false else { return nil }
+        activeKinds.removeAll { $0 == .workspaceFailure }
+        ignoreWorkspaceUntilAbsent = true
+        if failure?.kind == .workspaceFailure {
+            if let kind = activeKinds.first {
+                failure = CodexHealthEvent(date: date, kind: kind)
+            } else {
+                failure = nil
+                failureSince = nil
+                lastConfirmedAt = nil
+            }
+        }
+        return CodexHealthEvent(date: date, kind: .workspaceRecovered, observationID: "response-state", workspaceFeature: .settings)
+    }
 
     func pendingFailure(now: Date = Date()) -> CodexHealthEvent? {
         guard let lastConfirmedAt, (0...6).contains(now.timeIntervalSince(lastConfirmedAt)) else { return nil }
@@ -905,8 +926,9 @@ struct CodexInterfaceObservation: Equatable, Sendable {
             events.append(CodexHealthEvent(date: date, kind: enabled ? .workspaceRecovered : .workspaceFailure,
                                           workspaceFeature: .inviteMenu))
         }
+        if snapshot.workspaceUnavailable == false { ignoreWorkspaceUntilAbsent = false }
         let observedKinds: [CodexHealthEvent.Kind] = [
-            snapshot.workspaceUnavailable == true ? .workspaceFailure : nil,
+            snapshot.workspaceUnavailable == true && !ignoreWorkspaceUntilAbsent ? .workspaceFailure : nil,
             snapshot.waitingForNetwork == true ? .waitingForNetwork : nil,
             snapshot.reconnecting == true ? .reconnecting : nil
         ].compactMap { $0 }

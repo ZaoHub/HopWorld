@@ -32,6 +32,21 @@ enum SubscriptionFetcherError: LocalizedError, Sendable {
 }
 
 actor SubscriptionFetcher {
+    /// 首选 HopWorld。面板把 User-Agent 当白名单并拒绝时，再按常见客户端依次尝试。
+    static let subscriptionUserAgents = [
+        "HopWorld/1.0",
+        "clash-meta/1.18.0",
+        "clash/1.18.0",
+        "v2rayN/6.45",
+        "Shadowsocks/4.4.1.0",
+        "Shadowrocket/1992",
+        "sing-box/1.11.0",
+        "Quantumult X/1.4.1",
+        "Surge/5.0",
+        "Stash/2.6.1",
+        "Loon/3.3.0",
+        "v2rayNG/1.9.34"
+    ]
     private let session: URLSession
 
     init(session: URLSession? = nil) {
@@ -65,7 +80,7 @@ actor SubscriptionFetcher {
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         request.setValue(
-            "HopWorld/1.0",
+            Self.subscriptionUserAgents[0],
             forHTTPHeaderField: "User-Agent"
         )
         request.setValue("text/plain,*/*", forHTTPHeaderField: "Accept")
@@ -76,6 +91,13 @@ actor SubscriptionFetcher {
             request.setValue(lastModified, forHTTPHeaderField: "If-Modified-Since")
         }
 
+        return try await load(request, fallbackNodes: fallbackNodes)
+    }
+
+    private func load(
+        _ request: URLRequest,
+        fallbackNodes: [ProxyNode]
+    ) async throws -> FetchResponse {
         let (data, response): (Data, URLResponse)
         do {
             (data, response) = try await session.data(for: request)
@@ -90,10 +112,44 @@ actor SubscriptionFetcher {
             return try await fetchThroughTemporaryProxy(request, nodes: fallbackNodes, directError: error)
         }
 
-        guard let http = response as? HTTPURLResponse else {
+        guard let http = response as? HTTPURLResponse, let url = request.url else {
             throw SubscriptionFetcherError.httpError(-1)
         }
 
+        if http.statusCode == 400, Self.rejectsClientFlag(data), let retry = Self.retryRequest(request) {
+            return try await load(retry, fallbackNodes: fallbackNodes)
+        }
+
+        return try accepted(
+            url: url,
+            http: http,
+            data: data,
+            etag: request.value(forHTTPHeaderField: "If-None-Match"),
+            lastModified: request.value(forHTTPHeaderField: "If-Modified-Since")
+        )
+    }
+
+    private static func rejectsClientFlag(_ data: Data) -> Bool {
+        String(data: data, encoding: .utf8)?.lowercased().contains("unsupported client flag") == true
+    }
+
+    /// 当前标识被拒绝时换成下一个常见客户端；名单用尽则不再请求。
+    private static func retryRequest(_ request: URLRequest) -> URLRequest? {
+        guard let current = request.value(forHTTPHeaderField: "User-Agent"),
+              let index = subscriptionUserAgents.firstIndex(of: current),
+              index + 1 < subscriptionUserAgents.count else { return nil }
+        var retry = request
+        retry.setValue(subscriptionUserAgents[index + 1], forHTTPHeaderField: "User-Agent")
+        return retry
+    }
+
+    private func accepted(
+        url: URL,
+        http: HTTPURLResponse,
+        data: Data,
+        etag: String?,
+        lastModified: String?
+    ) throws -> FetchResponse {
         if http.statusCode == 304 {
             return FetchResponse(
                 url: url,
@@ -197,6 +253,11 @@ actor SubscriptionFetcher {
         for line in lines.dropFirst() {
             guard let colon = line.firstIndex(of: ":") else { continue }
             fields[String(line[..<colon]).lowercased()] = line[line.index(after: colon)...].trimmingCharacters(in: .whitespaces)
+        }
+        if status == 400,
+           Self.rejectsClientFlag((try? Data(contentsOf: body)) ?? Data()),
+           let retry = Self.retryRequest(request) {
+            return try await fetchUsingCurl(retry, port: port, directory: directory)
         }
         guard status == 304 || (200...299).contains(status) else { throw SubscriptionFetcherError.httpError(status) }
         let data = status == 304 ? Data() : try Data(contentsOf: body)

@@ -202,6 +202,25 @@ enum ConnectionStatus: String, Codable, Sendable {
     }
 }
 
+/// Codex 用量只在节点确认完成后读取。连接过程中状态可能先变成已连接，出口 IP 仍在确认。
+enum CodexUsageFetchGate: Equatable {
+    case waitForProxy
+    case waitForNode
+    case fetch
+
+    static func resolve(status: ConnectionStatus, sessionReady: Bool) -> Self {
+        if status == .connected, sessionReady { return .fetch }
+        if status == .connecting || status == .connected { return .waitForNode }
+        return .waitForProxy
+    }
+
+    /// Node confirmation is brief. A login failure is not a proxy problem.
+    static func shouldRemindToKeepProxy(enabled: Bool, gate: Self, liveReadStalled: Bool) -> Bool {
+        guard enabled, gate != .waitForNode else { return false }
+        return gate == .waitForProxy || liveReadStalled
+    }
+}
+
 struct NodeExitMetadata: Codable, Hashable, Sendable {
     var ip: String
     var city: String?
@@ -475,6 +494,14 @@ extension StartupConnectionIntent {
     }
 }
 
+/// 未连接且本次还没有最近节点时，用持久化的上次连接来画选中。单击优先。
+func quickSwitchRecalledNodeID(liveNodeID: UUID?, pickedID: UUID?, recentNodeID: UUID?, lastConnectedNodeID: UUID?) -> UUID? {
+    if let liveNodeID {
+        return pickedID == liveNodeID ? nil : pickedID
+    }
+    return pickedID ?? recentNodeID ?? lastConnectedNodeID
+}
+
 enum RoutingMode: String, Codable, CaseIterable, Sendable {
     case global
     case direct
@@ -680,6 +707,14 @@ struct AppSettings: Codable, Hashable, Sendable {
     var maxFailoverAttempts: Int = 5
     /// 初次连接验证的等待时间（秒）；慢连接会延长等待后再决定是否切换。
     var connectTimeoutSeconds: Int = 15
+    /// 连接成功后等待出口 IP 的秒数。0 表示关闭：缺少出口 IP 只提示。
+    var missingExitIPTimeoutSeconds: Int = 10
+
+    static let missingExitIPTimeoutChoices = [0, 5, 10, 15, 20]
+
+    static func normalizedMissingExitIPTimeout(_ seconds: Int) -> Int {
+        missingExitIPTimeoutChoices.contains(seconds) ? seconds : 10
+    }
 
     static let chatGPTConnectivityTestURL = "https://chatgpt.com/generate_204"
     static let codexConnectivityTestURL = "https://chatgpt.com/backend-api/codex/responses"
@@ -1022,6 +1057,7 @@ extension AppSettings {
         merge(\.batchTestTimeoutSeconds)
         merge(\.connectOnLaunch)
         merge(\.connectTimeoutSeconds)
+        merge(\.missingExitIPTimeoutSeconds)
         merge(\.defaultFallbackDays)
         merge(\.defaultTimeZoneID)
         merge(\.defaultUpdateHour)

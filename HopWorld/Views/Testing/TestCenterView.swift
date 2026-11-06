@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -27,7 +28,7 @@ struct UsageHelpButton: View {
 }
 
 /// 测试页「实验室」主题调色板，深浅色自适应。
-private struct LabPalette {
+struct LabPalette {
     var scheme: ColorScheme
     var bgTop: Color
     var bgBottom: Color
@@ -69,7 +70,7 @@ private struct LabPalette {
 }
 
 /// 实验室背景：渐变 + 坐标网格。
-private struct LabBackdrop: View {
+struct LabBackdrop: View {
     var palette: LabPalette
 
     var body: some View {
@@ -97,13 +98,14 @@ private struct LabBackdrop: View {
 }
 
 /// 通用卡片容器。
-private struct LabCard<Content: View>: View {
+struct LabCard<Content: View>: View {
     var title: String
     var icon: String
     var tint: Color
     var palette: LabPalette
     var subtitle: String? = nil
     var footnote: String? = nil
+    var trailing: AnyView? = nil
     @ViewBuilder var content: () -> Content
 
     var body: some View {
@@ -123,12 +125,15 @@ private struct LabCard<Content: View>: View {
                         .lineLimit(1)
                         .help(subtitle)
                 }
-                if let footnote {
+                if trailing != nil || footnote != nil {
                     Spacer(minLength: 8)
-                    Text(footnote)
-                        .font(.system(size: 11))
-                        .foregroundStyle(palette.subtext)
-                        .multilineTextAlignment(.trailing)
+                    if let trailing { trailing }
+                    if let footnote {
+                        Text(footnote)
+                            .font(.system(size: 11))
+                            .foregroundStyle(palette.subtext)
+                            .multilineTextAlignment(.trailing)
+                    }
                 }
             }
             content()
@@ -272,6 +277,8 @@ struct TestCenterView: View {
     @State private var appProbeBaseline: AppSettings?
     @State private var resultPage = 1
     @State private var testTargetStatus: TestTargetStatus = .all
+    @State private var showingGitHubDownload = false
+    @State private var showingNetworkTools = false
 
     /// Shared with 节点 page subscription chips.
     private var testScope: NodeListFilter.Source {
@@ -357,6 +364,13 @@ struct TestCenterView: View {
                 remainingNodeIDs: Set(testManager.remainingNodeIDs)
             )
         }
+        .sheet(isPresented: $showingGitHubDownload) {
+            GitHubDownloadSheet()
+        }
+        .sheet(isPresented: $showingNetworkTools) {
+            NetworkToolsSheet()
+                .environmentObject(appState)
+        }
     }
 
     // MARK: - 页眉
@@ -384,11 +398,29 @@ struct TestCenterView: View {
                 }
             }
             Spacer(minLength: 8)
-            TimelineView(.periodic(from: .now, by: 1)) { context in
-                Text(context.date, format: .dateTime.hour().minute().second())
-                    .font(.system(size: 17, weight: .semibold, design: .monospaced))
-                    .monospacedDigit()
-                    .foregroundStyle(palette.text)
+            VStack(alignment: .trailing, spacing: 8) {
+                TimelineView(.periodic(from: .now, by: 1)) { context in
+                    Text(context.date, format: .dateTime.hour().minute().second())
+                        .font(.system(size: 17, weight: .semibold, design: .monospaced))
+                        .monospacedDigit()
+                        .foregroundStyle(palette.text)
+                }
+                HStack(spacing: 10) {
+                    Button { showingGitHubDownload = true } label: {
+                        Image(systemName: "arrow.down.circle")
+                            .font(.system(size: 16, weight: .semibold))
+                    }
+                    .help("GitHub 文件下载")
+                    .accessibilityLabel("GitHub 文件下载")
+                    Button { showingNetworkTools = true } label: {
+                        Image(systemName: "network")
+                            .font(.system(size: 16, weight: .semibold))
+                    }
+                    .help("网络工具")
+                    .accessibilityLabel("网络工具")
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(palette.accent)
             }
         }
     }
@@ -2706,14 +2738,14 @@ struct SettingsView: View {
                 ))
 
                 HStack {
-                    Toggle("依据 Codex 应用健康智能切换", isOn: Binding(
+                    Toggle("应用健康智能切换", isOn: Binding(
                         get: { previewSettings.codexSmartFailover },
                         set: { value in updateDraftSettings { $0.codexSmartFailover = value } }
                     ))
                     .disabled(!previewSettings.autoFailover)
                     UsageHelpButton(
-                        title: "Codex 智能切换说明",
-                        text: "连接策略对所有节点统一生效，修改后点击“应用设置”。需开启概览中的自动优选和 TUN 接管。开启后，主要依据状态 2（无法加载工作空间设置）、状态 3（正在重新连接）、状态 4（等待网络）判断故障。慢连接和偶发超时会先延长等待并复验，持续不可用才按顺序切换备用节点；故障期间状态 1 检查成功时，会额外观察，同一故障只延长一次。状态 1 异常、对话空闲、认证或服务异常不会单独触发切换。"
+                        title: "应用健康智能切换说明",
+                        text: "监测 Codex、Claude 和 Cursor，不只针对某一个应用。需同时开启「自动故障切换」和概览中的「自动优选」，并由 TUN 接管对应应用。Codex 依据无法加载工作空间设置、正在重新连接或等待网络；Claude 与 Cursor 依据无法加载 Claude 模型。慢连接和偶发超时会先延长等待并复验，持续不可用才按顺序切换备用节点。状态 1 异常、对话空闲、认证或服务异常不会单独触发切换。修改后点击「应用设置」。"
                     )
                 }
                 LabeledContent("当前自动恢复状态", value: appState.applicationHealthSwitchStatus)
@@ -2750,6 +2782,17 @@ struct SettingsView: View {
                     in: 1...99
                 )
                 Text("默认 15 秒。慢连接和偶发超时先延长等待并复验，仍无法连通时再尝试备用节点。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Picker("无出口 IP", selection: Binding(
+                    get: { previewSettings.missingExitIPTimeoutSeconds },
+                    set: { value in updateDraftSettings { $0.missingExitIPTimeoutSeconds = value } }
+                )) {
+                    ForEach(AppSettings.missingExitIPTimeoutChoices, id: \.self) { seconds in
+                        Text(seconds == 0 ? "关闭" : "\(seconds) 秒").tag(seconds)
+                    }
+                }
+                Text("默认 10 秒。从连接成功开始计时，到时仍没有出口 IP，这次连接记为失败。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Text(
@@ -4017,146 +4060,263 @@ struct LogView: View {
 
 }
 
-struct MenuBarView: View {
-    @EnvironmentObject private var appState: AppState
+private enum MenuBarImages {
+    static let black = make(named: "MenuBarIconBlack")
+    static let white = make(named: "MenuBarIconWhite")
 
-    var body: some View {
-        if appState.connection.state.status == .connected {
-            Button {
-                Task { await appState.disconnect() }
-            } label: {
-                HStack {
-                    Text("已连接")
-                    Spacer()
-                    Text("断开连接")
-                }
-            }
-        } else if appState.connection.state.status == .connecting || appState.connection.isBusy {
-            Button {
-                Task { await appState.disconnect() }
-            } label: {
-                HStack {
-                    Text(menuStatusLine)
-                    Spacer()
-                    Text("取消连接")
-                }
-            }
+    static func image(white usesWhite: Bool) -> NSImage { usesWhite ? white : black }
+
+    /// MenuBarExtra treated SwiftUI images as templates. A stable non-template image keeps the black/white icon.
+    private static func make(named name: String) -> NSImage {
+        let image = (NSImage(named: name)?.copy() as? NSImage) ?? NSImage(size: NSSize(width: 18, height: 18))
+        image.isTemplate = false
+        image.size = NSSize(width: 18, height: 18)
+        return image
+    }
+}
+
+/// Native status menu. SwiftUI `MenuBarExtra` rebuilds rows on hover and clears the item under the pointer.
+@MainActor
+final class StatusMenuController: NSObject, NSMenuDelegate {
+    private let appState: AppState
+    private let statusItem: NSStatusItem
+    private let menu = NSMenu()
+    private var liveUpdate = StatusMenuLiveUpdate()
+    private var chromeObserver: AnyCancellable?
+
+    init(appState: AppState) {
+        self.appState = appState
+        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        super.init()
+        menu.autoenablesItems = false
+        menu.delegate = self
+        statusItem.menu = menu
+        if let button = statusItem.button {
+            button.imagePosition = .imageLeft
+            button.imageHugsTitle = true
+            button.imageScaling = .scaleProportionallyDown
+            button.font = .monospacedDigitSystemFont(ofSize: NSFont.systemFontSize, weight: .regular)
+        }
+        applyChrome()
+        chromeObserver = appState.objectWillChange.sink { [weak self] _ in
+            Task { @MainActor in self?.applyChromeIfAllowed() }
+        }
+    }
+
+    func menuWillOpen(_ menu: NSMenu) {
+        guard menu === self.menu else { return }
+        liveUpdate.willOpenMenu()
+        rebuild(menu)
+    }
+
+    func menuDidClose(_ menu: NSMenu) {
+        guard menu === self.menu else { return }
+        guard liveUpdate.didCloseMenu() else { return }
+        applyChrome()
+    }
+
+    private func applyChromeIfAllowed() {
+        guard liveUpdate.consumeChromeUpdate() else { return }
+        applyChrome()
+    }
+
+    private func applyChrome() {
+        guard let button = statusItem.button else { return }
+        let status = appState.connection.state.status
+        let image = MenuBarImages.image(white: status == .connected || status == .disconnecting)
+        if button.image !== image { button.image = image }
+        let title = status == .connected
+            ? (appState.connection.state.latency.map { "\($0) ms" } ?? "超时")
+            : ""
+        if button.title != title { button.title = title }
+        let label = "跃界，\(status.displayName)"
+        if button.accessibilityLabel() != label { button.setAccessibilityLabel(label) }
+    }
+
+    private func rebuild(_ menu: NSMenu) {
+        menu.removeAllItems()
+        let status = appState.connection.state.status
+        if status == .connected {
+            menu.addItem(actionItem("已连接 · 断开连接", #selector(disconnect(_:))))
+        } else if status == .connecting || appState.connection.isBusy {
+            menu.addItem(actionItem("\(menuStatusLine) · 取消连接", #selector(disconnect(_:))))
         } else {
-            Text(menuStatusLine)
+            menu.addItem(disabledItem(menuStatusLine))
         }
         if let node = appState.currentNode {
-            Text(menuNodeLine(for: node))
+            menu.addItem(disabledItem(menuNodeLine(for: node)))
+        }
+        menu.addItem(.separator())
+        menu.addItem(nodeMenuItem())
+        menu.addItem(.separator())
+
+        let autoSelect = actionItem("自动优选", #selector(toggleAutoSelect(_:)))
+        autoSelect.state = appState.connection.state.autoSelectEnabled ? .on : .off
+        menu.addItem(autoSelect)
+
+        let smartSwitch = actionItem("智能切换", #selector(toggleSmartFailover(_:)))
+        smartSwitch.state = appState.settings.codexSmartFailover ? .on : .off
+        smartSwitch.isEnabled = appState.settings.autoFailover
+        menu.addItem(smartSwitch)
+
+        let routing = NSMenuItem(title: "路由模式", action: nil, keyEquivalent: "")
+        let routingMenu = NSMenu()
+        routingMenu.autoenablesItems = false
+        for mode in RoutingMode.allCases {
+            let title = appState.settings.routingMode == mode
+                ? "✓ \(mode.displayName)（当前）"
+                : mode.displayName
+            routingMenu.addItem(actionItem(title, #selector(pickRouting(_:)), object: mode.rawValue))
+        }
+        routing.submenu = routingMenu
+        routing.isEnabled = !appState.connection.isBusy
+        menu.addItem(routing)
+
+        menu.addItem(actionItem("测试当前节点", #selector(testCurrent(_:))))
+        menu.addItem(actionItem("更新订阅", #selector(refreshSubscriptions(_:))))
+        menu.addItem(.separator())
+        menu.addItem(actionItem("打开跃界", #selector(openMainWindow(_:))))
+        menu.addItem(actionItem("退出", #selector(quit(_:))))
+    }
+
+    private func nodeMenuItem() -> NSMenuItem {
+        let root = NSMenu()
+        root.autoenablesItems = false
+        if !favoriteNodes.isEmpty {
+            let submenu = NSMenu()
+            submenu.autoenablesItems = false
+            addNodeButtons(
+                favoriteNodes,
+                emptyText: appState.connection.state.autoSelectEnabled ? "暂无可用收藏节点" : "暂无收藏节点",
+                to: submenu
+            )
+            root.addItem(submenuItem("★ 收藏 (\(favoriteNodes.count))", submenu: submenu))
         }
 
-        Divider()
-
-        Menu("节点") {
-            if !favoriteNodes.isEmpty {
-                Menu("★ 收藏 (\(favoriteNodes.count))") {
-                    nodeButtons(
-                        favoriteNodes,
-                        emptyText: appState.connection.state.autoSelectEnabled
-                            ? "暂无可用收藏节点"
-                            : "暂无收藏节点"
-                    )
-                }
-            }
-
-            if appState.countryGroups.isEmpty {
-                Text("暂无节点，请先添加订阅")
+        if appState.countryGroups.isEmpty {
+            root.addItem(disabledItem("暂无节点，请先添加订阅"))
+        } else {
+            let groups = appState.countryGroups.filter { !connectableNodes(in: $0.nodes).isEmpty }
+            if groups.isEmpty {
+                root.addItem(disabledItem(appState.connection.state.autoSelectEnabled ? "暂无可用节点，请先测速" : "暂无节点"))
             } else {
-                let groupsWithConnectable = appState.countryGroups.filter {
-                    !connectableNodes(in: $0.nodes).isEmpty
-                }
-                if groupsWithConnectable.isEmpty {
-                    Text(appState.connection.state.autoSelectEnabled
-                         ? "暂无可用节点，请先测速"
-                         : "暂无节点")
-                } else {
-                    ForEach(groupsWithConnectable) { group in
-                        let connectable = connectableNodes(in: group.nodes)
-                        let usableCount = availableNodes(in: group.nodes).count
-                        Menu(countryMenuTitle(group, availableCount: usableCount, listedCount: connectable.count)) {
-                            if usableCount > 0 {
-                                Button("连接最快") {
-                                    Task { await appState.connectCountry(group.code) }
-                                }
-                                Divider()
-                            }
-
-                            nodeButtons(
-                                connectable,
-                                emptyText: appState.connection.state.autoSelectEnabled
-                                    ? "该国家暂无可用节点"
-                                    : "该国家暂无节点"
-                            )
-                        }
+                for group in groups {
+                    let connectable = connectableNodes(in: group.nodes)
+                    let usableCount = availableNodes(in: group.nodes).count
+                    let submenu = NSMenu()
+                    submenu.autoenablesItems = false
+                    if usableCount > 0 {
+                        submenu.addItem(actionItem("连接最快", #selector(connectFastest(_:)), object: group.code))
+                        submenu.addItem(.separator())
                     }
-                }
-            }
-
-            if !manualOrOtherNodes.isEmpty {
-                Divider()
-                Menu("其它 (\(manualOrOtherNodes.count))") {
-                    nodeButtons(manualOrOtherNodes, emptyText: "暂无")
-                }
-            }
-        }
-
-        Divider()
-
-        Toggle("自动优选", isOn: Binding(
-            get: { appState.connection.state.autoSelectEnabled },
-            set: {
-                appState.connection.state.autoSelectEnabled = $0
-                appState.persist()
-            }
-        ))
-
-        Menu(routingModeMenuTitle) {
-            ForEach(RoutingMode.allCases, id: \.self) { mode in
-                Button {
-                    Task { await appState.setRoutingMode(mode) }
-                } label: {
-                    if appState.settings.routingMode == mode {
-                        Text("✓ \(mode.displayName)（当前）")
-                    } else {
-                        Text("应用\(mode.displayName)")
-                    }
+                    addNodeButtons(
+                        connectable,
+                        emptyText: appState.connection.state.autoSelectEnabled ? "该国家暂无可用节点" : "该国家暂无节点",
+                        to: submenu
+                    )
+                    let title = countryMenuTitle(group, availableCount: usableCount, listedCount: connectable.count)
+                    root.addItem(submenuItem(title, submenu: submenu))
                 }
             }
         }
-        .disabled(appState.connection.isBusy)
 
-        Button("测试当前节点") {
-            Task { await appState.testCurrentConnection() }
+        if !manualOrOtherNodes.isEmpty {
+            root.addItem(.separator())
+            let submenu = NSMenu()
+            submenu.autoenablesItems = false
+            addNodeButtons(manualOrOtherNodes, emptyText: "暂无", to: submenu)
+            root.addItem(submenuItem("其它 (\(manualOrOtherNodes.count))", submenu: submenu))
         }
-        Button("更新订阅") {
-            Task { await appState.refreshAllSubscriptions() }
-        }
+        return submenuItem("节点", submenu: root)
+    }
 
-        Divider()
-
-        Button("打开跃界") {
-            DockReopen.handleDockClick()
+    private func addNodeButtons(_ nodes: [ProxyNode], emptyText: String, to menu: NSMenu) {
+        let sorted = nodes.sorted { lhs, rhs in
+            let left = lhs.lastLatency ?? Int.max
+            let right = rhs.lastLatency ?? Int.max
+            if left != right { return left < right }
+            return lhs.id.uuidString < rhs.id.uuidString
         }
-
-        Button("退出") {
-            NSApp.terminate(nil)
+        guard !sorted.isEmpty else {
+            menu.addItem(disabledItem(emptyText))
+            return
         }
+        for node in sorted.prefix(40) {
+            menu.addItem(actionItem(nodeMenuLabel(node), #selector(connectNode(_:)), object: node.id.uuidString))
+        }
+        if sorted.count > 40 {
+            menu.addItem(disabledItem("…还有 \(sorted.count - 40) 个节点"))
+        }
+    }
+
+    private func actionItem(_ title: String, _ action: Selector, object: Any? = nil) -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
+        item.target = self
+        item.representedObject = object
+        item.isEnabled = true
+        return item
+    }
+
+    private func disabledItem(_ title: String) -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+        item.isEnabled = false
+        return item
+    }
+
+    private func submenuItem(_ title: String, submenu: NSMenu) -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+        item.submenu = submenu
+        return item
+    }
+
+    @objc private func disconnect(_ sender: Any?) {
+        Task { await appState.disconnect() }
+    }
+
+    @objc private func toggleAutoSelect(_ sender: Any?) {
+        appState.connection.state.autoSelectEnabled.toggle()
+        appState.persist()
+    }
+
+    @objc private func toggleSmartFailover(_ sender: Any?) {
+        guard appState.settings.autoFailover else { return }
+        appState.updateSettings { $0.codexSmartFailover.toggle() }
+    }
+
+    @objc private func pickRouting(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String, let mode = RoutingMode(rawValue: raw) else { return }
+        Task { await appState.setRoutingMode(mode) }
+    }
+
+    @objc private func connectFastest(_ sender: NSMenuItem) {
+        guard let code = sender.representedObject as? String else { return }
+        Task { await appState.connectCountry(code) }
+    }
+
+    @objc private func connectNode(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String,
+              let id = UUID(uuidString: raw),
+              let node = appState.nodes.first(where: { $0.id == id }) else { return }
+        appState.requestConnect(to: node)
+    }
+
+    @objc private func testCurrent(_ sender: Any?) {
+        Task { await appState.testCurrentConnection() }
+    }
+
+    @objc private func refreshSubscriptions(_ sender: Any?) {
+        Task { await appState.refreshAllSubscriptions() }
+    }
+
+    @objc private func openMainWindow(_ sender: Any?) {
+        DockReopen.handleDockClick()
+    }
+
+    @objc private func quit(_ sender: Any?) {
+        NSApp.terminate(nil)
     }
 
     // MARK: - Node menus
-
-    private var routingModeMenuTitle: String {
-        let mode = appState.settings.routingMode
-        guard mode == .rules else { return "路由模式：\(mode.displayName)" }
-        switch appState.settings.connectionCaptureMode {
-        case .applications: return "路由模式：规则代理 · 应用白名单"
-        case .systemProxy: return "路由模式：规则代理 · 系统代理"
-        default: return "路由模式：规则代理 · \(appState.settings.connectionCaptureMode.displayName)"
-        }
-    }
 
     private var menuStatusLine: String {
         appState.connection.state.status.displayName
@@ -4182,28 +4342,6 @@ struct MenuBarView: View {
             }
         }
         return base
-    }
-
-    @ViewBuilder
-    private func nodeButtons(_ nodes: [ProxyNode], emptyText: String) -> some View {
-        let sorted = nodes.sorted { lhs, rhs in
-            (lhs.lastLatency ?? Int.max) < (rhs.lastLatency ?? Int.max)
-        }
-
-        if sorted.isEmpty {
-            Text(emptyText)
-        } else {
-            ForEach(sorted.prefix(40)) { node in
-                Button {
-                    appState.requestConnect(to: node)
-                } label: {
-                    Text(nodeMenuLabel(node))
-                }
-            }
-            if sorted.count > 40 {
-                Text("…还有 \(sorted.count - 40) 个节点")
-            }
-        }
     }
 
     private func countryMenuTitle(_ group: CountryGroup, availableCount: Int, listedCount: Int? = nil) -> String {

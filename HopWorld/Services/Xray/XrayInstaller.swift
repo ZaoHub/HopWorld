@@ -465,7 +465,7 @@ final class XrayUpdateManager: ObservableObject {
     @Published private(set) var downloadProgress: Double?
     /// 当前正在安装的目标版本；空闲时为 nil。
     @Published private(set) var updatingVersion: String?
-    @Published private(set) var status = "每天首次启动检查两个版本，自动更新仅使用稳定版。"
+    @Published private(set) var status = "每天自动检查两个版本；开启自动更新后仅安装官方稳定版。"
     @Published private(set) var lastCheckedAt: Date?
     @Published var automaticUpdates: Bool {
         didSet { defaults.set(automaticUpdates, forKey: "xray.automaticUpdates") }
@@ -506,6 +506,7 @@ final class XrayUpdateManager: ObservableObject {
 
     func checkForUpdates(automatic: Bool = false) async {
         guard !isUpdating else { return }
+        guard await LabUtilityProcess.allowInternet(userInitiated: !automatic) else { return }
         // Same-day automatic launch still installs a cached official stable update
         // when auto-update is on; only the network refresh is skipped.
         if automatic && !Self.claimDailyCheck(defaults: defaults) {
@@ -591,6 +592,7 @@ final class XrayUpdateManager: ObservableObject {
     }
 
     private func installSelectedRelease(_ release: XrayRelease, allowSwitch: Bool) async {
+        guard await LabUtilityProcess.allowInternet(userInitiated: allowSwitch) else { return }
         do {
             let version = try release.validatedVersion(allowPrerelease: allowSwitch)
             updatingVersion = version

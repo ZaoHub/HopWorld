@@ -16,6 +16,7 @@ final class CodexResetNotificationController: ObservableObject {
     private let defaults: UserDefaults
     private let send: @Sendable (String, String) async throws -> Void
     private var sendingTask: Task<Void, Never>?
+    private var expirationTimer: Timer?
     private var generation = UUID()
     private var latestBatchID: UUID?
     private static let storageKey = "usageCard.codexResetNotifications.v1"
@@ -34,7 +35,10 @@ final class CodexResetNotificationController: ObservableObject {
         if status.hasPrefix("发送中：") {
             status = "上次发送未完成确认，可能已提交；请在“信息”中检查，未自动重试。"
         }
+        scheduleCreditReminder()
     }
+
+    deinit { expirationTimer?.invalidate() }
 
     func apply(_ updated: CodexResetNotificationSettings) {
         guard updated.validationError == nil, updated != settings else { return }
@@ -55,7 +59,9 @@ final class CodexResetNotificationController: ObservableObject {
             status = "收件人已更新；尚未提交的消息已取消，请在“信息”中检查已提交的消息。"
         }
         settings = updated
+        if !updated.enabled { expirationTimer?.invalidate(); expirationTimer = nil }
         persist()
+        scheduleCreditReminder()
     }
 
     func sendTest(using draft: CodexResetNotificationSettings) {
@@ -76,7 +82,8 @@ final class CodexResetNotificationController: ObservableObject {
         let weekly = snapshot.window(minutes: 10_080)
         let observation = snapshot.rateLimitResetCredits.flatMap { credits in
             CodexResetNotificationObservation.make(accountID: snapshot.accountID,
-                usedPercent: weekly?.usedPercent, resetsAt: weekly?.resetsAt, resetCount: credits.availableCount)
+                usedPercent: weekly?.usedPercent, resetsAt: weekly?.resetsAt, resetCount: credits.availableCount,
+                creditExpiresAt: credits.soonestAvailableExpiration)
         }
         observe(observation)
     }
@@ -85,7 +92,7 @@ final class CodexResetNotificationController: ObservableObject {
     func observe(_ observation: CodexResetNotificationObservation?) {
         let observation = observation.flatMap {
             CodexResetNotificationObservation.make(accountID: $0.accountID, usedPercent: $0.usedPercent,
-                resetsAt: $0.resetsAt, resetCount: $0.resetCount)
+                resetsAt: $0.resetsAt, resetCount: $0.resetCount, creditExpiresAt: $0.creditExpiresAt)
         }
         if let previousAccount = state.previous?.accountID, let observation,
            previousAccount != observation.accountID {
@@ -95,8 +102,18 @@ final class CodexResetNotificationController: ObservableObject {
             generation = UUID()
             isSending = false
             if status.hasPrefix("发送中：") { status = "账号已变化，尚未提交的消息已取消。" }
+            state.clearCreditReminder()
         }
         let event = state.evaluate(observation, enabled: settings.enabled)
+        let now = Date()
+        let reminderLead: Int?
+        if settings.enabled, let observation, observation.accountID != nil || observation.resetCount == 0 {
+            reminderLead = state.pendingCreditReminder(expiration: observation.creditExpiresAt,
+                                                       resetCount: observation.resetCount, now: now)
+        } else {
+            reminderLead = nil
+        }
+        scheduleCreditReminder(now: now)
         guard settings.enabled else { monitoringStatus = "通知已关闭"; persist(); return }
         guard let observation, observation.accountID != nil else {
             monitoringStatus = "等待有效的账号和可用重置次数数据"
@@ -105,14 +122,60 @@ final class CodexResetNotificationController: ObservableObject {
         }
         monitoringStatus = observation.usedPercent != nil && observation.resetsAt != nil
             ? "基线已记录，正在等待下一次额度变化" : "周用量暂未获取，继续监测可用重置次数"
-        guard let event else { persist(); return }
+        guard event != nil || reminderLead != nil else { persist(); return }
         guard settings.validationError == nil else {
             status = "请在通知设置中选择有效收件人"
             persist()
             return
         }
+        if let event {
+            enqueue(recipients: settings.selectedRecipients,
+                    message: Self.message(event: event, observation: observation))
+        }
+        if let reminderLead, let expiration = state.creditExpiresAt {
+            state.commitCreditReminder(reminderLead)
+            enqueue(recipients: settings.selectedRecipients,
+                    message: Self.creditReminderMessage(lead: reminderLead, expiration: expiration,
+                                                        resetCount: observation.resetCount))
+            scheduleCreditReminder(now: now)
+            persist()
+        }
+    }
+
+    private func deliverScheduledCreditReminder() {
+        let now = Date()
+        let resetCount = state.previous?.resetCount ?? 0
+        guard settings.enabled, settings.validationError == nil,
+              let lead = state.pendingCreditReminder(expiration: state.creditExpiresAt,
+                                                     resetCount: resetCount, now: now),
+              let expiration = state.creditExpiresAt else {
+            scheduleCreditReminder(now: now)
+            persist()
+            return
+        }
+        state.commitCreditReminder(lead)
         enqueue(recipients: settings.selectedRecipients,
-                message: Self.message(event: event, observation: observation))
+                message: Self.creditReminderMessage(lead: lead, expiration: expiration,
+                                                    resetCount: resetCount))
+        scheduleCreditReminder(now: now)
+    }
+
+    private func scheduleCreditReminder(now: Date = Date()) {
+        expirationTimer?.invalidate()
+        expirationTimer = nil
+        guard settings.enabled, let expiration = state.creditExpiresAt else { return }
+        let sent = Set(state.sentCreditReminderLeads)
+        let nowTS = now.timeIntervalSince1970
+        guard let fireAt = CodexResetNotificationState.creditReminderLeads
+            .filter({ !sent.contains($0) })
+            .map({ expiration - Double($0) })
+            .filter({ $0 > nowTS })
+            .min() else { return }
+        let timer = Timer(timeInterval: max(0.1, fireAt - nowTS), repeats: false) { [weak self] _ in
+            Task { @MainActor [weak self] in self?.deliverScheduledCreditReminder() }
+        }
+        expirationTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
     }
 
     private func enqueue(recipients: [CodexResetNotificationRecipient], message: String, isTest: Bool = false) {
@@ -182,5 +245,22 @@ final class CodexResetNotificationController: ObservableObject {
         lines.append("当前可用重置：\(observation.resetCount) 次。")
         lines.append("依据相邻成功读取的数据判断；重置次数减少按手动重置处理。")
         return lines.joined(separator: "\n")
+    }
+
+    private static func creditReminderMessage(lead: Int, expiration: Double, resetCount: Int) -> String {
+        let when = Date(timeIntervalSince1970: expiration).formatted(date: .abbreviated, time: .shortened)
+        let ahead: String
+        switch lead {
+        case 86_400: ahead = "1 天"
+        case 18_000: ahead = "5 小时"
+        case 10_800: ahead = "3 小时"
+        case 1_800: ahead = "30 分钟"
+        case 300: ahead = "5 分钟"
+        default: ahead = "\(lead) 秒"
+        }
+        return ["跃界 · Codex 用量提醒",
+                "可用重置将在 \(ahead) 后到期。",
+                "到期时间：" + when,
+                "当前可用重置：\(resetCount) 次。"].joined(separator: "\n")
     }
 }

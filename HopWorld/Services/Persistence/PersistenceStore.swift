@@ -127,10 +127,14 @@ struct PersistenceStore: Sendable {
             } else {
                 obj["batchTestTimeoutSeconds"] = 2
             }
+            if obj["missingExitIPTimeoutSeconds"] == nil {
+                obj["missingExitIPTimeoutSeconds"] = 10
+            }
             if let patched = try? JSONSerialization.data(withJSONObject: obj),
                var settings = try? decoder.decode(AppSettings.self, from: patched) {
                 settings.normalizeApplicationProxyMode()
                 settings.connectTimeoutSeconds = min(99, max(1, settings.connectTimeoutSeconds))
+                settings.missingExitIPTimeoutSeconds = AppSettings.normalizedMissingExitIPTimeout(settings.missingExitIPTimeoutSeconds)
                 settings.scheduledTestIntervalMinutes = min(1440, max(5, settings.scheduledTestIntervalMinutes))
                 return settings
             }
@@ -138,6 +142,7 @@ struct PersistenceStore: Sendable {
         if var settings = try? decoder.decode(AppSettings.self, from: data) {
             settings.normalizeApplicationProxyMode()
             settings.connectTimeoutSeconds = min(99, max(1, settings.connectTimeoutSeconds))
+            settings.missingExitIPTimeoutSeconds = AppSettings.normalizedMissingExitIPTimeout(settings.missingExitIPTimeoutSeconds)
             settings.scheduledTestIntervalMinutes = min(1440, max(5, settings.scheduledTestIntervalMinutes))
             return settings
         }

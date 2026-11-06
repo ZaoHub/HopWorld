@@ -64,6 +64,9 @@ enum ClaudeUsageReader {
         let credentials: Credentials
         if let file = loadFile() {
             credentials = try decodeCredentials(file)
+        } else if let cached = credentialsLock.withLock({ cachedCredentials }),
+                  cached.expiresAt.map({ $0 > now }) ?? true {
+            credentials = cached
         } else if allowInteraction {
             let data = try loadKeychain()
             guard !data.isEmpty else { throw ReadError.unsupportedLogin }
@@ -182,6 +185,7 @@ final class ClaudeUsageMonitor: ObservableObject {
     deinit { refreshTimer?.invalidate() }
     func refresh(allowKeychainInteraction: Bool = false) async {
         guard isMonitoringEnabled, !isRefreshing else { return }
+        guard await LabUtilityProcess.allowInternet(userInitiated: allowKeychainInteraction) else { return }
         isRefreshing = true
         defer { isRefreshing = false }
         do {

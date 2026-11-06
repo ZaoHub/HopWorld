@@ -62,8 +62,20 @@ enum CursorUsageReader {
     }
     static func readAccessToken(allowKeychainInteraction: Bool = false) throws -> String {
         let storedValue = try readStoredAccessToken()
-        return try decodeAccessToken(storedValue) {
-            try readSafeStoragePassword(allowInteraction: allowKeychainInteraction)
+        do {
+            return try decodeAccessToken(storedValue) {
+                try readSafeStoragePassword(allowInteraction: allowKeychainInteraction)
+            }
+        } catch ReadError.unsupportedLogin where storedValue.hasPrefix("cursor-safe-storage:") && allowKeychainInteraction {
+            // shortcut: 记住的钥匙解不开时丢掉再问一次。Cursor 没换钥匙就不会再弹窗。
+            forgetSafeStoragePassword()
+            let token = try decodeAccessToken(storedValue) {
+                try readSafeStoragePassword(allowInteraction: true, loadPassword: readCursorKeychainPassword)
+            }
+            if let cached = passwordLock.withLock({ cachedSafeStoragePassword }) {
+                rememberPassword(cached, in: supportDirectory)
+            }
+            return token
         }
     }
 
@@ -89,12 +101,12 @@ enum CursorUsageReader {
 
     static func readSafeStoragePassword(allowInteraction: Bool,
                                         loadPassword: () throws -> Data = readKeychainPassword) throws -> Data {
-        // Background refreshes use only the key explicitly unlocked in this app session.
-        if !allowInteraction {
-            guard let cached = passwordLock.withLock({ cachedSafeStoragePassword }) else {
-                throw ReadError.keychainAccess(errSecInteractionNotAllowed)
-            }
+        // 允许过一次就用记下的钥匙。再点更新用量不再读 Cursor 的钥匙串。
+        if let cached = passwordLock.withLock({ cachedSafeStoragePassword }) {
             return cached
+        }
+        guard allowInteraction else {
+            throw ReadError.keychainAccess(errSecInteractionNotAllowed)
         }
         let data = try loadPassword()
         guard !data.isEmpty else { throw ReadError.unsupportedLogin }
@@ -103,6 +115,46 @@ enum CursorUsageReader {
     }
 
     private static func readKeychainPassword() throws -> Data {
+        if let stored = rememberedPassword(in: supportDirectory) {
+            return stored
+        }
+        let data = try readCursorKeychainPassword()
+        rememberPassword(data, in: supportDirectory)
+        return data
+    }
+
+    private static var supportDirectory: URL {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("HopWorld", isDirectory: true)
+    }
+
+    private static func forgetSafeStoragePassword() {
+        passwordLock.withLock { cachedSafeStoragePassword = nil }
+        forgetPassword(in: supportDirectory)
+    }
+
+    private static func passwordFileURL(in directory: URL) -> URL {
+        directory.appendingPathComponent("cursor-safe-storage.key")
+    }
+
+    static func rememberedPassword(in directory: URL) -> Data? {
+        guard let data = try? Data(contentsOf: passwordFileURL(in: directory)), !data.isEmpty else { return nil }
+        return data
+    }
+
+    static func rememberPassword(_ data: Data, in directory: URL) {
+        guard !data.isEmpty else { return }
+        let url = passwordFileURL(in: directory)
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try? data.write(to: url, options: [.atomic])
+        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+    }
+
+    static func forgetPassword(in directory: URL) {
+        try? FileManager.default.removeItem(at: passwordFileURL(in: directory))
+    }
+
+    private static func readCursorKeychainPassword() throws -> Data {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: "Cursor Safe Storage",
@@ -253,6 +305,7 @@ final class CursorUsageMonitor: ObservableObject {
     deinit { refreshTimer?.invalidate() }
     func refresh(allowKeychainInteraction: Bool = false) async {
         guard isMonitoringEnabled, !isRefreshing else { return }
+        guard await LabUtilityProcess.allowInternet(userInitiated: allowKeychainInteraction) else { return }
         isRefreshing = true
         defer { isRefreshing = false }
         do {

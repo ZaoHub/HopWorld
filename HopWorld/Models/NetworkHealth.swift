@@ -234,6 +234,13 @@ struct CodexApplicationObservation: Equatable, Sendable {
             }
             return
         }
+        if origin == .businessResponse && (event.kind == .responseProgress || event.kind == .responseCompleted) {
+            if lastResponseAt.map({ event.date >= $0 }) ?? true { lastResponseAt = event.date }
+            if lastSettingsUpdatedAt.map({ event.date >= $0 }) ?? true {
+                pendingSettingsFailure = nil
+                lastSettingsUpdatedAt = event.date
+            }
+        }
         guard origin != .request,
               !(origin == .appServerBridge && (event.scope == "local" || event.scope == "unconfirmed-route")),
               lastUpdatedAt.map({ event.date >= $0 }) ?? true else { return }
@@ -249,7 +256,6 @@ struct CodexApplicationObservation: Equatable, Sendable {
             pendingBridgeFailure = nil
         case .responseProgress, .responseCompleted:
             guard origin == .businessResponse else { return }
-            lastResponseAt = event.date
             clearPendingFailures()
         case .authenticationFailure, .rateLimited, .serviceFailure:
             if origin == .appServerBridge { pendingBridgeFailure = nil }
@@ -479,11 +485,15 @@ struct AppDiagnosticSnapshot: Sendable {
         }
         let settingsEvents = events.filter { $0.workspaceFeature == .settings }
         let pendingSettings = settingsEvents.last { $0.kind == .workspaceFailure }.flatMap { failure in
-            settingsEvents.last.map { $0.date <= failure.date } == true ? failure : nil
+            settingsEvents.last.map { $0.date <= failure.date } == true
+                && (response.map { $0.date < failure.date } ?? true) ? failure : nil
         }
         if let pendingSettings {
             workspaceSummary = pendingSettings.title + "。" + pendingSettings.detail
             state = .workspaceIssue
+        } else if let response, let lastSettingsFailure = settingsEvents.last(where: { $0.kind == .workspaceFailure }),
+                  response.date >= lastSettingsFailure.date {
+            workspaceSummary = "收到新的对话回复，状态 2 已恢复。"
         } else if let workspace = events.last(where: { $0.kind == .workspaceFailure || $0.kind == .workspaceRecovered || $0.workspaceFeature != nil }) {
             workspaceSummary = workspace.eventSummary(now: now)
             if workspace.workspaceFeature == nil, now.timeIntervalSince(workspace.date) <= 120, workspace.date > stateDate,

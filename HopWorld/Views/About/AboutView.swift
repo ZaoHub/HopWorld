@@ -175,7 +175,10 @@ private struct ComponentUpdateRow: View {
     @ObservedObject var updater: ComponentUpdateManager
 
     private var details: String {
-        var lines = [updater.component.summary]
+        var lines = [
+            updater.component.summary,
+            "每天自动检查；应用不重启也会在唤醒、回到前台、网络恢复或整点时再次检查。"
+        ]
         if updater.installedVersion == nil {
             lines.append(updater.component == .geoFiles ? "当前使用 Xray 随附规则。" : "尚未安装，首次使用时按需下载。")
         }
@@ -267,6 +270,7 @@ private struct XrayVersionSection: View {
     private var details: String {
         var lines = [
             "主要代理内核与节点测试。",
+            "每天自动检查；应用不重启也会在唤醒、回到前台、网络恢复或整点时再次检查。",
             "开启自动更新后，检查到更新会安装「官方稳定版」；关闭时需在「安装版本」里手动选择。",
             "「最新版本」可能是预发布版，仅手动安装，自动更新不会选用。",
             updater.status

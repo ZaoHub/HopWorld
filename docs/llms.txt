@@ -10,7 +10,7 @@
 - 平台：macOS 13.0+
 - 技术栈：SwiftUI；代理内核 Xray、sing-box
 - 许可：自有源码 MIT；第三方内核遵循上游许可证
-- 版本：v1.0.1（2026-11-01 DMG）
+- 版本：v1.0.2（2026-11-06 DMG）
 - 开发者组织：ZaoHub
 
 ## 支持的节点协议
@@ -30,9 +30,9 @@ VLESS、VMess、Trojan、Shadowsocks、Hysteria2、MASQUE、TUIC、AnyTLS、Wire
 
 ## 下载
 
-- Apple Silicon DMG：https://github.com/ZaoHub/HopWorld/releases/download/v1.0.1/HopWorld-2026-11-01-arm64.dmg
-- Intel DMG：https://github.com/ZaoHub/HopWorld/releases/download/v1.0.1/HopWorld-2026-11-01-x86_64.dmg
-- 全部 Release：https://github.com/ZaoHub/HopWorld/releases/tag/v1.0.1
+- Apple Silicon DMG：https://github.com/ZaoHub/HopWorld/releases/download/v1.0.2/HopWorld-2026-11-06-arm64.dmg
+- Intel DMG：https://github.com/ZaoHub/HopWorld/releases/download/v1.0.2/HopWorld-2026-11-06-x86_64.dmg
+- 全部 Release：https://github.com/ZaoHub/HopWorld/releases/tag/v1.0.2
 - 安装包为 ad-hoc 签名，未做 Apple 公证
 
 ## 链接

@@ -54,8 +54,18 @@ enum SubscriptionDateTemplateDetector {
         }
 
         let range = NSRange(urlString.startIndex..., in: urlString)
-        guard let match = regex.firstMatch(in: urlString, range: range),
-              match.numberOfRanges >= 4,
+        let match = regex.matches(in: urlString, range: range).first { match in
+            guard match.numberOfRanges >= 4,
+                  let yearRange = Range(match.range(at: 1), in: urlString),
+                  let monthRange = Range(match.range(at: 2), in: urlString),
+                  let dayRange = Range(match.range(at: 3), in: urlString),
+                  let year = Int(urlString[yearRange]),
+                  let month = Int(urlString[monthRange]),
+                  let day = Int(urlString[dayRange])
+            else { return false }
+            return isRealGregorianDate(year: year, month: month, day: day)
+        }
+        guard let match,
               let fullRange = Range(match.range(at: 0), in: urlString),
               let yearRange = Range(match.range(at: 1), in: urlString),
               let monthRange = Range(match.range(at: 2), in: urlString),
@@ -108,13 +118,9 @@ enum SubscriptionDateTemplateDetector {
               let yearRange = Range(match.range(at: 1), in: urlString),
               let monthRange = Range(match.range(at: 2), in: urlString),
               let dayRange = Range(match.range(at: 3), in: urlString),
-              let year = Int(urlString[yearRange]), let month = Int(urlString[monthRange]), let day = Int(urlString[dayRange])
+              let year = Int(urlString[yearRange]), let month = Int(urlString[monthRange]), let day = Int(urlString[dayRange]),
+              isRealGregorianDate(year: year, month: month, day: day)
         else { return unchanged }
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
-        guard let date = calendar.date(from: DateComponents(year: year, month: month, day: day)),
-              calendar.component(.month, from: date) == month,
-              calendar.component(.day, from: date) == day else { return unchanged }
         var template = urlString
         template.replaceSubrange(fullRange, with: "/{yyyy}{MM}/{MM}{dd}")
         return DateTemplateDetection(originalURL: urlString, template: template, detected: true,
@@ -129,21 +135,40 @@ enum SubscriptionDateTemplateDetector {
         ]
 
         for (pattern, token) in patterns {
-            guard let regex = try? NSRegularExpression(pattern: pattern),
-                  let match = regex.firstMatch(in: urlString, range: NSRange(urlString.startIndex..., in: urlString)),
-                  let fullRange = Range(match.range(at: 0), in: urlString)
-            else { continue }
+            guard let regex = try? NSRegularExpression(pattern: pattern) else { continue }
+            let matches = regex.matches(in: urlString, range: NSRange(urlString.startIndex..., in: urlString))
+            for match in matches {
+                guard match.numberOfRanges >= 4,
+                      let fullRange = Range(match.range(at: 0), in: urlString),
+                      let yearRange = Range(match.range(at: 1), in: urlString),
+                      let monthRange = Range(match.range(at: 2), in: urlString),
+                      let dayRange = Range(match.range(at: 3), in: urlString),
+                      let year = Int(urlString[yearRange]),
+                      let month = Int(urlString[monthRange]),
+                      let day = Int(urlString[dayRange]),
+                      isRealGregorianDate(year: year, month: month, day: day)
+                else { continue }
 
-            var template = urlString
-            template.replaceSubrange(fullRange, with: token)
-            return DateTemplateDetection(
-                originalURL: urlString,
-                template: template,
-                detected: true,
-                matchedDateText: String(urlString[fullRange])
-            )
+                var template = urlString
+                template.replaceSubrange(fullRange, with: token)
+                return DateTemplateDetection(
+                    originalURL: urlString,
+                    template: template,
+                    detected: true,
+                    matchedDateText: String(urlString[fullRange])
+                )
+            }
         }
 
         return DateTemplateDetection(originalURL: urlString, template: urlString, detected: false, matchedDateText: nil)
+    }
+
+    /// Rejects days that the digit pattern allows but the month does not, such as 31 April or 29 February in a common year.
+    private static func isRealGregorianDate(year: Int, month: Int, day: Int) -> Bool {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        guard let date = calendar.date(from: DateComponents(year: year, month: month, day: day)) else { return false }
+        let parts = calendar.dateComponents([.year, .month, .day], from: date)
+        return parts.year == year && parts.month == month && parts.day == day
     }
 }

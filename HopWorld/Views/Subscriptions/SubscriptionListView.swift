@@ -95,11 +95,23 @@ struct SubscriptionListView: View {
     @EnvironmentObject private var appState: AppState
     @Environment(\.colorScheme) private var colorScheme
     @State private var confirmDelete: Subscription?
+    /// 节点数 / 分享链接条数只在订阅或节点变化时重算，不跟监测状态一起刷新。
+    @State private var nodeCounts: [UUID: Int] = [:]
+    @State private var activeNodeTotal = 0
+    @State private var shareLinkCounts: [UUID: Int] = [:]
+    @State private var testingSubscriptionIDs: Set<UUID> = []
 
     private var palette: SubPalette { SubPalette(scheme: colorScheme) }
 
+    private func activity(for id: UUID) -> SubscriptionActivity? {
+        if appState.refreshingSubscriptionID == id { return .updating }
+        if testingSubscriptionIDs.contains(id) { return .testingLatency }
+        if appState.appProbeBatch.isRunning, appState.appProbeBatch.currentSubscriptionID == id { return .probingApps }
+        return nil
+    }
+
     private var abnormalCount: Int {
-        appState.subscriptions.filter { $0.lastError != nil }.count
+        appState.subscriptions.lazy.filter { $0.lastError != nil }.count
     }
 
     var body: some View {
@@ -114,13 +126,26 @@ struct SubscriptionListView: View {
                 ScrollView {
                     LazyVStack(spacing: 12) {
                         ForEach(appState.subscriptions) { sub in
+                            let current = activity(for: sub.id)
                             SubscriptionCard(
                                 subscription: sub,
+                                nodeCount: nodeCounts[sub.id, default: 0],
+                                shareLinkCount: shareLinkCounts[sub.id, default: 0],
+                                activity: current,
+                                probeTargets: current == .probingApps
+                                    ? appState.settings.automaticAppProbeTargets : [],
                                 palette: palette,
                                 onView: { appState.viewingSubscriptionID = sub.id },
                                 onEdit: { appState.editingSubscriptionID = sub.id },
+                                onRefresh: {
+                                    Task { await appState.refreshSubscription(sub.id) }
+                                },
+                                onTest: {
+                                    Task { await appState.testSubscriptionNodes([sub.id]) }
+                                },
                                 onDelete: { confirmDelete = sub }
                             )
+                            .equatable()
                             .contextMenu {
                                 Button("查看") { appState.viewingSubscriptionID = sub.id }
                                 Button("编辑") { appState.editingSubscriptionID = sub.id }
@@ -191,11 +216,41 @@ struct SubscriptionListView: View {
         } message: {
             Text("将同时删除该订阅导入的全部节点，此操作不可撤销。")
         }
+        .onAppear(perform: refreshListCounts)
+        .onReceive(appState.$subscriptions) { _ in refreshShareLinkCounts() }
+        .onReceive(appState.$nodes) { nodes in refreshNodeCounts(nodes) }
     }
 
-    private var activeNodeCount: Int {
-        appState.nodes.filter { !$0.pendingRemoval }.count
+    private func refreshListCounts() {
+        refreshNodeCounts(appState.nodes)
+        refreshShareLinkCounts()
     }
+
+    private func refreshShareLinkCounts() {
+        var next: [UUID: Int] = [:]
+        for sub in appState.subscriptions where sub.isShareLinksBundle {
+            next[sub.id] = NodeLinkParser.extractShareLinks(from: sub.shareLinksText ?? "").count
+        }
+        if next != shareLinkCounts { shareLinkCounts = next }
+    }
+
+    private func refreshNodeCounts(_ nodes: [ProxyNode]) {
+        var counts: [UUID: Int] = [:]
+        var testing: Set<UUID> = []
+        var total = 0
+        counts.reserveCapacity(appState.subscriptions.count)
+        for node in nodes where !node.pendingRemoval {
+            total += 1
+            guard let id = node.subscriptionID else { continue }
+            counts[id, default: 0] += 1
+            if node.lastTestStatus == .testing { testing.insert(id) }
+        }
+        if total != activeNodeTotal { activeNodeTotal = total }
+        if counts != nodeCounts { nodeCounts = counts }
+        if testing != testingSubscriptionIDs { testingSubscriptionIDs = testing }
+    }
+
+    private var activeNodeCount: Int { activeNodeTotal }
 
     // MARK: - 码头页眉 + 读数条
 
@@ -379,16 +434,41 @@ struct SubscriptionListView: View {
     }
 }
 
-struct SubscriptionCard: View {
-    @EnvironmentObject private var appState: AppState
+enum SubscriptionActivity: Equatable {
+    case updating, testingLatency, probingApps
+
+    var title: String {
+        switch self {
+        case .updating: return "更新中"
+        case .testingLatency: return "测试延迟中"
+        case .probingApps: return "应用连通测试中"
+        }
+    }
+}
+
+struct SubscriptionCard: View, Equatable {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isHovered = false
-    private var shareLinkCount: Int { appState.currentSubscriptionShareLinks(subscription).count }
     let subscription: Subscription
+    let nodeCount: Int
+    let shareLinkCount: Int
+    var activity: SubscriptionActivity? = nil
+    var probeTargets: [AppProbeTarget] = []
     var palette: SubPalette
     var onView: () -> Void
     var onEdit: () -> Void
+    var onRefresh: () -> Void
+    var onTest: () -> Void
     var onDelete: () -> Void
+
+    static func == (lhs: SubscriptionCard, rhs: SubscriptionCard) -> Bool {
+        lhs.subscription == rhs.subscription
+            && lhs.nodeCount == rhs.nodeCount
+            && lhs.shareLinkCount == rhs.shareLinkCount
+            && lhs.activity == rhs.activity
+            && lhs.probeTargets.map(\.id) == rhs.probeTargets.map(\.id)
+            && lhs.palette.scheme == rhs.palette.scheme
+    }
 
     var body: some View {
         HStack(spacing: 14) {
@@ -418,12 +498,12 @@ struct SubscriptionCard: View {
                         .lineLimit(1)
                         .layoutPriority(1)
 
-                    Text(statusText)
+                    Text(activity?.title ?? statusText)
                         .font(.caption2.weight(.semibold))
-                        .foregroundStyle(statusColor)
+                        .foregroundStyle(activity == nil ? statusColor : palette.accent)
                         .padding(.horizontal, 7)
                         .padding(.vertical, 3)
-                        .background(statusColor.opacity(0.11), in: Capsule())
+                        .background((activity == nil ? statusColor : palette.accent).opacity(0.11), in: Capsule())
 
                     Text(detailLine)
                         .font(.caption)
@@ -443,8 +523,14 @@ struct SubscriptionCard: View {
 
             Spacer(minLength: 12)
 
+            if activity == .probingApps, !probeTargets.isEmpty {
+                probeTargetIcons
+                    .help(probeTargets.map(\.displayName).joined(separator: "、"))
+                    .accessibilityLabel("正在测试：" + probeTargets.map(\.displayName).joined(separator: "、"))
+            }
+
             VStack(alignment: .trailing, spacing: 3) {
-                Text("\(liveNodeCount)")
+                Text("\(nodeCount)")
                     .font(.system(.title3, design: .rounded).weight(.bold))
                     .foregroundStyle(palette.text)
                 Text("节点")
@@ -454,25 +540,20 @@ struct SubscriptionCard: View {
             .frame(minWidth: 44)
 
             if !subscription.isShareLinksBundle {
-                Button {
-                    Task { await appState.refreshSubscription(subscription.id) }
-                } label: {
-                    Image(systemName: "arrow.clockwise")
-                        .frame(width: 28, height: 28)
-                        .background(palette.accent.opacity(0.12), in: Circle())
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(palette.accent)
-                .help("立即更新")
-                .disabled(!subscription.isEnabled)
+                Button(action: onRefresh) { refreshBadge }
+                    .buttonStyle(.plain)
+                    .help(activity?.title ?? "立即更新")
+                    .disabled(!subscription.isEnabled)
+                    // 保持转动图标的强调色；更新中再点会重复排队。
+                    .allowsHitTesting(activity != .updating)
+            } else if activity != nil {
+                refreshBadge.help(activity?.title ?? "")
             }
 
             Menu {
                 Button("查看", action: onView)
                 Button("编辑", action: onEdit)
-                Button("测试本组全部节点") {
-                    Task { await appState.testSubscriptionNodes([subscription.id]) }
-                }
+                Button("测试本组全部节点", action: onTest)
                 Divider()
                 Button("删除", role: .destructive, action: onDelete)
             } label: {
@@ -508,7 +589,51 @@ struct SubscriptionCard: View {
         .animation(reduceMotion ? nil : .easeOut(duration: 0.16), value: isHovered)
         .onHover { isHovered = $0 }
         .onTapGesture(perform: onView)
-        .help(subscription.statusMessage ?? oneLineMeta)
+        .help(detailLine == "尚未更新" ? oneLineMeta : detailLine)
+    }
+
+    private var refreshBadge: some View {
+        refreshIcon
+            .frame(width: 28, height: 28)
+            .background(palette.accent.opacity(activity == nil ? 0.12 : 0.22), in: Circle())
+            .foregroundStyle(palette.accent)
+            .accessibilityLabel(activity?.title ?? "立即更新")
+    }
+
+    private var probeTargetIcons: some View {
+        let icons = Array(probeTargets.prefix(8))
+        return Group {
+            if icons.count <= 4 {
+                probeIconRow(icons)
+            } else {
+                VStack(alignment: .leading, spacing: 4) {
+                    probeIconRow(Array(icons.prefix(4)))
+                    probeIconRow(Array(icons.dropFirst(4)))
+                }
+            }
+        }
+        .frame(maxHeight: .infinity, alignment: .center)
+    }
+
+    private func probeIconRow(_ targets: [AppProbeTarget]) -> some View {
+        HStack(spacing: 4) {
+            ForEach(targets) { target in
+                AppProbeIcon(target: target, passed: true, size: 18)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var refreshIcon: some View {
+        if activity != nil, !reduceMotion {
+            TimelineView(.animation) { context in
+                Image(systemName: "arrow.clockwise")
+                    .rotationEffect(.degrees(context.date.timeIntervalSinceReferenceDate
+                        .truncatingRemainder(dividingBy: 1) * 360))
+            }
+        } else {
+            Image(systemName: "arrow.clockwise")
+        }
     }
 
     private func metadataBadge(_ text: String, icon: String) -> some View {
@@ -526,30 +651,26 @@ struct SubscriptionCard: View {
         return "\(subscription.updateInterval.displayName) \(String(format: "%02d:%02d", subscription.updateHour, subscription.updateMinute))"
     }
 
-    private var liveNodeCount: Int {
-        appState.nodes.filter { $0.subscriptionID == subscription.id && !$0.pendingRemoval }.count
-    }
-
     private var detailLine: String {
         if let retry = subscription.updateRetryStatusLine { return retry }
         if let error = subscription.lastError, !error.isEmpty { return error }
-        // 右侧节点数为准：已清空时不再展示过期的「已导入 N 个」。
-        if subscription.isShareLinksBundle, liveNodeCount == 0 {
-            if let message = subscription.statusMessage, message.contains("当前无节点") {
-                return message
+        // 分享链接列表行只显示实时节点数；「已导入/已追加 N」是操作结果，不能当当前库存。
+        if subscription.isShareLinksBundle {
+            if nodeCount == 0 {
+                if let message = subscription.statusMessage, message.contains("当前无节点") {
+                    return message
+                }
+                if shareLinkCount > 0 {
+                    return "\(shareLinkCount) 条分享链接 · 编辑可重新导入"
+                }
+                return "暂无节点"
             }
             if shareLinkCount > 0 {
-                return "\(shareLinkCount) 条分享链接 · 编辑可重新导入"
+                return "当前 \(nodeCount) 个节点 · \(shareLinkCount) 条分享链接"
             }
-            return "暂无节点"
+            return "当前 \(nodeCount) 个节点"
         }
         if let message = subscription.statusMessage, !message.isEmpty { return message }
-        if subscription.isShareLinksBundle {
-            if shareLinkCount > 0 {
-                return "\(shareLinkCount) 条分享链接 · 编辑可追加或按策略覆盖"
-            }
-            return "分享链接订阅"
-        }
         if let last = subscription.lastSuccessAt {
             return "最近更新：\(last.formatted(date: .abbreviated, time: .shortened))"
         }
@@ -571,7 +692,9 @@ struct SubscriptionCard: View {
         if let last = subscription.lastSuccessAt {
             parts.append(last.formatted(date: .abbreviated, time: .shortened))
         }
-        if let message = subscription.statusMessage, !message.isEmpty {
+        if subscription.isShareLinksBundle {
+            parts.append("\(nodeCount) 个节点")
+        } else if let message = subscription.statusMessage, !message.isEmpty {
             parts.append(message)
         }
         return parts.joined(separator: " · ")
@@ -580,7 +703,7 @@ struct SubscriptionCard: View {
     private var statusText: String {
         if !subscription.isEnabled { return "禁用" }
         if subscription.isShareLinksBundle {
-            if liveNodeCount > 0 { return "已导入" }
+            if nodeCount > 0 { return "已导入" }
             return "暂无节点"
         }
         if subscription.isHealthy { return "正常" }
@@ -590,7 +713,7 @@ struct SubscriptionCard: View {
 
     private var statusColor: Color {
         if !subscription.isEnabled { return .secondary }
-        if subscription.isShareLinksBundle, liveNodeCount == 0 { return .orange }
+        if subscription.isShareLinksBundle, nodeCount == 0 { return .orange }
         if subscription.isHealthy { return .green }
         if subscription.lastError != nil { return .red }
         return .orange

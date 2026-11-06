@@ -945,7 +945,7 @@ extension NetworkHealthTests {
         XCTAssertFalse(impostor.drivesRecovery)
     }
 
-    func testSettingsStateSurvivesOldInvitationSuccessAndUnrelatedResponseUntilItsOwnRecovery() {
+    func testSettingsStateClearsOnNewResponseAndRejectsBufferedOldFailure() {
         let now = Date()
         let failed = CodexHealthEvent(date: now, kind: .workspaceFailure,
                                      recoveryOrigin: .request, workspaceFeature: .settings)
@@ -955,12 +955,25 @@ extension NetworkHealthTests {
         observation.observe(CodexInviteCheckResult.available(eligible: true).healthEvent(at: now.addingTimeInterval(1)))
         observation.observe(.init(date: now.addingTimeInterval(2), kind: .responseProgress,
                                   recoveryOrigin: .businessResponse))
-        XCTAssertEqual(observation.pendingSettingsFailure, failed)
-        XCTAssertEqual(observation.pendingRecoveryFailure, failed)
-        XCTAssertEqual(AppDiagnosticSnapshot(events: [failed], now: now.addingTimeInterval(600)).state, .workspaceIssue)
+        XCTAssertNil(observation.pendingSettingsFailure)
+        XCTAssertNil(observation.pendingRecoveryFailure)
+        let response = CodexHealthEvent(date: now.addingTimeInterval(2), kind: .responseProgress, recoveryOrigin: .businessResponse)
+        XCTAssertEqual(AppDiagnosticSnapshot(events: [failed, response], now: response.date).state, .responding)
+        observation.observe(failed)
+        XCTAssertNil(observation.pendingSettingsFailure)
+        let newFailure = CodexHealthEvent(date: now.addingTimeInterval(2.5), kind: .workspaceFailure,
+                                          recoveryOrigin: .request, workspaceFeature: .settings)
+        observation.observe(newFailure)
+        XCTAssertEqual(observation.pendingSettingsFailure, newFailure)
+        observation.observe(.init(date: now.addingTimeInterval(2.8), kind: .reconnecting,
+                                  recoveryOrigin: .appServerBridge))
+        observation.observe(.init(date: now.addingTimeInterval(2.7), kind: .responseProgress,
+                                  recoveryOrigin: .businessResponse))
+        XCTAssertNil(observation.pendingSettingsFailure, "A buffered reply clears older workspace failure without clearing newer reconnect")
+        XCTAssertEqual(observation.pendingBridgeFailure?.kind, .reconnecting)
         observation.observe(.init(date: now.addingTimeInterval(3), kind: .workspaceRecovered,
                                   recoveryOrigin: .request, workspaceFeature: .settings))
-        XCTAssertNil(observation.pendingRecoveryFailure)
+        XCTAssertNil(observation.pendingSettingsFailure)
         observation.observe(failed)
         XCTAssertNil(observation.pendingSettingsFailure, "A buffered older failure cannot undo the newer settings recovery")
     }

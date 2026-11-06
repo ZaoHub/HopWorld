@@ -25,12 +25,13 @@ struct CodexUsageSnapshot: Decodable, Sendable {
         }
         let availableCount: Int
         let credits: [Credit]?
+        var soonestAvailableExpiration: Double? {
+            guard availableCount > 0 else { return nil }
+            return credits?.filter { $0.status == nil || $0.status == "available" }
+                .compactMap(\.expiresAt).filter { $0.isFinite && $0 > Date().timeIntervalSince1970 }.min()
+        }
         var expirationSuffix: String {
-            guard availableCount > 0,
-                  let expiration = credits?.filter({ $0.status == nil || $0.status == "available" })
-                    .compactMap(\.expiresAt).filter({ $0.isFinite && $0 > Date().timeIntervalSince1970 }).min() else {
-                return ""
-            }
+            guard let expiration = soonestAvailableExpiration else { return "" }
             let formatter = DateFormatter()
             formatter.locale = Locale(identifier: "en_US_POSIX")
             formatter.timeZone = .current
@@ -249,12 +250,16 @@ final class CodexUsageMonitor: ObservableObject {
     @Published var proxyConnected = false {
         didSet { if !proxyConnected { retryTimer?.invalidate(); retryTimer = nil } }
     }
+    /// 节点已开始连接，但出口确认还没结束。此期间不读取用量。
+    @Published var awaitingNodeConfirmation = false
     var proxyURL: URL?
     var onSnapshot: ((CodexUsageSnapshot) -> Void)?
     @Published var snapshot: CodexUsageSnapshot?
     @Published var updatedAt: Date?
     @Published var message: String?
     @Published var isRefreshing = false
+    /// A retryable read failed. Login problems stay false; those are not a proxy reminder.
+    @Published private(set) var liveReadStalled = false
     private var refreshTimer: Timer?
     private var retryTimer: Timer?
     private let retryInterval: TimeInterval
@@ -276,9 +281,11 @@ final class CodexUsageMonitor: ObservableObject {
 
     func refresh(force: Bool = false) async {
         guard proxyConnected, !isRefreshing else { return }
+        guard await LabUtilityProcess.allowInternet(userInitiated: force) else { return }
         guard force || retryTimer == nil else { return }
         retryTimer?.invalidate()
         retryTimer = nil
+        liveReadStalled = false
         isRefreshing = true
         defer { isRefreshing = false }
         do {
@@ -305,6 +312,7 @@ final class CodexUsageMonitor: ObservableObject {
             let detail = (error as? CodexUsageReader.ReadError)?.diagnostic ?? "\((error as NSError).domain) code=\((error as NSError).code)"
             AppLogger.shared.warning("[Codex 用量] 刷新失败；保留上次数据=\(snapshot != nil)；\(detail)")
             message = (error as? CodexUsageReader.ReadError)?.errorDescription ?? "用量读取失败，请稍后重试。"
+            liveReadStalled = shouldRetry
             if shouldRetry {
                 let timer = Timer(timeInterval: retryInterval, repeats: false) { [weak self] _ in
                     Task { @MainActor [weak self] in
@@ -502,6 +510,8 @@ struct CodexUsageCard: View {
             HStack(spacing: 3) {
                 if isMuseFace {
                     Text("暂未接入自动读取")
+                } else if isCodexFace && monitor.awaitingNodeConfirmation {
+                    Text("节点确认后获取用量")
                 } else if isCodexFace && !monitor.proxyConnected {
                     Text("连接代理后获取用量")
                 } else if activeMessage != nil {
@@ -893,7 +903,9 @@ struct CodexUsageCard: View {
                 Button("重试") {
                     Task {
                         guard monitor.proxyConnected else {
-                            appState.flashToast("请先连接代理，再获取 Codex 用量")
+                            appState.flashToast(monitor.awaitingNodeConfirmation
+                                ? "节点仍在确认，完成后再获取 Codex 用量"
+                                : "请先连接代理，再获取 Codex 用量")
                             return
                         }
                         appState.flashToast("正在重试 Codex 用量…")
@@ -1041,7 +1053,9 @@ struct CodexUsageCard: View {
             appState.flashToast(claudeMonitor.message.map { "刷新失败：" + $0 } ?? "Claude 用量已更新")
         } else {
             guard monitor.proxyConnected else {
-                appState.flashToast("请先连接代理，再获取 Codex 用量")
+                appState.flashToast(monitor.awaitingNodeConfirmation
+                    ? "节点仍在确认，完成后再获取 Codex 用量"
+                    : "请先连接代理，再获取 Codex 用量")
                 return
             }
             guard !monitor.isRefreshing else { return }

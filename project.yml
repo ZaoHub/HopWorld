@@ -90,8 +90,8 @@ targets:
         CODE_SIGN_ENTITLEMENTS: $(HOPWORLD_APP_ENTITLEMENTS)
         COMBINE_HIDPI_IMAGES: YES
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
-        MARKETING_VERSION: "1.0.1"
-        CURRENT_PROJECT_VERSION: "2"
+        MARKETING_VERSION: "1.0.2"
+        CURRENT_PROJECT_VERSION: "3"
         SWIFT_STRICT_CONCURRENCY: minimal
     info:
       path: HopWorld/Info.plist
@@ -100,8 +100,8 @@ targets:
         CFBundleDisplayName: 跃界
         CFBundleIconFile: AppIcon
         CFBundleIconName: AppIcon
-        CFBundleShortVersionString: "1.0.1"
-        CFBundleVersion: "2"
+        CFBundleShortVersionString: "1.0.2"
+        CFBundleVersion: "3"
         LSMinimumSystemVersion: "13.0"
         LSUIElement: false
         NSHighResolutionCapable: true
@@ -128,15 +128,15 @@ targets:
         CODE_SIGN_ENTITLEMENTS: $(HOPWORLD_TUNNEL_ENTITLEMENTS)
         LD_RUNPATH_SEARCH_PATHS: "@executable_path/../../../../Frameworks"
         SKIP_INSTALL: YES
-        MARKETING_VERSION: "1.0.1"
-        CURRENT_PROJECT_VERSION: "2"
+        MARKETING_VERSION: "1.0.2"
+        CURRENT_PROJECT_VERSION: "3"
         SWIFT_STRICT_CONCURRENCY: minimal
     info:
       path: HopWorldTunnel/Info.plist
       properties:
         CFBundleDisplayName: 跃界 VPN
-        CFBundleShortVersionString: "1.0.1"
-        CFBundleVersion: "2"
+        CFBundleShortVersionString: "1.0.2"
+        CFBundleVersion: "3"
         LSMinimumSystemVersion: "13.0"
         HopWorldAppGroupIdentifier: $(HOPWORLD_APP_GROUP)
         NSExtension:
@@ -194,6 +194,9 @@ targets:
       - path: HopWorld/Services/System/NetworkRecoveryCoordinator.swift
       - path: HopWorld/Services/System/ConnectionOperations.swift
       - path: HopWorld/Services/System/SystemProxyManager.swift
+      - path: HopWorld/Services/System/GitHubFileDownloader.swift
+      - path: HopWorld/Services/System/LocalNetworkSpeedTest.swift
+      - path: HopWorld/Services/System/LabUtilityProcess.swift
       - path: HopWorld/Services/Subscription/SubscriptionDateTemplate.swift
       - path: HopWorld/Services/Subscription/SubscriptionFetcher.swift
       - path: HopWorld/Services/Subscription/SubscriptionManager.swift

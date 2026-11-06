@@ -39,6 +39,12 @@ enum CityLibraryError: LocalizedError {
         progress = 0
         stage = "准备下载…"
         task = Task {
+            guard await LabUtilityProcess.allowInternet(userInitiated: true) else {
+                task = nil
+                stage = nil
+                progress = nil
+                return
+            }
             let directory = FileManager.default.temporaryDirectory.appendingPathComponent("HopWorld-Cities-\(UUID().uuidString)")
             defer {
                 try? FileManager.default.removeItem(at: directory)

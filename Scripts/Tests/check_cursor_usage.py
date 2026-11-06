@@ -88,26 +88,16 @@ actor Attempts {
             return Data("must-not-load".utf8)
         })
         check(cached == password && keychainLoads == 1, "Background refresh must use only the in-memory key")
-        let replacement = Data("replacement-fixture-password".utf8)
         let reloaded = try CursorUsageReader.readSafeStoragePassword(allowInteraction: true, loadPassword: {
             keychainLoads += 1
-            return replacement
+            preconditionFailure("A later explicit refresh must not read Keychain again")
         })
-        check(reloaded == replacement && keychainLoads == 2, "A later explicit refresh must reload the key")
-        let replaced = try CursorUsageReader.readSafeStoragePassword(allowInteraction: false, loadPassword: {
-            keychainLoads += 1
-            return password
-        })
-        check(replaced == replacement && keychainLoads == 2, "Background refresh must see the replaced cached key")
-        expectFailure("Failed reload must not replace the last unlocked key") {
-            _ = try CursorUsageReader.readSafeStoragePassword(allowInteraction: true, loadPassword: {
-                throw CursorUsageReader.ReadError.keychainAccess(errSecAuthFailed)
-            })
-        }
-        let retained = try CursorUsageReader.readSafeStoragePassword(allowInteraction: false, loadPassword: {
-            preconditionFailure("Cached reads must not reach Keychain")
-        })
-        check(retained == replacement, "Failed reload must retain the prior cached key")
+        check(reloaded == password && keychainLoads == 1, "A later explicit refresh must keep the unlocked key")
+        let directory = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("hopworld-safe-storage-\(UUID().uuidString)")
+        CursorUsageReader.rememberPassword(password, in: directory)
+        check(CursorUsageReader.rememberedPassword(in: directory) == password, "The unlocked key must be stored for the next launch")
+        CursorUsageReader.forgetPassword(in: directory)
+        check(CursorUsageReader.rememberedPassword(in: directory) == nil, "Forgetting the key must remove the stored copy")
 
         var passwordReads = 0
         let plain = try CursorUsageReader.decodeAccessToken(token, password: {

@@ -403,6 +403,41 @@ final class BatchTestingTests: XCTestCase {
         XCTAssertEqual(manager.testedCount, targets.count)
     }
 
+    func testPausedScheduledTestKeepsOnlyCurrentScopeOnResume() async throws {
+        let server = try SilentTCPServer()
+        let port = try await server.start()
+        defer { server.stop() }
+        let (manager, directory) = try fixture()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let targets = nodes(count: 8, port: port)
+        var results: [NodeTestResult] = []
+        let task = Task {
+            await manager.startTest(
+                nodes: targets,
+                settings: settings(timeout: 30),
+                silent: true,
+                followsScheduledScope: true
+            ) { _, result in results.append(result) }
+        }
+        try await Task.sleep(nanoseconds: 650_000_000)
+        manager.pause()
+        _ = await task.value
+        XCTAssertEqual(manager.phase, .paused)
+        XCTAssertGreaterThan(manager.remainingNodeIDs.count, 1)
+        let completed = Set(results.map(\.nodeID))
+        let allowed = Set(manager.remainingNodeIDs.prefix(1))
+        manager.applyScheduledScope(allowed)
+        XCTAssertEqual(Set(manager.remainingNodeIDs), allowed)
+        XCTAssertEqual(manager.statusText, "已暂停（剩余 1 个，可继续）")
+        await manager.resumeTest(
+            nodesByID: { id in targets.first { $0.id == id } },
+            settings: settings()
+        ) { _, result in results.append(result) }
+        XCTAssertEqual(manager.phase, .finished)
+        XCTAssertEqual(Set(results.map(\.nodeID)), completed.union(allowed))
+        XCTAssertEqual(manager.testedCount, completed.count + allowed.count)
+    }
+
     func testStopDropsPendingNodesAndDoesNotStayPaused() async throws {
         let server = try SilentTCPServer()
         let port = try await server.start()

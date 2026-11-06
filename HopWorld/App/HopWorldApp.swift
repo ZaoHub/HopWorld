@@ -2,9 +2,26 @@ import AppKit
 import SwiftUI
 
 @main
+enum HopWorldMain {
+    static func main() {
+        LabUtilityProcess.runIfInvoked()
+        HopWorldApp.main()
+    }
+}
+
+enum MenuBarAnchor {
+    static var appState: AppState?
+}
+
 struct HopWorldApp: App {
-    @StateObject private var appState = AppState()
+    @StateObject private var appState: AppState
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+
+    init() {
+        let appState = AppState()
+        MenuBarAnchor.appState = appState
+        _appState = StateObject(wrappedValue: appState)
+    }
 
     var body: some Scene {
         Window("跃界", id: MainWindowActivation.sceneID) {
@@ -14,6 +31,7 @@ struct HopWorldApp: App {
                 .environmentObject(appState.testManager)
                 .frame(minWidth: 980, minHeight: 640)
                 .background(MainWindowRevealAnchor())
+                .onAppear { appDelegate.installStatusMenuIfNeeded() }
         }
         .windowResizability(.contentMinSize)
         .windowToolbarStyle(.unified)
@@ -21,24 +39,6 @@ struct HopWorldApp: App {
         .commands {
             CommandGroup(replacing: .newItem) {}
         }
-
-        MenuBarExtra {
-            MenuBarView()
-                .environmentObject(appState)
-                .environmentObject(appState.connection)
-                .environmentObject(appState.testManager)
-        } label: {
-            HStack(spacing: 4) {
-                MenuBarStatusIcon(status: appState.connection.state.status)
-                if appState.connection.state.status == .connected {
-                    Text(appState.connection.state.latency.map { "\($0) ms" } ?? "超时")
-                        .monospacedDigit()
-                }
-            }
-            .accessibilityLabel("跃界，\(appState.connection.state.status.displayName)")
-            .background(MainWindowRevealAnchor())
-        }
-        .menuBarExtraStyle(.menu)
 
         Settings {
             SettingsView()
@@ -51,36 +51,15 @@ struct HopWorldApp: App {
 
 }
 
-/// 未连接黑图标、已连接白图标；连接中偏黑，断开中偏白。
-/// MenuBarExtra 会把 SwiftUI Image 强行当成 template，必须用 isTemplate=false 的 NSImage 才能保住黑/白。
-/// 菜单栏标签不能用 TimelineView：每帧换图会卡死状态栏布局。
-private struct MenuBarStatusIcon: View {
-    let status: ConnectionStatus
-
-    var body: some View {
-        Image(nsImage: menuBarImage(named: usesWhiteIcon ? "MenuBarIconWhite" : "MenuBarIconBlack"))
-            .resizable()
-            .interpolation(.high)
-            .frame(width: 18, height: 18)
-    }
-
-    private var usesWhiteIcon: Bool {
-        switch status {
-        case .connected, .disconnecting: return true
-        case .disconnected, .error, .connecting: return false
-        }
-    }
-
-    private func menuBarImage(named name: String) -> NSImage {
-        let image = (NSImage(named: name)?.copy() as? NSImage) ?? NSImage(size: NSSize(width: 18, height: 18))
-        image.isTemplate = false
-        image.size = NSSize(width: 18, height: 18)
-        return image
-    }
-}
-
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var terminationPending = false
+    private var statusMenu: StatusMenuController?
+
+    @MainActor
+    func installStatusMenuIfNeeded() {
+        guard statusMenu == nil, let appState = MenuBarAnchor.appState else { return }
+        statusMenu = StatusMenuController(appState: appState)
+    }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard !terminationPending else { return .terminateLater }
@@ -90,6 +69,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        Task { @MainActor in self.installStatusMenuIfNeeded() }
         DockReopen.start()
         if NSApp.activationPolicy() != .regular {
             NSApp.setActivationPolicy(.regular)

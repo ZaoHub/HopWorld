@@ -157,6 +157,18 @@ __SCOPED_METHODS__
         check(app.nodes.allSatisfy { $0.lastAppProbePassedIDs == ["app"] }, "automatic results are persisted per node")
         check(app.sawProgress && app.appProbeBatch.completed == 2 && !app.appProbeBatch.isRunning, "automatic progress is visible and completes")
         check(app.logger.messages.contains { $0.contains("测试完成") }, "completion reaches unified logs")
+
+        let probingApp = AppState()
+        let groupID = UUID()
+        var groupedNode = ProxyNode(); groupedNode.subscriptionID = groupID
+        probingApp.nodes = [groupedNode]
+        var probingGroup: UUID?
+        probingApp.testManager.beforeProbe = { _ in probingGroup = probingApp.appProbeBatch.currentSubscriptionID }
+        probingApp.queue([groupedNode.id])
+        await probingApp.drain()
+        check(probingGroup == groupID, "the probing node's subscription is published while its probe runs")
+        check(probingApp.appProbeBatch.currentSubscriptionID == nil, "the probing subscription clears when the batch ends")
+
         await app.testNodes(app.nodes)
         await app.drain()
         check(app.testManager.calls.count == 4, "a new latency run refreshes old application results")

@@ -13,7 +13,15 @@ fixture = fixture.replace('var appProbeTimeoutSeconds = 1', '''var appProbeTimeo
     var defaultUpdateMode = SubscriptionUpdateMode.smartMerge''')
 fixture = fixture.replace('var status = Phase.idle', 'var status = Phase.idle; var currentNodeID: UUID?')
 fixture = fixture.replace('var calls: [UUID] = []', '''var calls: [UUID] = []
-    var runs: [[UUID]] = []''')
+    var runs: [[UUID]] = []
+    var onSubscriptionGroupStarting: ((Set<UUID>) -> Void)?
+    var needsXrayInstall = false''')
+fixture = fixture.replace('enum CountryResolver { static func effectiveCode(for node: ProxyNode) -> String { "US" } }',
+                          '''enum CountryResolver { static func effectiveCode(for node: ProxyNode) -> String { "US" } }
+enum XrayInstaller { static let missingCoreShortGuidance = "missing core" }
+enum TestTargetStatus { case all, available, untested, unavailable, failed }''')
+fixture = fixture.replace('let testScope: NodeListFilter.Source',
+                          'let testScope: NodeListFilter.Source\n    var testTargetStatus = TestTargetStatus.all')
 fixture = fixture.replace('sessionNodeIDs = Set(nodes.map(\\.id))', r'''sessionNodeIDs = Set(nodes.map(\.id))
         runs.append(nodes.map(\.id))''')
 fixture = fixture.replace('var isTerminating = false', '''var isTerminating = false
@@ -24,6 +32,7 @@ fixture = fixture.replace('var isTerminating = false', '''var isTerminating = fa
     var pendingSubscriptionTestPromptIDs: Set<UUID> = []
     var isRefreshingAllSubscriptions = false
     var subscriptionRefreshInProgress = false
+    var refreshingSubscriptionID: UUID?
     private var pendingSubscriptionRefresh: [PendingSubscriptionRefresh] = []
     var updateLogs: [SubscriptionUpdateLog] = []
     var importText = ""
@@ -36,6 +45,11 @@ fixture = fixture.replace('var isTerminating = false', '''var isTerminating = fa
     func focusNodeList(source: NodeListFilter.Source, nodeID: UUID?, openDetail: Bool) {}
     func revealNode(_ id: UUID) {}
     func subscription(for id: UUID) -> Subscription? { subscriptions.first { $0.id == id } }
+    func runScheduledTestIfDue(now: Date) async {}
+    func extendUnavailableClockSkippedByAvailableOnlyTests(now: Date) {}
+    func cleanupAutoUnavailableNodes() {}
+    func requireInternet(userInitiated: Bool) async -> Bool { true }
+    func orderTargetsBySubscription(_ targets: [ProxyNode]) -> [ProxyNode] { targets }
     func markPendingConfigUpdates(subscriptionID: UUID, previousDigests: [UUID: String]) {}
     func refreshShareLinkParams(_ node: inout ProxyNode, from incoming: ProxyNode) -> Bool { false }
     func settle(expectedRuns: Int) async {
@@ -50,7 +64,7 @@ fixture = fixture.replace('__IMPORT_METHODS__', '\n'.join(declaration(app, signa
     'private struct PendingSubscriptionRefresh', 'func addShareLinkSubscription(',
     'func mergeShareLinksText(', 'func applyShareLinkPaste(', 'func refreshSubscription(',
     'private func performSubscriptionRefresh(', 'private func presentSubscriptionTestPromptIfNeeded(',
-    'func refreshAllSubscriptions()', 'func testSubscriptionNodes(',
+    'func refreshAllSubscriptions()', 'fileprivate func schedulerTick()', 'func testSubscriptionNodes(',
     'func importLinksFromText(into', 'private func scheduleImportedNodeTests(',
     'private func resolveImportTarget(', 'private func appendShareLinks(',
     'func currentSubscriptionShareLinks(', 'func clearSubscriptionCleanupHistory(', 'func deleteNodes(',
@@ -251,6 +265,7 @@ extension CountryResolver { static func applyNameHeuristics(to node: inout Proxy
         await remote.refreshSubscription(sub.id)
         try! await Task.sleep(nanoseconds: 10_000_000)
         check(remote.testManager.runs.isEmpty && remote.testManager.calls.isEmpty, "manual unchanged/304 refresh never tests nodes automatically")
+        check(remote.refreshingSubscriptionID == nil, "the updating indicator clears after the refresh finishes")
         check(remote.subscriptionTestPromptIDs.isEmpty, "unchanged manual update does not prompt user to test")
         remote.settings.autoAppProbeUsableNodes = false
         await remote.testSubscriptionNodes([sub.id])
@@ -375,11 +390,41 @@ extension CountryResolver { static func applyNameHeuristics(to node: inout Proxy
         for automatic in [false, true] {
             let singleRefresh = AppState()
             singleRefresh.subscriptions = [sub, nextSub]
-            singleRefresh.nodes = [remoteDuplicate, manualDuplicate]
+            let inGroup = node("in-group", sub: sub)
+            let inGroupDuplicate = node("in-group", sub: sub)
+            let otherGroup = node("in-group", sub: nextSub)
+            singleRefresh.nodes = [inGroup, inGroupDuplicate, otherGroup, remoteDuplicate, manualDuplicate]
             await singleRefresh.refreshSubscription(sub.id, automatic: automatic)
             await singleRefresh.drain()
-            check(Set(singleRefresh.nodes.map(\.id)) == [remoteDuplicate.id, manualDuplicate.id], "single-group manual or scheduled refresh never deduplicates the whole library")
+            check(Set(singleRefresh.nodes.map(\.id)) == [inGroup.id, otherGroup.id, remoteDuplicate.id, manualDuplicate.id], "single-group refresh removes duplicates only inside the updated subscription")
+            check(singleRefresh.statusBanner == "已删除 1 个重复节点（当前订阅）", "single-group refresh names the current subscription")
         }
+        let partialSchedule = AppState()
+        var laterNext = nextSub
+        laterNext.nextUpdateAt = Date().addingTimeInterval(3600)
+        laterNext.lastSuccessAt = Date()
+        partialSchedule.subscriptions = [sub, laterNext]
+        let partialKeep = node("partial", sub: sub)
+        let partialDrop = node("partial", sub: sub)
+        let partialOther = node("partial", sub: laterNext)
+        partialSchedule.nodes = [partialKeep, partialDrop, partialOther]
+        await partialSchedule.schedulerTick()
+        check(Set(partialSchedule.nodes.map(\.id)) == [partialKeep.id, partialOther.id], "a partial automatic round deduplicates only the groups that updated")
+        check(partialSchedule.statusBanner == "已删除 1 个重复节点（当前订阅）", "a partial automatic round does not announce a library-wide deletion")
+        let fullSchedule = AppState()
+        var dueSub = sub
+        dueSub.nextUpdateAt = Date().addingTimeInterval(-60)
+        var dueNext = nextSub
+        dueNext.nextUpdateAt = Date().addingTimeInterval(-60)
+        fullSchedule.subscriptions = [dueSub, dueNext]
+        let libraryKeep = node("library", sub: dueSub)
+        let libraryGroupDrop = node("library", sub: dueSub)
+        let libraryOther = node("library", sub: dueNext)
+        let libraryManual = node("library")
+        fullSchedule.nodes = [libraryKeep, libraryGroupDrop, libraryOther, libraryManual]
+        await fullSchedule.schedulerTick()
+        check(fullSchedule.nodes.map(\.id) == [libraryKeep.id], "automatic update of every subscription then deletes duplicates across the library")
+        check(fullSchedule.statusBanner == "已自动删除 2 个重复节点（全部节点去重）", "full automatic round reports the library-wide removal")
         let failedAllUpdate = AppState()
         failedAllUpdate.subscriptions = [sub]
         failedAllUpdate.nodes = [node("unique", sub: sub)]

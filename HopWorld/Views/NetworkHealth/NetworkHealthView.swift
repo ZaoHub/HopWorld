@@ -374,6 +374,7 @@ private struct NetworkHealthContent: View {
             pendingSettings: pendingSettings,
             pendingRecovery: isCurrent ? runtime.pendingRecoveryFailure : nil,
             interfaceSnapshot: appState.codexInterfaceSnapshot,
+            workspaceResponseConfirmed: runtimeResponse != nil && runtime.pendingSettingsFailure == nil,
             transportConfirmed: transportConfirmedAt != nil && runtime.pendingNetworkFailure == nil)
         let abnormalStatuses = CodexVisibleStatus.allCases.filter { statusVerdicts[$0] == .abnormal }
         healthCard("Codex 应用状态", symbol: "app.connected.to.app.below.fill") {
@@ -465,7 +466,7 @@ private struct NetworkHealthContent: View {
                             Text("尚未完成经当前节点的状态 1 检查。")
                         }
                         LabeledContent("连续网络失败", value: "\(invite.network.consecutiveFailures) 次")
-                        Text("状态 1：未检测 / 检测中 / 正常 / 异常。只看经当前节点的探测结果；通过为正常，失败或 Codex 自身对应请求失败为异常。状态 2 至 4：出现对应界面提示（如无法加载工作空间设置、正在重新连接、等待网络）为异常；完整读取 Codex 界面确认未出现，或状态 3、4 在本次连接有连接就绪 / 回复记录且之后无故障，才为正常；界面读取中为检测中；读不到界面又无记录为未检测。")
+                        Text("状态 1：未检测 / 检测中 / 正常 / 异常。只看经当前节点的探测结果；通过为正常，失败或 Codex 自身对应请求失败为异常。状态 2 至 4：出现对应界面提示（如无法加载工作空间设置、正在重新连接、等待网络）为异常；完整读取 Codex 界面确认未出现，或状态 2 收到新的对话回复、状态 3、4 在本次连接有连接就绪 / 回复记录且之后无故障，才为正常；界面读取中为检测中；读不到界面又无记录为未检测。")
                     }
                     if let node {
                         let capture = appState.applicationHealthCaptureSummary(for: node)
@@ -518,7 +519,7 @@ private struct NetworkHealthContent: View {
         isConnected: Bool, isCurrent: Bool, diagnostic: AppDiagnosticSnapshot,
         statusOne: CodexVisibleStatus.Verdict, interfaceKinds: [CodexHealthEvent.Kind],
         pendingSettings: CodexHealthEvent?, pendingRecovery: CodexHealthEvent?,
-        interfaceSnapshot: CodexInterfaceHealthSnapshot, transportConfirmed: Bool
+        interfaceSnapshot: CodexInterfaceHealthSnapshot, workspaceResponseConfirmed: Bool, transportConfirmed: Bool
     ) -> [CodexVisibleStatus: CodexVisibleStatus.Verdict] {
         // 正常 needs positive evidence: a complete UI scan confirming the prompt is absent
         // (`false`), or for 3/4 a transport-ready / response log in this connection with no
@@ -533,7 +534,8 @@ private struct NetworkHealthContent: View {
                 .inviteCheck: statusOne,
                 .workspaceSettings: verdict(
                     abnormal: pendingSettings != nil || interfaceKinds.contains(.workspaceFailure),
-                    confirmedAbsent: interfaceSnapshot.workspaceUnavailable),
+                    confirmedAbsent: interfaceSnapshot.workspaceUnavailable,
+                    logConfirmed: workspaceResponseConfirmed),
                 .reconnecting: verdict(
                     abnormal: pendingRecovery?.kind == .reconnecting || interfaceKinds.contains(.reconnecting),
                     confirmedAbsent: interfaceSnapshot.reconnecting, logConfirmed: transportConfirmed),

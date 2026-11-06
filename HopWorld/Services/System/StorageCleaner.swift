@@ -16,7 +16,7 @@ enum StorageCleaner {
 
         var detail: String {
             switch self {
-            case .temporary: return "测速、TUN 与订阅下载在系统临时目录留下的文件；每次启动会自动清理上次留下的，这里显示的是之后又遗留的部分。只清理本次启动之前的，正在使用的不受影响。"
+            case .temporary: return "测速、TUN、订阅下载，以及取消后留下的 GitHub 下载临时文件。启动时会清理上次的运行垃圾；未下完的下载文件留到你下次下载或在这里确认后再删，并会提醒你。只清理本次启动之前的，正在使用的不受影响。"
             case .oldCores: return "更新后不再使用的 Xray 版本；保留当前使用的核心。"
             }
         }
@@ -38,6 +38,7 @@ enum StorageCleaner {
     private static let temporaryPrefixes = [
         "hopworld-singbox-", "hopworld-tun-", "HopWorld-batch-", "HopWorld-subscription-", "HopWorld-runtime-"
     ]
+    private static let remindedDownloadPrefix = GitHubFileDownloader.partialPrefix
 
     static func scan() -> [Category] {
         Kind.allCases.map { kind in
@@ -51,7 +52,8 @@ enum StorageCleaner {
         // Another running copy (e.g. an Xcode build beside the installed app) may still use them.
         guard let bundleID = Bundle.main.bundleIdentifier,
               NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).count <= 1 else { return Result() }
-        return clean([Category(kind: .temporary, items: candidates(for: .temporary), bytes: 0)])
+        let items = candidates(for: .temporary).filter { !$0.lastPathComponent.hasPrefix(remindedDownloadPrefix) }
+        return clean([Category(kind: .temporary, items: items, bytes: 0)])
     }
 
     static func clean(_ categories: [Category]) -> Result {
@@ -83,7 +85,9 @@ enum StorageCleaner {
         switch kind {
         case .temporary:
             return contents(of: FileManager.default.temporaryDirectory).filter { url in
-                temporaryPrefixes.contains(where: url.lastPathComponent.hasPrefix) && predatesLaunch(url)
+                let name = url.lastPathComponent
+                let known = temporaryPrefixes.contains(where: name.hasPrefix) || name.hasPrefix(remindedDownloadPrefix)
+                return known && predatesLaunch(url)
             }
         case .oldCores:
             let root = XrayInstaller.supportDirectory

@@ -171,4 +171,34 @@ final class ComponentUpdatePreferenceTests: XCTestCase {
         XCTAssertFalse(XrayUpdateManager(defaults: defaults).automaticUpdates)
         XCTAssertFalse(ComponentUpdateManager(.geoFiles, defaults: defaults).automaticUpdates)
     }
+
+    func testDailyCheckPersistsAcrossSessionReentriesAndResetsAtLocalMidnight() throws {
+        let suite = "component-update-daily-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "Asia/Shanghai")!
+        let start = ISO8601DateFormatter().date(from: "2026-10-12T15:59:00Z")!
+        XCTAssertTrue(ComponentUpdateManager.claimDailyCheck(for: .geoFiles, defaults: defaults, now: start, calendar: calendar))
+        XCTAssertFalse(ComponentUpdateManager.claimDailyCheck(for: .geoFiles, defaults: defaults, now: start.addingTimeInterval(30), calendar: calendar))
+        XCTAssertTrue(ComponentUpdateManager.claimDailyCheck(for: .singBox, defaults: defaults, now: start.addingTimeInterval(30), calendar: calendar),
+                      "Each component claims its own day")
+        XCTAssertTrue(ComponentUpdateManager.claimDailyCheck(for: .geoFiles, defaults: defaults, now: start.addingTimeInterval(61), calendar: calendar))
+    }
+
+    func testCachedReleaseSurvivesManagerRecreationWithoutRestart() throws {
+        let suite = "component-update-cache-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let release = ComponentRelease(
+            tag_name: "202610242205",
+            draft: false,
+            prerelease: false,
+            assets: []
+        )
+        defaults.set(try JSONEncoder().encode(release), forKey: "geoFiles.release")
+        let restored = ComponentUpdateManager(.geoFiles, defaults: defaults)
+        XCTAssertEqual(restored.latestVersion, "202610242205")
+        XCTAssertEqual(restored.installVersion, "202610242205")
+    }
 }

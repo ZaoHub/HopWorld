@@ -27,9 +27,11 @@ import Foundation
         check(state.evaluate(sample(0), enabled: true) == .init(weeklyReset: true, giftedResetCount: 0),
               "An off-schedule return to exactly 100% remaining is a weekly reset heuristic")
         check(state.evaluate(sample(0), enabled: true) == nil, "A weekly event is delivered once")
-        check(state.evaluate(sample(0, at: 2_000_000_001), enabled: true) == .init(weeklyReset: true, giftedResetCount: 0),
-              "A changed reset time at 100% remaining detects an idle weekly reset")
-        check(state.evaluate(sample(0, at: 2_000_000_001), enabled: true) == nil, "Changed-time event deduplicates")
+        check(state.evaluate(sample(0, at: 2_000_000_060), enabled: true) == nil,
+              "A one-minute reset-time jitter at 100% remaining is the same weekly window")
+        check(state.evaluate(sample(0, at: 2_000_000_000 + 7 * 24 * 3_600), enabled: true) == .init(weeklyReset: true, giftedResetCount: 0),
+              "A week-sized reset-time move at 100% remaining detects an idle weekly reset")
+        check(state.evaluate(sample(0, at: 2_000_000_000 + 7 * 24 * 3_600), enabled: true) == nil, "Changed-time event deduplicates")
         check(state.evaluate(sample(1, at: 2_000_000_002), enabled: true) == nil,
               "A changed reset timestamp below 100% remaining is insufficient")
         check(state.evaluate(sample(0.0001), enabled: true) == nil, "Nearly 100% must not round into a reset")
@@ -78,8 +80,8 @@ import Foundation
               "Gift notifications remain available without weekly quota or timestamp")
         check(partial.evaluate(sample(0, resets: 4), enabled: true) == nil,
               "Recovering complete weekly data establishes its own baseline")
-        check(partial.evaluate(sample(0, at: 2_000_000_001, resets: 4), enabled: true)?.weeklyReset == true,
-              "Subsequent complete observations may detect a weekly reset")
+        check(partial.evaluate(sample(0, at: 2_000_000_000 + 7 * 24 * 3_600, resets: 4), enabled: true)?.weeklyReset == true,
+              "A later weekly window at 100% remaining is a weekly reset")
         _ = partial.evaluate(sample(40, resets: 4), enabled: true)
         let manualMissingTime = CodexResetNotificationObservation.make(accountID: "account-a", usedPercent: 0,
             resetsAt: nil, resetCount: 3)!
@@ -116,6 +118,52 @@ import Foundation
         let invalid = try JSONDecoder().decode(CodexResetNotificationObservation.self,
             from: Data(#"{"accountID":"account-a","usedPercent":-1,"resetsAt":1,"resetCount":2}"#.utf8))
         check(restored.evaluate(invalid, enabled: true) == nil, "Decoded observations are validated again at evaluation")
+
+        let expires = 2_000_000_000.0
+        var credits = CodexResetNotificationState()
+        func remind(_ offset: TimeInterval, _ expected: Int?, _ message: String) {
+            let lead = credits.pendingCreditReminder(expiration: expires, resetCount: 3,
+                                                     now: Date(timeIntervalSince1970: expires - offset))
+            check(lead == expected, message)
+        }
+        remind(86_400 + 60, nil, "More than a day before expiry stays quiet")
+        remind(86_400, 86_400, "One day before expiry reminds once")
+        credits.commitCreditReminder(86_400)
+        remind(86_400 - 60, nil, "The one-day reminder does not repeat inside its window")
+        remind(4 * 3_600, 18_000, "Five hours before expiry reminds without replaying the day reminder")
+        credits.commitCreditReminder(18_000)
+        remind(2 * 3_600, 10_800, "Three hours before expiry reminds")
+        credits.commitCreditReminder(10_800)
+        remind(20 * 60, 1_800, "Thirty minutes before expiry reminds")
+        credits.commitCreditReminder(1_800)
+        remind(4 * 60, 300, "Five minutes before expiry reminds")
+        credits.commitCreditReminder(300)
+        remind(60, nil, "A sent five-minute reminder does not repeat")
+        remind(-1, nil, "After expiry there is no reminder")
+        let shifted = credits.pendingCreditReminder(expiration: expires + 30, resetCount: 3,
+                                                    now: Date(timeIntervalSince1970: expires - 4 * 60))
+        check(shifted == nil, "A thirty-second expiry jitter is the same credit")
+        check(credits.pendingCreditReminder(expiration: expires + 2 * 86_400, resetCount: 3,
+                                            now: Date(timeIntervalSince1970: expires + 2 * 86_400 - 10_800)) == 10_800,
+              "A new expiry starts its own reminder sequence")
+        check(credits.pendingCreditReminder(expiration: expires, resetCount: 0,
+                                            now: Date(timeIntervalSince1970: expires - 300)) == nil,
+              "Zero remaining credits clear the expiry reminder")
+        var late = CodexResetNotificationState()
+        check(late.pendingCreditReminder(expiration: expires, resetCount: 2,
+                                         now: Date(timeIntervalSince1970: expires - 4 * 3_600)) == 18_000,
+              "A late first read sends only the closest due reminder")
+        late.commitCreditReminder(18_000)
+        check(late.pendingCreditReminder(expiration: expires, resetCount: 2,
+                                         now: Date(timeIntervalSince1970: expires - 4 * 3_600)) == nil,
+              "Catch-up marks the earlier day reminder as sent")
+        check(late.pendingCreditReminder(expiration: nil, resetCount: 2,
+                                         now: Date(timeIntervalSince1970: expires - 3 * 3_600)) == nil
+              && late.creditExpiresAt == expires,
+              "A read without an expiry keeps the saved reminder")
+        check(late.pendingCreditReminder(expiration: expires, resetCount: 2,
+                                         now: Date(timeIntervalSince1970: expires - 3 * 3_600)) == 10_800,
+              "The next complete read still sends the three-hour reminder")
 
         let phone = CodexResetNotificationRecipient(nickname: "手机", address: " +86 (138) 0013-8000 ")
         let samePhone = CodexResetNotificationRecipient(nickname: "重复", address: "+8613800138000")

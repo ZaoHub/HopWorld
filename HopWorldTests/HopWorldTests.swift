@@ -711,6 +711,70 @@ final class DateTemplateTests: XCTestCase {
         let resolved = template.resolve(date: date, timeZone: calendar.timeZone)
         XCTAssertEqual(resolved, "https://example.com/2027/01/20270101.txt")
     }
+
+    func testDayShiftKeepsLongMonthsAndLeapDays() {
+        let template = SubscriptionDateTemplate(template: "https://example.com/{yyyy}{MM}/{MM}{dd}.yaml")
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "Asia/Shanghai")!
+        func resolved(_ year: Int, _ month: Int, _ day: Int) -> String {
+            let date = calendar.date(from: DateComponents(year: year, month: month, day: day, hour: 12))!
+            return template.resolve(date: date, timeZone: calendar.timeZone)
+        }
+        func next(_ year: Int, _ month: Int, _ day: Int) -> DateComponents {
+            let date = calendar.date(from: DateComponents(year: year, month: month, day: day, hour: 12))!
+            return calendar.dateComponents([.year, .month, .day], from: calendar.date(byAdding: .day, value: 1, to: date)!)
+        }
+
+        XCTAssertEqual(resolved(2026, 10, 30), "https://example.com/202610/1030.yaml")
+        XCTAssertEqual(resolved(2026, 10, 31), "https://example.com/202610/1031.yaml")
+        XCTAssertEqual(resolved(2026, 11, 1), "https://example.com/202611/1101.yaml")
+        var shifted = next(2026, 10, 30)
+        XCTAssertEqual(shifted.month, 10)
+        XCTAssertEqual(shifted.day, 31)
+        shifted = next(2026, 4, 30)
+        XCTAssertEqual(shifted.month, 5)
+        XCTAssertEqual(shifted.day, 1)
+
+        shifted = next(2026, 2, 28)
+        XCTAssertEqual(shifted.year, 2026)
+        XCTAssertEqual(shifted.month, 3)
+        XCTAssertEqual(shifted.day, 1)
+        XCTAssertEqual(resolved(2026, 3, 1), "https://example.com/202603/0301.yaml")
+
+        shifted = next(2024, 2, 28)
+        XCTAssertEqual(shifted.month, 2)
+        XCTAssertEqual(shifted.day, 29)
+        shifted = next(2024, 2, 29)
+        XCTAssertEqual(shifted.month, 3)
+        XCTAssertEqual(shifted.day, 1)
+        XCTAssertEqual(resolved(2024, 2, 29), "https://example.com/202402/0229.yaml")
+    }
+
+    func testDetectorRejectsDaysTheMonthDoesNotHave() {
+        for url in [
+            "https://example.com/20261031.txt",
+            "https://example.com/20240229.txt",
+            "https://example.com/2026-04-30.txt",
+            "https://example.com/202610/1031Clash.yaml",
+            "https://example.com/202402/0229Clash.yaml",
+            "https://example.com/202602/0228Clash.yaml"
+        ] {
+            XCTAssertTrue(SubscriptionDateTemplateDetector.detect(from: url).detected, url)
+        }
+        for url in [
+            "https://example.com/20260431.txt",
+            "https://example.com/20261131.txt",
+            "https://example.com/20260229.txt",
+            "https://example.com/20260230.txt",
+            "https://example.com/2026-04-31.txt",
+            "https://example.com/2026/02/29.txt",
+            "https://example.com/202602/0231Clash.yaml",
+            "https://example.com/202604/0431Clash.yaml",
+            "https://example.com/202602/0229Clash.yaml"
+        ] {
+            XCTAssertFalse(SubscriptionDateTemplateDetector.detect(from: url).detected, url)
+        }
+    }
 }
 
 final class NodeDisplayNameTests: XCTestCase {
@@ -1527,6 +1591,349 @@ final class XrayUpdateTests: XCTestCase {
         XCTAssertEqual(restored.downloadMirror, .ghProxyCom)
     }
 
+    func testGitHubFileDownloadOnlyAcceptsGitHubHTTPSFiles() throws {
+        let release = try GitHubFileDownloader.canonicalURL(
+            "https://github.com/XTLS/Xray-core/releases/download/v26.9.9/Xray-macos-arm64-v8a.zip"
+        )
+        XCTAssertEqual(GitHubFileDownloader.filename(for: release), "Xray-macos-arm64-v8a.zip")
+        XCTAssertEqual(
+            XrayDownloadMirror.ghfastTop.rewrite(release).host,
+            "ghfast.top"
+        )
+        for bad in ["http://github.com/a/b/file.zip", "https://example.com/file.zip", "https://github.com/", "not a url"] {
+            XCTAssertThrowsError(try GitHubFileDownloader.canonicalURL(bad), bad)
+        }
+        let missing = GitHubFileDownloader.resolvedFolder(storedPath: "/Volumes/NotMounted/HopWorld")
+        XCTAssertEqual(missing, FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask)[0])
+        let downloads = FileManager.default.temporaryDirectory
+        XCTAssertEqual(
+            GitHubFileDownloader.resolvedFolder(storedPath: downloads.path).standardizedFileURL.path,
+            downloads.standardizedFileURL.path
+        )
+    }
+
+    func testSpeedTestDropsHandshakeFromTheRate() {
+        XCTAssertEqual(LocalNetworkSpeedTest.mbps(bytes: 1_000_000, seconds: 1), 8, accuracy: 0.01)
+        let short = LocalNetworkSpeedTest.paced(totalBytes: 1_000_000, elapsed: 1, warmupBytes: 100_000)
+        XCTAssertEqual(short.bytes, 1_000_000)
+        let paced = LocalNetworkSpeedTest.paced(totalBytes: 5_000_000, elapsed: 2, warmupBytes: 1_000_000)
+        XCTAssertEqual(paced.bytes, 4_000_000)
+        XCTAssertEqual(paced.seconds, 1.6, accuracy: 0.001)
+        XCTAssertEqual(LocalNetworkSpeedTest.lines.map(\.name), ["上海电信", "清华镜像", "npmmirror", "中科大", "腾讯云", "华为云", "阿里云"])
+        XCTAssertEqual(LocalNetworkSpeedTest.line(id: "tuna")?.uploadName, "上海电信")
+        XCTAssertEqual(LocalNetworkSpeedTest.line(id: "sh-telecom")?.uploadName, "上海电信")
+        var wave = LocalNetworkSpeedTest.SecondWave()
+        XCTAssertFalse(wave.note(bytes: 100_000, elapsed: 0.4))
+        XCTAssertTrue(wave.note(bytes: 1_000_000, elapsed: 1))
+        XCTAssertTrue(wave.note(bytes: 3_000_000, elapsed: 2))
+        XCTAssertEqual(wave.rates.count, 2)
+        XCTAssertEqual(wave.rates[0], 8, accuracy: 0.01)
+        XCTAssertEqual(wave.rates[1], 16, accuracy: 0.01)
+        let encoded = LocalNetworkSpeedTest.waveLine(kind: "下", rates: wave.rates)
+        XCTAssertEqual(LocalNetworkSpeedTest.parseWaves(encoded + "\n电波上：4.0").down.count, 2)
+        XCTAssertEqual(LocalNetworkSpeedTest.parseWaves(encoded + "\n电波上：4.0").up, [4])
+        XCTAssertEqual(LocalNetworkSpeedTest.sampleSeconds, 15)
+        XCTAssertTrue(LocalNetworkSpeedTest.shouldRepeatTransfer(elapsed: 2, stopping: false, status: 200, bytes: 1_000_000, failed: false))
+        XCTAssertFalse(LocalNetworkSpeedTest.shouldRepeatTransfer(elapsed: 15, stopping: false, status: 200, bytes: 1_000_000, failed: false))
+        XCTAssertFalse(LocalNetworkSpeedTest.shouldRepeatTransfer(elapsed: 2, stopping: true, status: 200, bytes: 1_000_000, failed: false))
+        XCTAssertFalse(LocalNetworkSpeedTest.shouldRepeatTransfer(elapsed: 2, stopping: false, status: 500, bytes: 0, failed: true))
+        XCTAssertTrue(LocalNetworkSpeedTest.shouldRotateDownload(quiet: 1.5, received: 1_000, elapsed: 10))
+        XCTAssertFalse(LocalNetworkSpeedTest.shouldRotateDownload(quiet: 1.5, received: 0, elapsed: 10))
+        XCTAssertFalse(LocalNetworkSpeedTest.shouldRotateDownload(quiet: 0.2, received: 1_000, elapsed: 10))
+        XCTAssertFalse(LocalNetworkSpeedTest.shouldRotateDownload(quiet: 2, received: 1_000, elapsed: 15))
+        XCTAssertEqual(LocalNetworkSpeedTest.bandwidthTier(mbps: 141.4), 100)
+        XCTAssertEqual(LocalNetworkSpeedTest.bandwidthTier(mbps: 257), 300)
+        XCTAssertEqual(LocalNetworkSpeedTest.bandwidthLine(mbps: 1000), "当前带宽：1000 兆")
+        XCTAssertEqual(LocalNetworkSpeedTest.bandwidthLine(mbps: nil), "当前带宽：未能判断")
+        let route = """
+           route to: default
+        destination: default
+            gateway: 192.168.1.1
+          interface: en0
+        """
+        XCTAssertEqual(LocalNetworkSpeedTest.parseRoute(route)?.gateway, "192.168.1.1")
+        XCTAssertEqual(LocalNetworkSpeedTest.parseRoute(route)?.interfaceName, "en0")
+        XCTAssertNil(LocalNetworkSpeedTest.parseRoute("gateway: not a host\ninterface: en0"))
+        let ping = """
+        4 packets transmitted, 4 packets received, 0.0% packet loss
+        round-trip min/avg/max/stddev = 1.200/2.500/4.000/0.300 ms
+        """
+        XCTAssertEqual(LocalNetworkSpeedTest.parsePing(ping)?.averageMs ?? 0, 2.5, accuracy: 0.001)
+        XCTAssertEqual(LocalNetworkSpeedTest.parsePing(ping)?.loss, "0.0%")
+        XCTAssertEqual(LocalNetworkSpeedTest.parsePing(ping)?.jitterMs ?? 0, 0.3, accuracy: 0.001)
+        let samples = """
+        64 bytes from 192.168.1.1: icmp_seq=0 ttl=64 time=1.000 ms
+        64 bytes from 192.168.1.1: icmp_seq=1 ttl=64 time=3.000 ms
+        64 bytes from 192.168.1.1: icmp_seq=2 ttl=64 time=2.000 ms
+        3 packets transmitted, 3 packets received, 0.0% packet loss
+        round-trip min/avg/max/stddev = 1.000/2.000/3.000/0.800 ms
+        """
+        XCTAssertEqual(LocalNetworkSpeedTest.parsePing(samples)?.jitterMs ?? 0, 1.5, accuracy: 0.001)
+        XCTAssertEqual(
+            LocalNetworkSpeedTest.signalLabel("autoselect (10Gbase-T <full-duplex,flow-control>)"),
+            "有线 万兆 · 全双工"
+        )
+        XCTAssertEqual(LocalNetworkSpeedTest.signalLabel("autoselect (1000baseT <half-duplex>)"), "有线 千兆 · 半双工")
+        let report = LocalNetworkSpeedTest.Report(
+            local: .init(interfaceName: "en0", gateway: "192.168.1.1", averageMs: 2.5, jitterMs: 0.3, loss: "0.0%", signal: "有线 万兆 · 全双工"),
+            source: "上海电信", downloadMbps: 257, downloadBytes: 25_000_000, downloadSeconds: 0.8, downloadError: nil,
+            uploadSource: "上海电信", uploadMbps: 107, uploadBytes: 25_000_000, uploadSeconds: 2, uploadError: nil
+        )
+        let text = LocalNetworkSpeedTest.summary(report)
+        XCTAssertTrue(text.contains("下载：257.0 Mbps"))
+        XCTAssertTrue(text.contains("上传：107.0 Mbps"))
+        XCTAssertTrue(text.contains("下载数据："))
+        XCTAssertTrue(text.contains("上传数据："))
+        XCTAssertTrue(text.contains("Ping：2.5 ms"))
+        XCTAssertTrue(text.contains("抖动：0.3 ms"))
+        XCTAssertTrue(text.contains("网络：有线"))
+        XCTAssertFalse(text.contains("en0"))
+        XCTAssertEqual(LocalNetworkSpeedTest.networkKind(signal: "-48 dBm"), "无线")
+        XCTAssertTrue(text.contains("信号：有线 万兆 · 全双工"))
+        XCTAssertTrue(text.contains("当前带宽：300 兆"))
+        XCTAssertFalse(text.contains("当前带宽：10000"))
+        XCTAssertTrue(text.contains("丢包：0.0%"))
+        let defaults = UserDefaults(suiteName: "speed-history-\(UUID().uuidString)")!
+        let first = SpeedSnapshot(network: "上海电信", downloadMbps: 10, uploadMbps: 2, detail: "第一次")
+        let second = SpeedSnapshot(network: "清华镜像", downloadMbps: 20, uploadMbps: nil, detail: "第二次")
+        SpeedHistory.append(first, at: Date(timeIntervalSince1970: 1), defaults: defaults)
+        SpeedHistory.append(second, at: Date(timeIntervalSince1970: 2), defaults: defaults)
+        let loaded = SpeedHistory.load(defaults: defaults)
+        XCTAssertEqual(loaded.map(\.snapshot.network), ["清华镜像", "上海电信"])
+        XCTAssertEqual(loaded.map(\.snapshot.downloadMbps), [20, 10])
+        XCTAssertEqual(loaded.first?.snapshot.uploadMbps, nil)
+        SpeedHistory.clear(defaults: defaults)
+        XCTAssertTrue(SpeedHistory.load(defaults: defaults).isEmpty)
+    }
+
+    func testProxyRepairDialogListsTheBackupThatWouldBeDeleted() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appendingPathComponent("proxy-backup.json")
+        let missing = SystemProxyManager(backupURL: file) { _, _ async throws in "" }
+        XCTAssertTrue(missing.backupDeletionDescription().contains("当前没有代理备份文件"))
+        let backup = OriginalProxySettings(
+            serviceName: "Wi-Fi", httpEnabled: true, httpHost: "proxy.example", httpPort: 8080,
+            httpsEnabled: false, httpsHost: nil, httpsPort: nil,
+            socksEnabled: false, socksHost: nil, socksPort: nil,
+            autoProxyEnabled: false, autoProxyURL: nil
+        )
+        try JSONEncoder().encode([backup]).write(to: file)
+        let present = SystemProxyManager(backupURL: file) { _, _ async throws in "" }
+        let text = present.backupDeletionDescription()
+        XCTAssertTrue(text.contains(file.path))
+        XCTAssertTrue(text.contains("Wi-Fi"))
+        XCTAssertTrue(text.contains("proxy.example:8080"))
+        XCTAssertTrue(text.contains("保留备份"))
+    }
+
+    func testLabUtilityCommandsStayOnGitHubAndKeepMultilineProgress() throws {
+        XCTAssertThrowsError(try LabUtilityProcess.parseCommand([
+            "download", "http://example.com/a.zip", "github", "/tmp"
+        ]))
+        let command = try LabUtilityProcess.parseCommand([
+            "download",
+            "https://github.com/XTLS/Xray-core/releases/download/v1/Xray.zip",
+            "ghfastTop",
+            "/Volumes/Disk"
+        ])
+        guard case .download(let url, let mirror, let folder) = command else {
+            return XCTFail("下载命令没有解析出来")
+        }
+        XCTAssertEqual(url.host, "github.com")
+        XCTAssertEqual(mirror, .ghfastTop)
+        XCTAssertEqual(folder, "/Volumes/Disk")
+        XCTAssertThrowsError(try LabUtilityProcess.parseCommand(["repair", "wipe"]))
+        XCTAssertThrowsError(try LabUtilityProcess.parseCommand(["speed", "nope"]))
+        guard case .speed(let lineID) = try LabUtilityProcess.parseCommand(["speed", "tuna"]) else {
+            return XCTFail("测速线路没有解析出来")
+        }
+        XCTAssertEqual(lineID, "tuna")
+        XCTAssertEqual(
+            LabUtilityProcess.manualDNSServers(from: "There aren't any DNS Servers set on Wi-Fi.\n"),
+            []
+        )
+        XCTAssertEqual(LabUtilityProcess.manualDNSServers(from: "8.8.8.8\n1.1.1.1\n"), ["8.8.8.8", "1.1.1.1"])
+        XCTAssertEqual(LabUtilityProcess.untrustedDNSServers(from: "114.114.114.114\n8.8.8.8\n"), [])
+        XCTAssertEqual(LabUtilityProcess.untrustedDNSServers(from: "114.114.114.114\n203.0.113.8\n"), ["203.0.113.8"])
+        XCTAssertEqual(
+            LabUtilityProcess.dnsRepairLine(service: "Wi-Fi", servers: ["203.0.113.8", "114.114.114.114"], untrusted: ["203.0.113.8"]),
+            "Wi-Fi：去掉 203.0.113.8，保留 114.114.114.114。"
+        )
+        XCTAssertEqual(
+            LabUtilityProcess.dnsRepairArguments(service: "Wi-Fi", servers: ["203.0.113.8", "114.114.114.114"]),
+            ["-setdnsservers", "Wi-Fi", "114.114.114.114"]
+        )
+        XCTAssertEqual(
+            LabUtilityProcess.dnsRepairArguments(service: "Ethernet", servers: ["203.0.113.8"]),
+            ["-setdnsservers", "Ethernet", "Empty"]
+        )
+        XCTAssertEqual(
+            LabUtilityProcess.dnsRepairArguments(service: "Wi-Fi", servers: ["203.0.113.8"], automatic: true, fallback: "114.114.114.114"),
+            ["-setdnsservers", "Wi-Fi", "114.114.114.114"]
+        )
+        XCTAssertEqual(
+            LabUtilityProcess.dnsRepairLine(service: "Wi-Fi", servers: ["192.168.0.1", "203.0.113.8"], untrusted: ["203.0.113.8"], automatic: true, replacement: "114.114.114.114"),
+            "Wi-Fi：自动获取 192.168.0.1、203.0.113.8，将改为 114.114.114.114。"
+        )
+        XCTAssertTrue(LabUtilityProcess.isRouterDNS("192.168.0.1"))
+        XCTAssertFalse(LabUtilityProcess.isRouterDNS("203.0.113.8"))
+        XCTAssertEqual(
+            LabUtilityProcess.dhcpDNSServers(from: "domain_name_server (ip_mult): {119.29.29.29, 8.8.8.8}\n"),
+            ["119.29.29.29", "8.8.8.8"]
+        )
+        XCTAssertEqual(
+            LabUtilityProcess.untrustedAutomaticDNS(["192.168.0.1", "203.0.113.8", "8.8.8.8"]),
+            ["203.0.113.8"]
+        )
+        XCTAssertEqual(LabUtilityProcess.hardwareDevices(in: "Hardware Port: Wi-Fi\nDevice: en1\n"), ["Wi-Fi": "en1"])
+        XCTAssertEqual(
+            LabUtilityProcess.resolverNameservers(in: "nameserver 203.0.113.8\nnameserver 192.168.0.1\n"),
+            ["203.0.113.8", "192.168.0.1"]
+        )
+        XCTAssertEqual(
+            LabUtilityProcess.resolverRepairs([
+                "corp": "nameserver 203.0.113.8\n",
+                "ok": "nameserver 114.114.114.114\n",
+                "lan": "nameserver 192.168.0.1\n"
+            ]).map(\.name),
+            ["corp"]
+        )
+        XCTAssertEqual(try LabUtilityProcess.parseCommand(["network-repair-restore-hosts"]), .networkRepairRestoreHosts)
+        XCTAssertEqual(LabUtilityProcess.mtuSetting(from: "Active MTU: 1500 (Current Setting: 1500)\n"), 1500)
+        XCTAssertFalse(LabUtilityProcess.shouldResetMTU(1500))
+        XCTAssertFalse(LabUtilityProcess.shouldResetMTU(9000))
+        XCTAssertTrue(LabUtilityProcess.shouldResetMTU(1400))
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        XCTAssertFalse(LabUtilityProcess.dhcpNeedsRenew(
+            info: "DHCP Configuration\nIP address: 10.0.0.2\n",
+            summary: "LeaseExpirationTime : 12/31/2099 00:00:00\nState : BOUND\n",
+            now: now
+        ))
+        XCTAssertTrue(LabUtilityProcess.dhcpNeedsRenew(
+            info: "DHCP Configuration\nIP address: 10.0.0.2\n",
+            summary: "LeaseExpirationTime : 01/01/2020 00:00:00\nState : BOUND\n",
+            now: now
+        ))
+        XCTAssertTrue(LabUtilityProcess.dhcpNeedsRenew(
+            info: "DHCP Configuration\nIP address: none\n",
+            summary: "",
+            now: now
+        ))
+        XCTAssertFalse(LabUtilityProcess.dhcpNeedsRenew(
+            info: "Manual Configuration\nIP address: 10.0.0.2\n",
+            summary: "State : INIT\n",
+            now: now
+        ))
+        let healthy = LabUtilityProcess.LinkInput(
+            service: "Wi-Fi", device: "en1",
+            info: "DHCP Configuration\nIP address: 10.0.0.2\n",
+            summary: "LeaseExpirationTime : 12/31/2099 00:00:00\nState : BOUND\n",
+            mtuText: "Current Setting: 1500",
+            active: true, isWiFi: true
+        )
+        XCTAssertTrue(LabUtilityProcess.makeLinkPlan(interfaces: [healthy], wifiPowerOn: true, route: "interface: en1\n", now: now).isEmpty)
+        var dropped = healthy
+        dropped.info = "DHCP Configuration\nIP address: none\n"
+        dropped.active = false
+        let cycle = LabUtilityProcess.makeLinkPlan(interfaces: [dropped], wifiPowerOn: true, route: "route: not in table\n", now: now)
+        XCTAssertEqual(cycle.cycleWiFi, "en1")
+        XCTAssertEqual(cycle.renew, ["en1"])
+        XCTAssertFalse(cycle.flushRoutes)
+        let ethernet = LabUtilityProcess.LinkInput(
+            service: "Ethernet", device: "en0",
+            info: "DHCP Configuration\nIP address: 10.0.0.8\n",
+            summary: "LeaseExpirationTime : 12/31/2099 00:00:00\nState : BOUND\n",
+            mtuText: "Current Setting: 9000",
+            active: true, isWiFi: false
+        )
+        let leaveWiFi = LabUtilityProcess.makeLinkPlan(interfaces: [dropped, ethernet], wifiPowerOn: true, route: "interface: en0\n", now: now)
+        XCTAssertNil(leaveWiFi.cycleWiFi)
+        XCTAssertFalse(leaveWiFi.flushRoutes)
+        var small = ethernet
+        small.mtuText = "Current Setting: 1400"
+        small.summary = "LeaseExpirationTime : 01/01/2020 00:00:00\nState : BOUND\n"
+        let repair = LabUtilityProcess.makeLinkPlan(interfaces: [small], wifiPowerOn: false, route: "route: not in table\n", now: now)
+        XCTAssertEqual(repair.renew, ["en0"])
+        XCTAssertEqual(repair.mtu.map(\.value), [1400])
+        XCTAssertTrue(repair.flushRoutes)
+        XCTAssertEqual(LabUtilityProcess.repairCheckLine("DNS", []), "DNS：正常")
+        XCTAssertEqual(LabUtilityProcess.repairCheckLine("DNS", ["Wi-Fi：203.0.113.8"]), "DNS：异常\nWi-Fi：203.0.113.8")
+        XCTAssertFalse(LabUtilityProcess.repairNeeded("DNS：正常\nhosts：正常\n全部正常，不需要修复。"))
+        XCTAssertTrue(LabUtilityProcess.repairNeeded("DNS：异常\n发现异常。"))
+        XCTAssertFalse(LabUtilityProcess.linkRepairLines(LabUtilityProcess.LinkPlan(), done: false).joined(separator: "\n").contains("LSP"))
+        let defaults = UserDefaults(suiteName: "HopWorld.dns-whitelist-test")!
+        defaults.removePersistentDomain(forName: "HopWorld.dns-whitelist-test")
+        XCTAssertEqual(LabUtilityProcess.trustedDNSList(defaults: defaults), LabUtilityProcess.builtinTrustedDNS)
+        LabUtilityProcess.saveTrustedDNS(["114.114.114.114", " 10.0.0.1 ", "不是地址", "10.0.0.1"], defaults: defaults)
+        XCTAssertEqual(LabUtilityProcess.trustedDNSList(defaults: defaults), ["114.114.114.114", "10.0.0.1"])
+        LabUtilityProcess.saveTrustedDNS(LabUtilityProcess.builtinTrustedDNS, defaults: defaults)
+        XCTAssertNil(defaults.stringArray(forKey: LabUtilityProcess.trustedDNSDefaultsKey))
+        let hosts = """
+        127.0.0.1 localhost
+        ::1 localhost
+        1.2.3.4 example.com # 广告
+        """
+        XCTAssertEqual(LabUtilityProcess.extraHostLines(hosts), ["1.2.3.4 example.com"])
+        let cleaned = LabUtilityProcess.cleanedHosts(hosts + "\n# 说明\n")
+        XCTAssertFalse(cleaned.contains("example.com"))
+        XCTAssertTrue(cleaned.contains("127.0.0.1 localhost"))
+        XCTAssertTrue(cleaned.contains("# 说明"))
+        XCTAssertTrue(LabUtilityProcess.cleanedHosts("9.9.9.9 evil.test\n").contains("127.0.0.1\tlocalhost"))
+        XCTAssertEqual(try LabUtilityProcess.parseCommand(["network-repair"]), .networkRepair)
+        let line = LabUtilityProcess.encodeLine(.init(u: "第一行\n第二行"))
+        XCTAssertFalse(line.contains("\n"))
+        XCTAssertEqual(LabUtilityProcess.decodeLine(line)?.u, "第一行\n第二行")
+    }
+
+    func testOfflineNoticeNamesCableAndWifiBeforeTheGenericFailure() {
+        let cable = LabUtilityProcess.OfflineNotice.choose(ethernetActive: false, cableUnplugged: true, wifiDisabled: false)
+        XCTAssertEqual(cable.title, "网线未插")
+        XCTAssertTrue(cable.presentsAlert)
+        let wifi = LabUtilityProcess.OfflineNotice.choose(ethernetActive: false, cableUnplugged: false, wifiDisabled: true)
+        XCTAssertEqual(wifi.title, "Wi-Fi 未启用")
+        XCTAssertTrue(wifi.presentsAlert)
+        let both = LabUtilityProcess.OfflineNotice.choose(ethernetActive: false, cableUnplugged: true, wifiDisabled: true)
+        XCTAssertTrue(both.presentsAlert)
+        XCTAssertTrue(both.message.contains("网线未插"))
+        XCTAssertTrue(both.message.contains("Wi-Fi 也未启用"))
+        let plugged = LabUtilityProcess.OfflineNotice.choose(ethernetActive: true, cableUnplugged: false, wifiDisabled: true)
+        XCTAssertEqual(plugged.title, "当前上不了网")
+        XCTAssertFalse(plugged.presentsAlert)
+        XCTAssertFalse(LabUtilityProcess.OfflineNotice.poor(ethernetActive: true).presentsAlert)
+        XCTAssertTrue(LabUtilityProcess.OfflineNotice.isPoorLink(bytes: 4 * 1024, expected: 8_000_000))
+        XCTAssertFalse(LabUtilityProcess.OfflineNotice.isPoorLink(bytes: 20 * 1024, expected: 8_000_000))
+        XCTAssertFalse(LabUtilityProcess.OfflineNotice.isPoorLink(bytes: 800, expected: 800))
+        XCTAssertEqual(LabUtilityProcess.OfflineNotice.poor(ethernetActive: true).title, "网络异常")
+        let listing = """
+        Hardware Port: Ethernet
+        Device: en0
+
+        Hardware Port: Wi-Fi
+        Device: en1
+
+        Hardware Port: USB 10/100 LAN
+        Device: en7
+
+        Hardware Port: Thunderbolt Bridge
+        Device: bridge0
+        """
+        XCTAssertEqual(LabUtilityProcess.ethernetDeviceNames(in: listing), ["en0", "en7"])
+    }
+
+    func testCancelledDownloadLeftoverIsRemovedAndExplained() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let leftover = directory.appendingPathComponent(GitHubFileDownloader.partialPrefix + "old")
+        try Data(repeating: 1, count: 2048).write(to: leftover)
+        let message = GitHubFileDownloader.sweepAbandonedDownloads(in: directory)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: leftover.path))
+        XCTAssertTrue(message?.contains("不会接着上次的文件") == true)
+        XCTAssertNil(GitHubFileDownloader.sweepAbandonedDownloads(in: directory))
+    }
+
     func testAtomicActivationKeepsOldCoreAndRejectsBrokenPackage() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("xray-activation-test-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: root) }
@@ -1557,6 +1964,56 @@ final class XrayUpdateTests: XCTestCase {
         let selectedStable = try await XrayInstaller.activateExtractedRelease(at: first, version: "26.9.9", directory: support)
         XCTAssertEqual(pointer.resolvingSymlinksInPath(), selectedStable, "Explicit stable selection must replace a newer preview")
         XCTAssertTrue(FileManager.default.isExecutableFile(atPath: new.path))
+    }
+
+    func testLatencyReportCountsLossAndRejectsUnknownTargets() throws {
+        XCTAssertEqual(
+            LabUtilityProcess.latencyMilliseconds(in: "64 bytes from 223.5.5.5: icmp_seq=0 ttl=64 time=35.464 ms\n"),
+            35.464
+        )
+        XCTAssertNil(LabUtilityProcess.latencyMilliseconds(in: "Request timeout for icmp_seq 0\n"))
+        let text = LabUtilityProcess.latencyReport(
+            name: "阿里 DNS", host: "223.5.5.5", planned: 30,
+            samples: [30, 40, 50, nil], done: false
+        )
+        XCTAssertEqual(LabUtilityProcess.latencySamples(in: text), [30, 40, 50, nil])
+        XCTAssertEqual(LabUtilityProcess.latencyPlannedCount(in: text), 30)
+        XCTAssertEqual(LabUtilityProcess.latencyAxisSeconds(30), Array(1...30))
+        XCTAssertEqual(LabUtilityProcess.latencyAxisSeconds(600), Array(stride(from: 60, through: 600, by: 60)))
+        XCTAssertTrue(text.contains("丢包：25.0%"))
+        XCTAssertTrue(text.contains("最小：30.0 ms"))
+        XCTAssertTrue(text.contains("平均：40.0 ms"))
+        XCTAssertTrue(text.contains("最大：50.0 ms"))
+        XCTAssertTrue(text.contains("最近：超时"))
+        XCTAssertTrue(text.contains("本机 ICMP，不走代理。"))
+        XCTAssertEqual(
+            Set(LabUtilityProcess.latencyChoices.map(\.host)),
+            Set(LabUtilityProcess.builtinTrustedDNS)
+        )
+        XCTAssertThrowsError(try LabUtilityProcess.parseCommand(["latency", "203.0.113.1", "30"]))
+        XCTAssertThrowsError(try LabUtilityProcess.parseCommand(["latency", "223.5.5.5", "10"]))
+        guard case .latency(let host, let count) = try LabUtilityProcess.parseCommand(["latency", "223.5.5.5", "600"]) else {
+            return XCTFail("时延命令没有解析出来")
+        }
+        XCTAssertEqual(host, "223.5.5.5")
+        XCTAssertEqual(count, 600)
+        let snapshot = try XCTUnwrap(LatencySnapshot.make(from: text))
+        XCTAssertEqual(snapshot.target, "阿里 DNS（223.5.5.5）")
+        XCTAssertEqual(snapshot.averageMs ?? 0, 40, accuracy: 0.01)
+        XCTAssertEqual(snapshot.loss, "25.0%")
+        XCTAssertNil(LatencySnapshot.make(from: "已取消"))
+        let defaults = UserDefaults(suiteName: "latency-history-\(UUID().uuidString)")!
+        LatencyHistory.append(snapshot, at: Date(timeIntervalSince1970: 1), defaults: defaults)
+        SpeedHistory.append(
+            SpeedSnapshot(network: "上海电信", downloadMbps: 10, uploadMbps: 1, detail: "测速"),
+            at: Date(timeIntervalSince1970: 2),
+            defaults: defaults
+        )
+        XCTAssertEqual(LatencyHistory.load(defaults: defaults).map(\.snapshot.target), ["阿里 DNS（223.5.5.5）"])
+        LatencyHistory.clear(defaults: defaults)
+        XCTAssertTrue(LatencyHistory.load(defaults: defaults).isEmpty)
+        XCTAssertEqual(SpeedHistory.load(defaults: defaults).map(\.snapshot.network), ["上海电信"])
+        SpeedHistory.clear(defaults: defaults)
     }
 
     private func package(at directory: URL, version: String) throws -> URL {
@@ -1747,6 +2204,35 @@ final class TestURLSettingsTests: XCTestCase {
         XCTAssertEqual(defaults.applyingSettingsEdits(from: draft, comparedTo: defaults).connectTimeoutSeconds, 99)
     }
 
+    func testMissingExitIPTimeoutDefaultsToTenSeconds() throws {
+        XCTAssertEqual(AppSettings().missingExitIPTimeoutSeconds, 10)
+        XCTAssertEqual(AppSettings.normalizedMissingExitIPTimeout(7), 10)
+        XCTAssertEqual(AppSettings.normalizedMissingExitIPTimeout(0), 0)
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appendingPathComponent("settings.json")
+        var settings = AppSettings()
+        settings.httpPort = 12809
+        var legacy = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(settings)) as? [String: Any])
+        legacy.removeValue(forKey: "missingExitIPTimeoutSeconds")
+        try JSONSerialization.data(withJSONObject: legacy).write(to: file)
+        let defaults = PersistenceStore(directory: directory).loadSettings()
+        XCTAssertEqual(defaults.missingExitIPTimeoutSeconds, 10)
+        XCTAssertEqual(defaults.httpPort, 12809)
+        for value in [0, 5, 10, 15, 20] {
+            settings.missingExitIPTimeoutSeconds = value
+            try JSONEncoder().encode(settings).write(to: file)
+            XCTAssertEqual(PersistenceStore(directory: directory).loadSettings().missingExitIPTimeoutSeconds, value)
+        }
+        settings.missingExitIPTimeoutSeconds = 7
+        try JSONEncoder().encode(settings).write(to: file)
+        XCTAssertEqual(PersistenceStore(directory: directory).loadSettings().missingExitIPTimeoutSeconds, 10)
+        var draft = defaults
+        draft.missingExitIPTimeoutSeconds = 20
+        XCTAssertEqual(defaults.applyingSettingsEdits(from: draft, comparedTo: defaults).missingExitIPTimeoutSeconds, 20)
+    }
+
     func testConnectionTimeoutLoadsWithinOneToNinetyNineSeconds() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -1889,6 +2375,18 @@ final class QuickSwitchCountsTests: XCTestCase {
         XCTAssertEqual(counts.available, 1)
         XCTAssertEqual(counts.filtered, 1)
         XCTAssertEqual(counts.blocked, 1)
+    }
+
+    func testDisconnectedLaunchRecallsLastConnectedNodeWithoutReplacingAPick() {
+        let last = UUID()
+        let recent = UUID()
+        let picked = UUID()
+        let live = UUID()
+        XCTAssertEqual(quickSwitchRecalledNodeID(liveNodeID: nil, pickedID: nil, recentNodeID: nil, lastConnectedNodeID: last), last)
+        XCTAssertEqual(quickSwitchRecalledNodeID(liveNodeID: nil, pickedID: nil, recentNodeID: recent, lastConnectedNodeID: last), recent)
+        XCTAssertEqual(quickSwitchRecalledNodeID(liveNodeID: nil, pickedID: picked, recentNodeID: nil, lastConnectedNodeID: last), picked)
+        XCTAssertNil(quickSwitchRecalledNodeID(liveNodeID: live, pickedID: live, recentNodeID: nil, lastConnectedNodeID: last))
+        XCTAssertEqual(quickSwitchRecalledNodeID(liveNodeID: live, pickedID: picked, recentNodeID: nil, lastConnectedNodeID: last), picked)
     }
 }
 

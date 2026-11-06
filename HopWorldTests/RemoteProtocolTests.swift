@@ -178,6 +178,35 @@ final class RemoteProtocolTests: XCTestCase {
         XCTAssertEqual(nodes.last?.httpHeaders?["x-token"], "custom")
     }
 
+    func testClashWireGuardBlockReservedDoesNotAbortSiblingProxies() throws {
+        let options = wgNode().wireGuardOptions!
+        let yaml = """
+        proxies:
+        - name: sibling
+          type: vless
+          server: example.com
+          port: 443
+          uuid: \(uuid)
+          tls: true
+          network: tcp
+        - name: wg-block
+          type: wireguard
+          server: 162.159.192.2
+          port: 500
+          private-key: '\(options.privateKey!)'
+          public-key: '\(options.peerPublicKey)'
+          ip: 172.16.0.2/32
+          reserved:
+          - 39
+          - 4
+          - 107
+          udp: true
+        """
+        let result = try ClashYAMLParser.parse(yaml)
+        XCTAssertEqual(result.validNodes.map(\.protocolType), [.vless, .wireguard])
+        XCTAssertEqual(result.validNodes.last?.wireGuardOptions?.reserved, [39, 4, 107])
+    }
+
     func testSubscriptionURLsAndUnsupportedParametersAreNotSilentlyImported() throws {
         for link in ["https://example.com/sub?token=secret", "https://example.com:8443/subscription", "https://example.com/docs", "https://example.com"] {
             XCTAssertTrue(NodeLinkParser.extractShareLinks(from: link).isEmpty, link)

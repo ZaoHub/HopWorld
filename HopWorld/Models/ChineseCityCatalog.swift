@@ -233,6 +233,7 @@ actor ChineseCityResolver {
     }
 
     @MainActor private static func appleLookup(_ metadata: NodeExitMetadata) async -> String? {
+        guard await LabUtilityProcess.allowInternet(userInitiated: false) else { return nil }
         guard let latitude = metadata.latitude, let longitude = metadata.longitude else { return nil }
         let geocoder = CLGeocoder()
         return await withTaskCancellationHandler {

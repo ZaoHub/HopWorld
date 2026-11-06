@@ -11,6 +11,8 @@ struct ContentView: View {
     @State private var showPersistenceAlert = false
     @State private var showTestResults = false
     @State private var presentedTestSummary: NodeTestRunSummary?
+    @State private var showsMessageTray = false
+    @State private var selectedMessageID: UUID?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -81,6 +83,28 @@ struct ContentView: View {
             connectionStatusBar
                 .background(.bar)
         }
+        .overlay(alignment: .bottomTrailing) {
+            if let message = appState.toastMessage {
+                Text(message.title)
+                    .font(.headline)
+                .padding(14)
+                .frame(width: 320, alignment: .leading)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Color.primary.opacity(0.08))
+                }
+                .shadow(color: .black.opacity(0.12), radius: 12, y: 4)
+                .padding(.trailing, 16)
+                .padding(.bottom, 36)
+                .onTapGesture {
+                    appState.dismissToast()
+                    selectedMessageID = nil
+                    showsMessageTray = true
+                    appState.markMessagesRead()
+                }
+                .accessibilityAddTraits(.updatesFrequently)
+            }
+        }
         .overlay(alignment: .center) {
             if let message = appState.flashToastMessage {
                 Text(message)
@@ -127,6 +151,11 @@ struct ContentView: View {
         }
         .onChange(of: appState.persistenceError) { _ in
             presentPersistenceErrorIfNeeded()
+        }
+        .alert(appState.offlineNoticeTitle, isPresented: $appState.showsNoNetworkAlert) {
+            Button("好的", role: .cancel) {}
+        } message: {
+            Text(appState.offlineNoticeMessage)
         }
         .alert("暂时没有可连接的节点", isPresented: $appState.showsNoConnectionCandidates) {
             Button("前往测试") { appState.selectedSidebar = .testing }
@@ -371,6 +400,96 @@ struct ContentView: View {
         .frame(maxWidth: .infinity)
         .padding(.horizontal, 12)
         .padding(.bottom, 3)
+        .overlay(alignment: .trailing) {
+            if !appState.messages.isEmpty {
+                Button {
+                    if showsMessageTray {
+                        showsMessageTray = false
+                        selectedMessageID = nil
+                    } else {
+                        selectedMessageID = nil
+                        showsMessageTray = true
+                        appState.markMessagesRead()
+                    }
+                } label: {
+                    Label(appState.unreadMessageCount > 0 ? "\(appState.unreadMessageCount)" : "消息", systemImage: "bell")
+                        .labelStyle(.titleAndIcon)
+                        .font(.caption)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                }
+                .buttonStyle(.borderless)
+                .help("网络消息")
+                .accessibilityLabel("消息")
+                .padding(.trailing, 8)
+                .popover(isPresented: $showsMessageTray, arrowEdge: .bottom) {
+                    messageTray
+                }
+            }
+        }
+    }
+
+    private var messageTray: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                if selectedMessageID != nil {
+                    Button("返回") { selectedMessageID = nil }
+                        .buttonStyle(.borderless)
+                }
+                Text(selectedMessage == nil ? "消息" : "详情").font(.headline)
+                Spacer()
+                Button("清空") {
+                    appState.clearMessages()
+                    selectedMessageID = nil
+                    showsMessageTray = false
+                }
+                .buttonStyle(.borderless)
+            }
+            if let message = selectedMessage {
+                Text(message.date.formatted(date: .abbreviated, time: .standard))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text(message.title).font(.callout.weight(.semibold))
+                Text(message.body)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 0)
+            } else {
+                ScrollView {
+                    VStack(spacing: 0) {
+                        ForEach(appState.messages) { message in
+                            Button {
+                                selectedMessageID = message.id
+                            } label: {
+                                HStack(spacing: 8) {
+                                    Text(message.date.formatted(.dateTime.month(.defaultDigits).day().hour().minute()))
+                                        .font(.caption.monospacedDigit())
+                                        .foregroundStyle(.secondary)
+                                    Text(message.title)
+                                        .font(.callout)
+                                        .lineLimit(1)
+                                    Spacer(minLength: 4)
+                                    Image(systemName: "chevron.right")
+                                        .font(.caption2)
+                                        .foregroundStyle(.tertiary)
+                                }
+                                .padding(.vertical, 7)
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            Divider()
+                        }
+                    }
+                }
+            }
+        }
+        .padding(14)
+        .frame(width: 320, height: 280)
+    }
+
+    private var selectedMessage: AppMessage? {
+        appState.messages.first { $0.id == selectedMessageID }
     }
 
     private var viewingNodeBinding: Binding<ProxyNode?> {

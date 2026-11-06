@@ -105,7 +105,7 @@ actor Deliveries {
         let weekly = await deliveries.values
         check(weekly[2].1.contains("周余量已恢复至 100%"), "Weekly recovery at an unchanged reset timestamp is sent")
         controller.observe(sample(10, count: 3))
-        controller.observe(sample(0, reset: 2_000_000_001, count: 4))
+        controller.observe(sample(0, reset: 2_000_604_800, count: 4))
         await wait { await deliveries.count == 6 }
         await wait { !controller.isSending }
         let combined = await deliveries.values
@@ -122,7 +122,7 @@ actor Deliveries {
         await pause()
         let restoredCount = await deliveries.count
         check(restoredCount == 6, "Reconstructing from defaults does not resend a consumed transition")
-        restored.observe(sample(0, reset: 2_000_000_003, count: 3))
+        restored.observe(sample(0, reset: 2_000_604_802, count: 3))
         await wait { await deliveries.count == 8 }
         await wait { !restored.isSending }
         check(restored.status.contains("2/2"), "A changed reset timestamp at 100% sends after restoration")
@@ -181,7 +181,7 @@ actor Deliveries {
         await pause()
         let switchedCount = await deliveries.count
         check(switchedCount == 2, "Switching accounts establishes a separate baseline")
-        controller.observe(sample(0, reset: 2_000_000_102, count: 5, account: "account-b"))
+        controller.observe(sample(0, reset: 2_000_604_800, count: 5, account: "account-b"))
         await wait { await deliveries.count == 4 }
         await wait { !controller.isSending }
         controller.observe(sample(0, reset: 2_000_000_103, count: 7, account: nil))

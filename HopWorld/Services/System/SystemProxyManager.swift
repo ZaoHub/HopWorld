@@ -183,6 +183,103 @@ struct SystemProxyManager: Sendable {
         }
     }
 
+    /// 当前已启用的系统代理，供网络工具展示。
+    func enabledProxySummary() async throws -> [String] {
+        var lines: [String] = []
+        for service in try await activeNetworkServices() {
+            for (label, type) in [("HTTP", "webproxy"), ("HTTPS", "securewebproxy"), ("SOCKS", "socksfirewallproxy")] {
+                let proxy = try await readProxy(service: service, type: type)
+                if proxy.enabled {
+                    lines.append("\(service)：\(label) \(proxy.host ?? "-"):\(proxy.port.map(String.init) ?? "-")")
+                }
+            }
+            let auto = try await readAutoProxy(service: service)
+            if auto.enabled {
+                lines.append("\(service)：PAC \(auto.url ?? "")")
+            }
+        }
+        return lines
+    }
+
+    /// 供修复前弹窗说明：备份文件路径，以及文件里记下的代理。
+    func backupDeletionDescription() -> String {
+        guard FileManager.default.fileExists(atPath: backupURL.path) else {
+            return "当前没有代理备份文件。选择「删除备份」不会删除其它文件。"
+        }
+        var lines = ["选择「删除备份」会删除这个文件：", backupURL.path]
+        if let data = try? Data(contentsOf: backupURL),
+           let backups = try? JSONDecoder().decode([OriginalProxySettings].self, from: data),
+           !backups.isEmpty {
+            lines.append("文件中记录的是连接前的系统代理：")
+            lines.append(contentsOf: backups.flatMap(Self.backupLines(for:)))
+        } else {
+            lines.append("文件无法读取。删除时仍只移除这一份。")
+        }
+        lines.append("选择「保留备份」不会删除该文件。")
+        return lines.joined(separator: "\n")
+    }
+
+    /// 先按备份恢复系统代理，再关闭仍指向本机的项。仅在要求删除时移除备份文件。
+    func repairLoopbackProxies(deleteBackup: Bool) async throws -> Int {
+        if FileManager.default.fileExists(atPath: backupURL.path),
+           let data = try? Data(contentsOf: backupURL),
+           let backups = try? JSONDecoder().decode([OriginalProxySettings].self, from: data) {
+            for backup in backups {
+                try await apply(backup)
+            }
+        }
+        let turnedOff = try await disableLoopbackProxies()
+        if deleteBackup, FileManager.default.fileExists(atPath: backupURL.path) {
+            try FileManager.default.removeItem(at: backupURL)
+        }
+        return turnedOff
+    }
+
+    private static func backupLines(for settings: OriginalProxySettings) -> [String] {
+        func endpoint(_ enabled: Bool, _ host: String?, _ port: Int?) -> String {
+            guard enabled else { return "关" }
+            return "\(host ?? "-"):\(port.map(String.init) ?? "-")"
+        }
+        var lines = ["· \(settings.serviceName)"]
+        lines.append("  HTTP \(endpoint(settings.httpEnabled, settings.httpHost, settings.httpPort))")
+        lines.append("  HTTPS \(endpoint(settings.httpsEnabled, settings.httpsHost, settings.httpsPort))")
+        lines.append("  SOCKS \(endpoint(settings.socksEnabled, settings.socksHost, settings.socksPort))")
+        if settings.autoProxyEnabled {
+            lines.append("  PAC \(settings.autoProxyURL ?? "")")
+        }
+        return lines
+    }
+
+    /// 只关闭指向本机回环的 HTTP/HTTPS/SOCKS，不改用户设到其它地址的代理。
+    func disableLoopbackProxies() async throws -> Int {
+        var turnedOff = 0
+        for service in try await activeNetworkServices() {
+            let http = try await readProxy(service: service, type: "webproxy")
+            if http.enabled, Self.isLoopback(http.host) {
+                _ = try await run("/usr/sbin/networksetup", arguments: ["-setwebproxystate", service, "off"])
+                turnedOff += 1
+            }
+            let https = try await readProxy(service: service, type: "securewebproxy")
+            if https.enabled, Self.isLoopback(https.host) {
+                _ = try await run("/usr/sbin/networksetup", arguments: ["-setsecurewebproxystate", service, "off"])
+                turnedOff += 1
+            }
+            let socks = try await readProxy(service: service, type: "socksfirewallproxy")
+            if socks.enabled, Self.isLoopback(socks.host) {
+                _ = try await run("/usr/sbin/networksetup", arguments: ["-setsocksfirewallproxystate", service, "off"])
+                turnedOff += 1
+            }
+        }
+        return turnedOff
+    }
+
+    private static func isLoopback(_ host: String?) -> Bool {
+        switch host?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "127.0.0.1", "localhost", "::1": return true
+        default: return false
+        }
+    }
+
     func restoreIfOrphaned(expectedHTTPPort: Int, expectedSOCKSPort: Int, xrayRunning: Bool) async throws {
         guard !xrayRunning else { return }
         let services = try await activeNetworkServices()

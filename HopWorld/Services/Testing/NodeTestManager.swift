@@ -101,6 +101,8 @@ final class NodeTestManager: ObservableObject {
     private var appProbeGeneration = 0
     private var sessionTask: Task<Void, Never>?
     private var singleTestTasks: [UUID: Task<NodeTestResult, Never>] = [:]
+    /// 每个订阅组开始测速前回调，便于 UI 只把当前组标成「测试中」。
+    var onSubscriptionGroupStarting: (([UUID]) -> Void)?
     private let xray: XrayProcessManager
     private let binaryOverride: URL?
     private let testDirectory: URL
@@ -113,6 +115,9 @@ final class NodeTestManager: ObservableObject {
     }
 
     var canPause: Bool { phase == .running }
+    /// 定时测速会话。暂停后继续、以及设置里的订阅/节点范围变更，都按当前范围裁剪剩余节点。
+    private(set) var followsScheduledScope = false
+    private var scheduledAllowance: Set<UUID>?
     var sessionNodeIDs: Set<UUID> { Set(sessionNodeNames.keys) }
     var canResume: Bool { phase == .paused && !remainingNodeIDs.isEmpty }
     var canRetest: Bool { phase != .running }
@@ -374,6 +379,7 @@ final class NodeTestManager: ObservableObject {
         nodes: [ProxyNode],
         settings: AppSettings,
         silent: Bool = false,
+        followsScheduledScope: Bool = false,
         updateNode: @escaping (UUID, NodeTestResult) -> Void
     ) async -> Bool {
         guard !nodes.isEmpty else { return false }
@@ -385,6 +391,8 @@ final class NodeTestManager: ObservableObject {
         stopRequested = false
         userStopRequested = false
         suppressFinishedAlert = silent
+        self.followsScheduledScope = followsScheduledScope
+        scheduledAllowance = followsScheduledScope ? Set(nodes.map(\.id)) : nil
         remainingNodeIDs = nodes.map(\.id)
         sessionNodeNames = Dictionary(uniqueKeysWithValues: nodes.map { ($0.id, settings.nodeDisplayTitle($0)) })
         sessionDetailLines = []
@@ -463,7 +471,7 @@ final class NodeTestManager: ObservableObject {
         updateNode: @escaping (UUID, NodeTestResult) -> Void
     ) async {
         guard canResume else { return }
-        let nodes = remainingNodeIDs.compactMap(nodesByID)
+        let nodes = remainingNodeIDs.compactMap(nodesByID).filter { scheduledAllows($0.id) }
         guard !nodes.isEmpty else {
             phase = .finished
             remainingNodeIDs = []
@@ -636,6 +644,7 @@ final class NodeTestManager: ObservableObject {
             category: .network
         )
 
+        let groups = Self.nodesGroupedBySubscription(nodes)
         if !useXray {
             needsXrayInstall = true
             let detail = installError.map { " 自动安装失败：\($0)。" } ?? ""
@@ -644,27 +653,41 @@ final class NodeTestManager: ObservableObject {
                 "批量测速缺少 Xray 核心，已跳过代理连通探测。\(detail)请到「关于 → 管理更新」安装。",
                 category: .test
             )
-            await runConcurrentTCP(
-                nodes: nodes,
-                concurrency: max(16, httpsConcurrency),
-                timeout: tcpTimeout,
-                updateNode: updateNode
-            )
-        } else {
-            let batches = stride(from: 0, to: nodes.count, by: batchSize).map {
-                Array(nodes[$0..<min($0 + batchSize, nodes.count)])
-            }
-            for batch in batches {
+            for group in groups {
                 if pauseRequested || Task.isCancelled { break }
-                await testBatch(
-                    batch,
-                    settings: settings,
-                    timeout: timeout,
-                    tcpTimeout: tcpTimeout,
-                    httpsConcurrency: httpsConcurrency,
+                let group = droppingNodesOutsideScheduledScope(group)
+                if group.isEmpty { continue }
+                onSubscriptionGroupStarting?(group.map(\.id))
+                await runConcurrentTCP(
+                    nodes: group,
+                    concurrency: max(16, httpsConcurrency),
+                    timeout: tcpTimeout,
                     updateNode: updateNode
                 )
+            }
+        } else {
+            for group in groups {
                 if pauseRequested || Task.isCancelled { break }
+                let group = droppingNodesOutsideScheduledScope(group)
+                if group.isEmpty { continue }
+                onSubscriptionGroupStarting?(group.map(\.id))
+                let batches = stride(from: 0, to: group.count, by: batchSize).map {
+                    Array(group[$0..<min($0 + batchSize, group.count)])
+                }
+                for batch in batches {
+                    if pauseRequested || Task.isCancelled { break }
+                    let batch = droppingNodesOutsideScheduledScope(batch)
+                    if batch.isEmpty { continue }
+                    await testBatch(
+                        batch,
+                        settings: settings,
+                        timeout: timeout,
+                        tcpTimeout: tcpTimeout,
+                        httpsConcurrency: httpsConcurrency,
+                        updateNode: updateNode
+                    )
+                    if pauseRequested || Task.isCancelled { break }
+                }
             }
             await xray.stop()
             try? FileManager.default.removeItem(at: testDirectory.appendingPathComponent("test-batch.json"))
@@ -697,6 +720,43 @@ final class NodeTestManager: ObservableObject {
             statusText = "测试完成"
             presentFinishedAlert()
         }
+    }
+
+    /// 用当前定时范围替换允许集合，并丢掉已经不在范围内的剩余节点。
+    func applyScheduledScope(_ allowed: Set<UUID>) {
+        guard followsScheduledScope, phase == .running || phase == .paused else { return }
+        scheduledAllowance = allowed
+        let dropped = remainingNodeIDs.filter { !allowed.contains($0) }
+        guard !dropped.isEmpty else { return }
+        let droppedIDs = Set(dropped)
+        remainingNodeIDs.removeAll { droppedIDs.contains($0) }
+        for id in droppedIDs { sessionNodeNames[id] = nil }
+        totalCount = max(testedCount, totalCount - dropped.count)
+        progress = phase == .paused && remainingNodeIDs.isEmpty
+            ? 1
+            : Double(testedCount) / Double(max(totalCount, 1))
+        guard phase == .paused else { return }
+        if remainingNodeIDs.isEmpty {
+            phase = .finished
+            statusText = "没有符合当前定时范围的节点"
+        } else {
+            statusText = "已暂停（剩余 \(remainingNodeIDs.count) 个，可继续）"
+        }
+    }
+
+    private func scheduledAllows(_ id: UUID) -> Bool {
+        guard followsScheduledScope, let scheduledAllowance else { return true }
+        return scheduledAllowance.contains(id)
+    }
+
+    private func droppingNodesOutsideScheduledScope(_ nodes: [ProxyNode]) -> [ProxyNode] {
+        guard followsScheduledScope, let scheduledAllowance else { return nodes }
+        let droppedIDs = Set(nodes.map(\.id)).subtracting(scheduledAllowance)
+        guard !droppedIDs.isEmpty else { return nodes }
+        let stillQueued = droppedIDs.intersection(remainingNodeIDs)
+        remainingNodeIDs.removeAll { droppedIDs.contains($0) }
+        totalCount = max(testedCount, totalCount - stillQueued.count)
+        return nodes.filter { scheduledAllowance.contains($0.id) }
     }
 
     private func endStoppedSession() {
@@ -779,6 +839,22 @@ final class NodeTestManager: ObservableObject {
             return "\(name) · 不可用（TCP \(LatencyFormat.display(tcp))）"
         }
         return "\(name) · 不可用"
+    }
+
+    /// 按节点首次出现的订阅顺序分组，同组内保持原有先后。
+    private static func nodesGroupedBySubscription(_ nodes: [ProxyNode]) -> [[ProxyNode]] {
+        var order: [UUID?] = []
+        var buckets: [UUID?: [ProxyNode]] = [:]
+        order.reserveCapacity(8)
+        buckets.reserveCapacity(8)
+        for node in nodes {
+            if buckets[node.subscriptionID] == nil {
+                order.append(node.subscriptionID)
+                buckets[node.subscriptionID] = []
+            }
+            buckets[node.subscriptionID]?.append(node)
+        }
+        return order.compactMap { buckets[$0] }
     }
 
     private func runConcurrentTCP(

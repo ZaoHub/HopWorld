@@ -6,6 +6,8 @@ import Darwin
 final class ConnectionManager: ObservableObject {
     @Published var state = ConnectionState()
     @Published var isBusy = false
+    /// 本次连接的出口确认已经结束。状态可能先变成已连接，此标记仍为 false。
+    @Published private(set) var sessionReady = false
     /// 当前故障切换进度文案，例如「第 2/5 个节点…」
     @Published var failoverStatus: String?
     @Published private(set) var nodeQuality: [UUID: AIConnectionQuality] = [:]
@@ -218,6 +220,7 @@ final class ConnectionManager: ObservableObject {
         do {
             try Task.checkCancellation()
             cancelErrorIdleRecovery()
+            sessionReady = false
             state.status = .connecting
             state.lastError = nil
             try await operations.perform { _ in
@@ -316,6 +319,7 @@ final class ConnectionManager: ObservableObject {
             return
         }
         isBusy = true
+        sessionReady = false
         // 先抬世代，打断进行中的 connect / failover / 验证。
         failoverStatus = nil
         stopMetrics()
@@ -382,6 +386,7 @@ final class ConnectionManager: ObservableObject {
         }
 
         cancelErrorIdleRecovery()
+        sessionReady = false
         state.status = .connecting
         state.lastError = nil
 
@@ -550,6 +555,7 @@ final class ConnectionManager: ObservableObject {
         }
 
         cancelErrorIdleRecovery()
+        sessionReady = false
         state.status = .connecting
         state.lastError = nil
         state.resetLatency()
@@ -787,6 +793,7 @@ final class ConnectionManager: ObservableObject {
         logger.info("连接诊断 session=\(diagnosticSession)；IPv4/IPv6 同路由；DNS=\(settings.connectionCaptureMode.usesTun ? "TUN 经节点解析系统 DNS（节点引导除外）" : "代理内 DNS 跟随路由；系统 DNS 由 macOS 管理")；TLS 解密=关闭；本地空闲上限=3600s", category: .network)
 
         logger.info("连接成功：\(settings.nodeDisplayTitle(node))，总耗时=\(Int(Date().timeIntervalSince(startedAt) * 1000)) ms，验证延迟=\(state.latency.map { "\($0) ms" } ?? "未知")", category: .network)
+        failoverStatus = nil
 
         activeProbePort = probePort
         activeQualityProxy = (port: qualityPort, password: applicationPassword)
@@ -794,46 +801,97 @@ final class ConnectionManager: ObservableObject {
         startLiveLatency(generation: generation, probePort: probePort, settings: settings)
         startAutomaticQuality(nodeID: node.id, generation: generation)
 
-        // 出口信息异步补充，不阻塞连接成功判定。
-        exitTask = Task { @MainActor in
-            let exit = await ExitIPTester.fetch(
-                proxyHost: "127.0.0.1",
-                proxyPort: probePort,
-                timeout: 6,
-                socksPort: nil
-            )
-            guard !Task.isCancelled, generation == self.connectGeneration,
-                  self.state.currentNodeID == node.id, self.state.status == .connected else { return }
-            self.state.recordExitIP(exit.ip, type: exit.networkType)
-            self.recordExitObservation(exit, nodeID: node.id)
-            self.state.exitCountry = exit.countryName ?? exit.countryCode
-            self.state.exitCity = exit.city
-            self.state.exitOperator = exit.networkOperator
-            self.state.exitASN = exit.asn
-            self.logger.debug(
-                "出口检测完成：IP=\(exit.ip ?? "未获取")，地区=\(exit.countryName ?? exit.countryCode ?? "未知")",
-                category: .network
-            )
-
-            let exitIsChina = {
-                let code = exit.countryCode?.uppercased()
-                let name = (exit.countryName ?? "").lowercased()
-                return code == "CN" || name.contains("china") || name.contains("中国")
-            }()
-
-            if exit.ip == nil {
-                self.logger.warning("出口检测未获取到 IP；节点：\(settings.nodeDisplayTitle(node))", category: .network)
-            } else if exitIsChina, settings.routingMode != .direct {
-                self.logger.warning("检测到中国出口；节点：\(settings.nodeDisplayTitle(node))；IP：\(exit.ip ?? "未知")；请切换海外节点", category: .network)
+        let exitWait = AppSettings.normalizedMissingExitIPTimeout(settings.missingExitIPTimeoutSeconds)
+        if exitWait > 0, settings.routingMode != .direct {
+            // The deadline starts only after the session is connected.
+            logger.debug("连接已成功，开始等待出口 IP，时限=\(exitWait) 秒", category: .network)
+            let exit = await exitIPBeforeDeadline(probePort: probePort, seconds: exitWait)
+            try Task.checkCancellation()
+            guard generation == connectGeneration else { throw ConnectionError.cancelled }
+            guard let exit, exit.ip != nil else {
+                logger.warning("无出口 IP（\(exitWait) 秒）；节点：\(settings.nodeDisplayTitle(node))", category: .network)
+                await teardownProxy(settings: settings, restoreSystemProxy: false)
+                throw ConnectionError.verifyFailed("无出口 IP（\(exitWait) 秒）")
             }
-
-            if exit.ip == nil, self.state.lastError == nil {
-                self.state.lastError = "已连接，暂未获取到出口 IP"
-            } else if exitIsChina, settings.routingMode != .direct {
-                self.state.lastError = "当前出口位于中国大陆，部分海外网站可能无法访问"
-            } else if exit.ip != nil, self.state.lastError?.contains("出口 IP") == true {
-                self.state.lastError = nil
+            applyExitResult(exit, node: node, settings: settings, generation: generation)
+        } else {
+            if exitWait > 0 {
+                logger.debug("直连模式跳过无出口 IP 时限", category: .network)
             }
+            exitTask = Task { @MainActor in
+                let exit = await ExitIPTester.fetch(
+                    proxyHost: "127.0.0.1",
+                    proxyPort: probePort,
+                    timeout: 6,
+                    socksPort: nil
+                )
+                guard !Task.isCancelled else { return }
+                self.applyExitResult(exit, node: node, settings: settings, generation: generation)
+            }
+        }
+        guard generation == connectGeneration, state.status == .connected else { return }
+        sessionReady = true
+    }
+
+    /// Looks up an exit IP for `seconds` measured by the caller. Empty results are retried until that deadline.
+    private func exitIPBeforeDeadline(probePort: Int, seconds: Int) async -> ExitIPTester.ExitInfo? {
+        await withTaskGroup(of: ExitIPTester.ExitInfo?.self) { group in
+            group.addTask {
+                let deadline = Date().addingTimeInterval(TimeInterval(seconds))
+                while !Task.isCancelled, Date() < deadline {
+                    let remaining = deadline.timeIntervalSinceNow
+                    guard remaining > 0 else { return nil }
+                    let info = await ExitIPTester.fetch(
+                        proxyHost: "127.0.0.1",
+                        proxyPort: probePort,
+                        timeout: min(6, max(1, remaining)),
+                        socksPort: nil
+                    )
+                    if info.ip != nil { return info }
+                }
+                return nil
+            }
+            group.addTask {
+                try? await Task.sleep(nanoseconds: UInt64(seconds) * 1_000_000_000)
+                return nil
+            }
+            let found = await group.next() ?? nil
+            group.cancelAll()
+            return found ?? nil
+        }
+    }
+
+    private func applyExitResult(_ exit: ExitIPTester.ExitInfo, node: ProxyNode, settings: AppSettings, generation: Int) {
+        guard generation == connectGeneration, state.currentNodeID == node.id, state.status == .connected else { return }
+        state.recordExitIP(exit.ip, type: exit.networkType)
+        recordExitObservation(exit, nodeID: node.id)
+        state.exitCountry = exit.countryName ?? exit.countryCode
+        state.exitCity = exit.city
+        state.exitOperator = exit.networkOperator
+        state.exitASN = exit.asn
+        logger.debug(
+            "出口检测完成：IP=\(exit.ip ?? "未获取")，地区=\(exit.countryName ?? exit.countryCode ?? "未知")",
+            category: .network
+        )
+
+        let exitIsChina = {
+            let code = exit.countryCode?.uppercased()
+            let name = (exit.countryName ?? "").lowercased()
+            return code == "CN" || name.contains("china") || name.contains("中国")
+        }()
+
+        if exit.ip == nil {
+            logger.warning("出口检测未获取到 IP；节点：\(settings.nodeDisplayTitle(node))", category: .network)
+        } else if exitIsChina, settings.routingMode != .direct {
+            logger.warning("检测到中国出口；节点：\(settings.nodeDisplayTitle(node))；IP：\(exit.ip ?? "未知")；请切换海外节点", category: .network)
+        }
+
+        if exit.ip == nil, state.lastError == nil {
+            state.lastError = "已连接，暂未获取到出口 IP"
+        } else if exitIsChina, settings.routingMode != .direct {
+            state.lastError = "当前出口位于中国大陆，部分海外网站可能无法访问"
+        } else if exit.ip != nil, state.lastError?.contains("出口 IP") == true {
+            state.lastError = nil
         }
     }
 
@@ -981,6 +1039,7 @@ final class ConnectionManager: ObservableObject {
     }
 
     func checkCodexInviteEligibility() async -> CodexInviteCheckResult? {
+        guard await LabUtilityProcess.allowInternet(userInitiated: false) else { return nil }
         guard state.status == .connected, !isBusy, let settings = activeSettings else { return nil }
         guard settings.routingMode != .direct, let probePort = activeProbePort else { return .unavailable }
         let generation = connectGeneration
@@ -1007,6 +1066,7 @@ final class ConnectionManager: ObservableObject {
     }
 
     private func diagnoseThroughProxy(_ url: URL, timeout: TimeInterval? = nil) async -> ProxyHTTPTester.HTTPSOutcome? {
+        guard await LabUtilityProcess.allowInternet(userInitiated: false) else { return nil }
         guard state.status == .connected, !isBusy, let settings = activeSettings,
               settings.routingMode != .direct, let probePort = activeProbePort else { return nil }
         let generation = connectGeneration
@@ -1306,6 +1366,7 @@ final class ConnectionManager: ObservableObject {
         activeSettings = nil
         failoverStatus = nil
         isBusy = false
+        sessionReady = false
         state.status = .error
         state.lastError = message
         if captureCleanupFailed {
@@ -1322,6 +1383,7 @@ final class ConnectionManager: ObservableObject {
         activeSettings = nil
         failoverStatus = nil
         isBusy = false
+        sessionReady = false
         let autoSelect = state.autoSelectEnabled
         state = ConnectionState(autoSelectEnabled: autoSelect)
         state.status = .disconnected

@@ -22,8 +22,8 @@ enum UpdateComponent: String, CaseIterable, Identifiable, Sendable {
     }
 }
 
-struct ComponentRelease: Decodable, Sendable {
-    struct Asset: Decodable, Sendable {
+struct ComponentRelease: Codable, Sendable {
+    struct Asset: Codable, Sendable {
         let name: String
         let digest: String?
 
@@ -164,23 +164,40 @@ final class ComponentUpdateManager: ObservableObject {
     @Published private(set) var hasError = false
     /// 下载阶段 0…1；检查更新 / 校验安装时为 nil。与 Xray 进度展示一致。
     @Published private(set) var downloadProgress: Double?
-    @Published private(set) var status = "每天首次启动检查更新。"
+    @Published private(set) var status = "每天自动检查更新；开启自动更新后发现新版本会安装。"
     @Published private(set) var lastCheckedAt: Date?
     @Published var automaticUpdates: Bool {
         didSet { defaults.set(automaticUpdates, forKey: component.rawValue + ".automaticUpdates") }
     }
     private let defaults: UserDefaults
     private var release: ComponentRelease?
+    private var lastCheckKey: String { component.rawValue + ".lastCheckedAt" }
+    private var releaseKey: String { component.rawValue + ".release" }
 
     init(_ component: UpdateComponent, defaults: UserDefaults = .standard) {
         self.component = component
         self.defaults = defaults
         automaticUpdates = defaults.object(forKey: component.rawValue + ".automaticUpdates") as? Bool ?? true
-        lastCheckedAt = defaults.object(forKey: component.rawValue + ".lastCheckedAt") as? Date
+        lastCheckedAt = defaults.object(forKey: lastCheckKey) as? Date
+        release = defaults.data(forKey: releaseKey).flatMap { try? JSONDecoder().decode(ComponentRelease.self, from: $0) }
+        latestVersion = release.flatMap { try? $0.version(for: component) }
     }
 
     var installVersion: String? {
         component.installVersion(latest: latestVersion, installed: installedVersion)
+    }
+
+    static func claimDailyCheck(
+        for component: UpdateComponent,
+        defaults: UserDefaults,
+        now: Date = Date(),
+        calendar: Calendar = .current
+    ) -> Bool {
+        let key = component.rawValue + ".lastCheckedAt"
+        if let last = defaults.object(forKey: key) as? Date,
+           calendar.isDate(last, inSameDayAs: now) { return false }
+        defaults.set(now, forKey: key)
+        return true
     }
 
     func refreshInstalledVersion() async {
@@ -192,6 +209,18 @@ final class ComponentUpdateManager: ObservableObject {
 
     func checkForUpdates(automatic: Bool = false) async {
         guard !isBusy else { return }
+        guard await LabUtilityProcess.allowInternet(userInitiated: !automatic) else { return }
+        // Same-day automatic entry still installs a cached update when auto-update
+        // is on; only the network refresh is skipped. Keeps long-running sessions
+        // able to finish installs without requiring an app restart.
+        if automatic && !Self.claimDailyCheck(for: component, defaults: defaults) {
+            await refreshInstalledVersion()
+            if automaticUpdates { await installAvailableUpdateIfNeeded(userInitiated: false) }
+            return
+        }
+        let now = Date()
+        defaults.set(now, forKey: lastCheckKey)
+        lastCheckedAt = now
         isBusy = true
         downloadProgress = nil
         defer {
@@ -199,19 +228,13 @@ final class ComponentUpdateManager: ObservableObject {
             downloadProgress = nil
         }
         await refreshInstalledVersion()
-        let key = component.rawValue + ".lastCheckedAt"
-        // Same-day skip only when auto-update is off. With auto-update on we must
-        // refresh, because this manager does not persist the pending release.
-        if automatic, !automaticUpdates, let checked = defaults.object(forKey: key) as? Date,
-           Calendar.current.isDate(checked, inSameDayAs: Date()) { return }
         hasError = false
         status = "正在检查更新…"
         do {
             let fetched = try await ComponentRelease.fetch(for: component)
             release = fetched
             latestVersion = try fetched.version(for: component)
-            lastCheckedAt = Date()
-            defaults.set(lastCheckedAt, forKey: key)
+            defaults.set(try? JSONEncoder().encode(fetched), forKey: releaseKey)
             let needsAdaptation = component == .singBox && latestVersion.map {
                 $0 != SingBoxInstaller.approvedVersion && XrayInstaller.isVersion($0, atLeast: SingBoxInstaller.approvedVersion)
             } == true
@@ -226,7 +249,7 @@ final class ComponentUpdateManager: ObservableObject {
             } else {
                 status = "检查完成：已是最新版本。"
             }
-            if automaticUpdates, installVersion != nil { await installSelectedRelease() }
+            if automaticUpdates { await installAvailableUpdateIfNeeded(userInitiated: false) }
         } catch {
             hasError = true
             status = "检查更新失败：\(error.localizedDescription)。可重试。"
@@ -241,10 +264,30 @@ final class ComponentUpdateManager: ObservableObject {
             isBusy = false
             downloadProgress = nil
         }
-        await installSelectedRelease()
+        await installSelectedRelease(userInitiated: true)
     }
 
-    private func installSelectedRelease() async {
+    /// Installs a known available update when auto-update is enabled.
+    private func installAvailableUpdateIfNeeded(userInitiated: Bool) async {
+        guard automaticUpdates, installVersion != nil else { return }
+        if component == .geoFiles, release == nil { return }
+        let nested = isBusy
+        if !nested {
+            isBusy = true
+            downloadProgress = nil
+        }
+        defer {
+            if !nested {
+                isBusy = false
+                downloadProgress = nil
+            }
+        }
+        status = "发现可用更新 \(installVersion ?? "")，正在自动安装…"
+        await installSelectedRelease(userInitiated: userInitiated)
+    }
+
+    private func installSelectedRelease(userInitiated: Bool) async {
+        guard await LabUtilityProcess.allowInternet(userInitiated: userInitiated) else { return }
         let mirror = XrayInstaller.preferredDownloadMirror.statusLabel
         let target = installVersion.map { " \($0)" } ?? ""
         downloadProgress = 0

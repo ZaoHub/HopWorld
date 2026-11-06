@@ -180,6 +180,8 @@ struct AppProbeBatchProgress {
     var connected = 0
     var failed = 0
     var statusText = ""
+    /// 正在探测的节点所属订阅；手动导入节点为 nil。
+    var currentSubscriptionID: UUID?
 }
 
 struct AppProbeResult: Identifiable, Equatable, Sendable {

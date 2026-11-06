@@ -151,3 +151,18 @@ extension CodexInterfaceHealthReaderTests {
         XCTAssertEqual(observation.failureSince, now)
     }
 }
+
+
+extension CodexInterfaceHealthReaderTests {
+    func testReplyClearsWorkspaceUntilPromptDisappearsAndCanRecur() {
+        let now = Date()
+        var observation = CodexInterfaceObservation()
+        let failed = CodexInterfaceHealthSnapshot(workspaceUnavailable: true, status: .observing)
+        _ = observation.observe(failed, at: now)
+        XCTAssertEqual(observation.clearWorkspaceAfterResponse(at: now.addingTimeInterval(1))?.kind, .workspaceRecovered)
+        XCTAssertNil(observation.pendingFailure(now: now.addingTimeInterval(1)))
+        XCTAssertTrue(observation.observe(failed, at: now.addingTimeInterval(2)).isEmpty)
+        _ = observation.observe(.init(workspaceUnavailable: false, reconnecting: false, waitingForNetwork: false, status: .observing), at: now.addingTimeInterval(3))
+        XCTAssertEqual(observation.observe(failed, at: now.addingTimeInterval(4)).first?.kind, .workspaceFailure)
+    }
+}

@@ -1,6 +1,18 @@
 import XCTest
 
 final class DockActivationTests: XCTestCase {
+    func testStatusMenuHoldsChromeWhileThePointerIsInTheMenu() {
+        var gate = StatusMenuLiveUpdate()
+        XCTAssertTrue(gate.consumeChromeUpdate())
+
+        gate.willOpenMenu()
+        XCTAssertFalse(gate.consumeChromeUpdate())
+        XCTAssertFalse(gate.consumeChromeUpdate())
+        XCTAssertTrue(gate.didCloseMenu())
+        XCTAssertFalse(gate.didCloseMenu())
+        XCTAssertTrue(gate.consumeChromeUpdate())
+    }
+
     func testIgnoresStatusItemAndRaisesMainWindowLast() {
         let windows = [
             traits(title: "", isKey: true, isStatusBarWindow: true, area: 100),

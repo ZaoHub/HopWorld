@@ -261,26 +261,20 @@ final class ApplicationHealthFailoverTests: XCTestCase {
         XCTAssertNil(tracker.failureSince)
     }
 
-    func testWorkspaceFailureKeepsItsOwnTimerUntilSettingsRecover() {
+    func testWorkspaceFailureClearsAfterActualResponseAndNewFailureStartsNewTimer() {
         var tracker = recoveryTracker()
         var workspace = recoveryEvent(.workspaceFailure, age: 0, origin: .request)
         workspace.workspaceFeature = .settings
         tracker.observe(workspace, now: now)
-        XCTAssertFalse(tracker.shouldRecover(now: now.addingTimeInterval(29.9)))
-        XCTAssertTrue(tracker.shouldRecover(now: now.addingTimeInterval(30)))
-        let activity: [(TimeInterval, CodexHealthEvent.Kind, CodexHealthEvent.RecoveryOrigin)] = [
-            (10, .connectionReady, .appServerBridge), (20, .responseProgress, .businessResponse)
-        ]
-        for (offset, kind, origin) in activity {
-            tracker.observe(recoveryEvent(kind, age: -offset, origin: origin), now: now.addingTimeInterval(offset))
-            XCTAssertEqual(tracker.failureSince, now, "Connection activity cannot prove settings loaded")
-            XCTAssertFalse(tracker.hasRecovered(since: now, allowTransportReady: true, now: now.addingTimeInterval(30)))
-        }
-        var recovered = recoveryEvent(.workspaceRecovered, age: -31, origin: .request)
-        recovered.workspaceFeature = .settings
-        tracker.observe(recovered, now: now.addingTimeInterval(31))
+        tracker.observe(recoveryEvent(.connectionReady, age: -10), now: now.addingTimeInterval(10))
+        XCTAssertEqual(tracker.failureSince, now)
+        tracker.observe(recoveryEvent(.responseProgress, age: -20, origin: .businessResponse), now: now.addingTimeInterval(20))
         XCTAssertNil(tracker.failureSince)
-        XCTAssertFalse(tracker.shouldRecover(now: now.addingTimeInterval(60)))
+        XCTAssertFalse(tracker.shouldRecover(now: now.addingTimeInterval(40)))
+        workspace = recoveryEvent(.workspaceFailure, age: -21, origin: .request)
+        workspace.workspaceFeature = .settings
+        tracker.observe(workspace, now: now.addingTimeInterval(21))
+        XCTAssertEqual(tracker.failureSince, now.addingTimeInterval(21))
     }
 
     func testSettingsRecoveryDoesNotClearASeparateWaitingForNetworkState() {

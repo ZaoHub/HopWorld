@@ -12,6 +12,7 @@ final class AppReleaseChecker: ObservableObject {
 
     func checkIfNeeded(currentVersion: String) async {
         guard !didCheck else { return }
+        guard await LabUtilityProcess.allowInternet(userInitiated: false) else { return }
         didCheck = true
         do {
             let remote = try await Self.fetchLatestVersion()

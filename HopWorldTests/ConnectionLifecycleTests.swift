@@ -26,6 +26,20 @@ private actor ProxyCommands {
 
 @MainActor
 final class ConnectionLifecycleTests: XCTestCase {
+    func testCodexUsageWaitsUntilTheNodeSessionIsReady() {
+        XCTAssertEqual(CodexUsageFetchGate.resolve(status: .disconnected, sessionReady: false), .waitForProxy)
+        XCTAssertEqual(CodexUsageFetchGate.resolve(status: .connecting, sessionReady: false), .waitForNode)
+        XCTAssertEqual(CodexUsageFetchGate.resolve(status: .connected, sessionReady: false), .waitForNode)
+        XCTAssertEqual(CodexUsageFetchGate.resolve(status: .connected, sessionReady: true), .fetch)
+        XCTAssertEqual(CodexUsageFetchGate.resolve(status: .disconnecting, sessionReady: true), .waitForProxy)
+        XCTAssertEqual(CodexUsageFetchGate.resolve(status: .error, sessionReady: false), .waitForProxy)
+        XCTAssertFalse(CodexUsageFetchGate.shouldRemindToKeepProxy(enabled: false, gate: .waitForProxy, liveReadStalled: true))
+        XCTAssertFalse(CodexUsageFetchGate.shouldRemindToKeepProxy(enabled: true, gate: .waitForNode, liveReadStalled: true))
+        XCTAssertFalse(CodexUsageFetchGate.shouldRemindToKeepProxy(enabled: true, gate: .fetch, liveReadStalled: false))
+        XCTAssertTrue(CodexUsageFetchGate.shouldRemindToKeepProxy(enabled: true, gate: .waitForProxy, liveReadStalled: false))
+        XCTAssertTrue(CodexUsageFetchGate.shouldRemindToKeepProxy(enabled: true, gate: .fetch, liveReadStalled: true))
+    }
+
     func testReplacementWaitsForCancelledOperationCleanup() async throws {
         let operations = ConnectionOperations()
         var events: [String] = []

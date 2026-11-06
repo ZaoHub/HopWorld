@@ -84,9 +84,19 @@ struct CodexResetNotificationObservation: Codable, Equatable {
     let usedPercent: Double?
     let resetsAt: Double?
     let resetCount: Int
+    let creditExpiresAt: Double?
+
+    init(accountID: String?, usedPercent: Double?, resetsAt: Double?, resetCount: Int,
+         creditExpiresAt: Double? = nil) {
+        self.accountID = accountID
+        self.usedPercent = usedPercent
+        self.resetsAt = resetsAt
+        self.resetCount = resetCount
+        self.creditExpiresAt = creditExpiresAt
+    }
 
     static func make(accountID: String?, usedPercent: Double?, resetsAt: Double?,
-                     resetCount: Int) -> Self? {
+                     resetCount: Int, creditExpiresAt: Double? = nil) -> Self? {
         guard resetCount >= 0 else { return nil }
         if let usedPercent {
             guard usedPercent.isFinite, (0...100).contains(usedPercent) else { return nil }
@@ -94,9 +104,11 @@ struct CodexResetNotificationObservation: Codable, Equatable {
         if let resetsAt {
             guard resetsAt.isFinite, resetsAt > 0 else { return nil }
         }
+        let expiration = creditExpiresAt.flatMap { $0.isFinite && $0 > 0 ? $0 : nil }
         let account = accountID?.trimmingCharacters(in: .whitespacesAndNewlines)
         return Self(accountID: account.flatMap { $0.isEmpty ? nil : $0 },
-                    usedPercent: usedPercent, resetsAt: resetsAt, resetCount: resetCount)
+                    usedPercent: usedPercent, resetsAt: resetsAt, resetCount: resetCount,
+                    creditExpiresAt: expiration)
     }
 }
 
@@ -106,12 +118,71 @@ struct CodexResetNotificationEvent: Equatable {
 }
 
 struct CodexResetNotificationState: Codable, Equatable {
+    /// Seconds before the soonest available reset credit expires. Each lead is sent once.
+    static let creditReminderLeads = [86_400, 18_000, 10_800, 1_800, 300]
     private(set) var previous: CodexResetNotificationObservation?
     private var wasEnabled = false
+    private(set) var creditExpiresAt: Double?
+    private(set) var sentCreditReminderLeads: [Int] = []
 
     mutating func resetBaseline() {
         previous = nil
         wasEnabled = false
+        creditExpiresAt = nil
+        sentCreditReminderLeads = []
+    }
+
+    mutating func clearCreditReminder() {
+        creditExpiresAt = nil
+        sentCreditReminderLeads = []
+    }
+
+    /// The closest reminder whose time has arrived and has not been sent.
+    /// Earlier missed leads are left unsent until `commitCreditReminder`; a later call still returns only the closest.
+    /// Expirations within a minute are the same credit, so a small timestamp change does not restart the sequence.
+    /// A missing expiry leaves the saved schedule alone; zero remaining credits clear it.
+    mutating func pendingCreditReminder(expiration: Double?, resetCount: Int, now: Date) -> Int? {
+        guard resetCount > 0 else {
+            clearCreditReminder()
+            return nil
+        }
+        guard let expiration, expiration.isFinite, expiration > 0 else { return nil }
+        if creditExpiresAt.map({ abs($0 - expiration) < 60 }) != true {
+            creditExpiresAt = expiration
+            sentCreditReminderLeads = []
+        }
+        guard let stored = creditExpiresAt else { return nil }
+        let nowTS = now.timeIntervalSince1970
+        guard nowTS < stored else { return nil }
+        let sent = Set(sentCreditReminderLeads)
+        return Self.creditReminderLeads.filter { nowTS + 1 >= stored - Double($0) && !sent.contains($0) }.min()
+    }
+
+    mutating func commitCreditReminder(_ lead: Int) {
+        let sent = Set(sentCreditReminderLeads)
+        sentCreditReminderLeads = Self.creditReminderLeads.filter { $0 >= lead || sent.contains($0) }
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case previous, wasEnabled, creditExpiresAt, sentCreditReminderLeads
+    }
+
+    init() {}
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        previous = try container.decodeIfPresent(CodexResetNotificationObservation.self, forKey: .previous)
+        wasEnabled = try container.decodeIfPresent(Bool.self, forKey: .wasEnabled) ?? false
+        creditExpiresAt = try container.decodeIfPresent(Double.self, forKey: .creditExpiresAt)
+        sentCreditReminderLeads = try container.decodeIfPresent([Int].self, forKey: .sentCreditReminderLeads) ?? []
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeIfPresent(previous, forKey: .previous)
+        try container.encode(wasEnabled, forKey: .wasEnabled)
+        try container.encodeIfPresent(creditExpiresAt, forKey: .creditExpiresAt)
+        try container.encode(sentCreditReminderLeads, forKey: .sentCreditReminderLeads)
     }
 
     mutating func evaluate(_ observation: CodexResetNotificationObservation?,
@@ -139,10 +210,12 @@ struct CodexResetNotificationState: Codable, Equatable {
         let gifted = max(0, current.resetCount - previous.resetCount)
         let manuallyReset = current.resetCount < previous.resetCount
         // 周额度归零与重置次数变化仅作启发式判断，购买的 credits 不参与。
+        // 同一窗口的重置时间常有分钟级跳动，不足 1 小时不视为新的官方周重置。
         let weekly: Bool
         if let previousUsed = previous.usedPercent, let previousReset = previous.resetsAt,
            let currentUsed = current.usedPercent, let currentReset = current.resetsAt {
-            weekly = !manuallyReset && currentUsed == 0 && (previousUsed > 0 || currentReset != previousReset)
+            let windowMoved = abs(currentReset - previousReset) >= 3_600
+            weekly = !manuallyReset && currentUsed == 0 && (previousUsed > 0 || windowMoved)
         } else {
             weekly = false
         }
