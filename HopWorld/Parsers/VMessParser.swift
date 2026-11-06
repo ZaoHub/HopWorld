@@ -34,7 +34,15 @@ enum VMessParser {
         let name = (json["ps"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
         let network = ((json["net"] as? String) ?? "tcp").lowercased()
         let tls = ((json["tls"] as? String) ?? "").lowercased()
-        let security: SecurityType = (tls == "tls" || tls == "reality") ? (tls == "reality" ? .reality : .tls) : .none
+        var security: SecurityType = (tls == "tls" || tls == "reality") ? (tls == "reality" ? .reality : .tls) : .none
+        let keyFields = ["pbk", "publicKey", "publickey", "public-key", "public_key"]
+            + (security == .reality ? ["password"] : [])
+        let publicKey = text(json, keyFields)
+        let shortID = text(json, ["sid", "shortId", "shortID", "short-id", "short_id"])
+        let spiderX = text(json, ["spx", "spiderX"])
+        if publicKey != nil {
+            security = .reality
+        }
 
         let alterId: Int? = {
             if let value = json["aid"] as? Int { return value }
@@ -56,10 +64,22 @@ enum VMessParser {
             host: (json["host"] as? String).flatMap { $0.isEmpty ? nil : $0 },
             path: json["path"] as? String,
             serviceName: json["path"] as? String,
+            publicKey: publicKey,
+            shortID: shortID,
             fingerprint: json["fp"] as? String,
+            spiderX: spiderX,
             alpn: json["alpn"] as? String,
             finalMaskJSON: FinalMaskCodec.normalize(json["fm"] as? String)
         )
+    }
+
+    private static func text(_ json: [String: Any], _ keys: [String]) -> String? {
+        for key in keys {
+            guard let raw = json[key] as? String else { continue }
+            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty { return trimmed }
+        }
+        return nil
     }
 
     private static func mapTransport(_ value: String) -> TransportType {
@@ -69,6 +89,7 @@ enum VMessParser {
         case "h2", "http": return .h2
         case "quic": return .quic
         case "httpupgrade": return .httpupgrade
+        case "xhttp", "splithttp": return .xhttp
         default: return .tcp
         }
     }

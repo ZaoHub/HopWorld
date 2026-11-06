@@ -87,7 +87,10 @@ enum ShareLinkExporter {
         put(&query, "host", node.host)
         put(&query, "path", node.path)
         put(&query, "serviceName", node.serviceName)
+        put(&query, "pbk", node.publicKey)
+        put(&query, "sid", node.shortID)
         put(&query, "fp", node.fingerprint)
+        put(&query, "spx", node.spiderX)
         put(&query, "alpn", node.alpn)
         put(&query, "fm", FinalMaskCodec.normalize(node.finalMaskJSON))
 
@@ -114,6 +117,9 @@ enum ShareLinkExporter {
         if let path = node.path { json["path"] = path }
         if let sni = node.sni { json["sni"] = sni }
         if let fp = node.fingerprint { json["fp"] = fp }
+        if let pbk = node.publicKey, !pbk.isEmpty { json["pbk"] = pbk }
+        if let sid = node.shortID, !sid.isEmpty { json["sid"] = sid }
+        if let spx = node.spiderX, !spx.isEmpty { json["spx"] = spx }
         if let alpn = node.alpn { json["alpn"] = alpn }
         if let fm = FinalMaskCodec.normalize(node.finalMaskJSON) { json["fm"] = fm }
 

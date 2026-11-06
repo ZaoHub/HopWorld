@@ -685,24 +685,42 @@ enum SingBoxConnectionConfig {
 
     private static func configureHTTPTransport(_ node: ProxyNode, outbound: inout [String: Any]) throws {
         guard [.h2, .http].contains(node.transport) else { throw ParserError.unsupportedOption("该协议桥接仅支持旧 H2/HTTP 传输") }
-        guard node.security != .reality, (node.publicKey ?? "").isEmpty else {
-            throw ParserError.unsupportedOption("旧 H2/HTTP 桥接不支持 REALITY，请使用与服务端一致的传输")
-        }
         // sing-box 1.14 supports public-key pins, not the certificate digest stored by this model.
         guard (node.pinnedCertSHA256 ?? "").isEmpty else {
             throw ParserError.unsupportedOption("旧 H2/HTTP 桥接暂不支持证书 SHA-256 固定校验")
+        }
+        let realityKey = node.publicKey?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let useReality = node.security == .reality || !realityKey.isEmpty
+        if useReality, realityKey.isEmpty {
+            throw ParserError.unsupportedOption("REALITY 缺少 publicKey")
+        }
+        let spider = node.spiderX?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        // shortcut: sing-box 1.14 reality 没有 spiderX，非默认路径会拒绝；内核补上该字段后再映射。
+        if useReality, !spider.isEmpty, spider != "/" {
+            throw ParserError.unsupportedOption("旧 H2/HTTP 桥接无法保留 REALITY spiderX")
         }
         var transport: [String: Any] = ["type": "http", "path": node.path ?? "/"]
         if let host = node.host, !host.isEmpty {
             transport["host"] = host.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
         }
         outbound["transport"] = transport
-        if node.security == .tls || node.protocolType == .trojan {
+        if node.security == .tls || node.security == .reality || useReality || node.protocolType == .trojan {
             var tls: [String: Any] = ["enabled": true, "server_name": node.sni ?? node.server,
                                       "insecure": node.allowInsecure ?? false]
             if let alpn = node.alpn { tls["alpn"] = alpn.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) } }
             if let fingerprint = node.fingerprint, !fingerprint.isEmpty {
                 tls["utls"] = ["enabled": true, "fingerprint": fingerprint]
+            }
+            if useReality {
+                var reality: [String: Any] = ["enabled": true, "public_key": realityKey]
+                if let sid = node.shortID?.trimmingCharacters(in: .whitespacesAndNewlines), !sid.isEmpty {
+                    reality["short_id"] = sid
+                }
+                tls["reality"] = reality
+                if tls["utls"] == nil {
+                    // sing-box REALITY 客户端要求 uTLS。
+                    tls["utls"] = ["enabled": true, "fingerprint": "chrome"]
+                }
             }
             outbound["tls"] = tls
         }

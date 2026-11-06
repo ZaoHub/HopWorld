@@ -2,7 +2,7 @@
 
 macOS 原生可视化 Xray/V2Ray 代理客户端（SwiftUI）。
 
-协议支持范围、内核分工、传输映射、已知限制及后续扩展流程，见 [已支持协议与维护指南](docs/已支持协议与维护指南.md)。
+协议、传输、REALITY 与导入格式的支持范围见 [支持列表](docs/支持列表.md)。内核分工、维护入口和扩展流程见 [已支持协议与维护指南](docs/已支持协议与维护指南.md)。
 
 HopWorld 自有源码采用 [MIT License](LICENSE)。外部代理内核及规则数据遵循各自上游许可证，MIT 授权不覆盖这些组件。分发包含第三方组件的安装包时，应保留对应版本的许可证、版权声明并满足其源码提供等要求。
 
@@ -334,13 +334,13 @@ Xray 运行配置使用独立临时目录，目录权限 0700、配置权限 060
 - 系统代理模式会重新检测网络服务；新服务必须先备份原配置再启用代理，原有服务的初始备份保持不变。复验失败时清理接管，再按现有自动故障切换设置恢复。
 - 分应用模式复验不重新弹出管理员授权，也不自动切换为系统代理；复验失败后提示手动重新连接。
 
-Clash 导入支持常见的块列表（含无缩进列表）、行内列表、嵌套行内配置、WebSocket Host、gRPC 服务名、REALITY 参数、ALPN 和引号内逗号/注释符号。仍为 YAML 子集解析器；锚点、别名和多行标量等不支持的结构会拒绝解析，未知传输类型不会静默改为 TCP。
+Clash 导入支持常见的块列表（含无缩进列表）、行内列表、嵌套行内配置、WebSocket Host、gRPC 服务名、XHTTP 的 Host/Path、VLESS/VMess/Trojan 的 REALITY 公钥、短 ID 和 SpiderX、ALPN，以及引号内逗号/注释符号。仍为 YAML 子集解析器；锚点、别名和多行标量等不支持的结构会拒绝解析，未知传输类型不会静默改为 TCP。XHTTP 的 `mode`、`extra` 不保留。完整边界见 [支持列表](docs/支持列表.md)。
 
 MASQUE 支持标准 CONNECT-IP 的 HTTP/3 与 HTTP/2，要求 Xray 26.10.21+。可导入并导出 `masque://` 链接、文本/Base64 订阅及 `proxies:` YAML 条目，复用现有测试和连接流程；保留用户的批量探测超时。导入参数、TLS 认证与验收边界见 [MASQUE 隧道协议](docs/MASQUE隧道协议.md)。
 
 TUIC v5 使用既有 sing-box 桥接；WireGuard、远程 SOCKS5 与 HTTP/HTTPS CONNECT 使用 Xray，接入节点导入、导出、测试和连接。WireGuard 支持单 Peer 标准配置，HTTP/HTTPS CONNECT 仅代理 TCP；详见 [TUIC、WireGuard、SOCKS5 与 HTTP 节点](docs/TUIC-WireGuard-SOCKS5-HTTP.md)。
 
-AnyTLS 使用既有 sing-box 桥接，支持分享链接、Base64 订阅、Clash YAML、分享导出及节点测试。保留密码、SNI、证书验证开关、TLS 指纹和 ALPN，UDP 负载通过 UoT 承载；本地真实转发及错误密码、无效证书拒绝已验证，公网和 TUN 验收仍需单独进行。支持边界见 [协议维护指南](docs/已支持协议与维护指南.md)。
+AnyTLS 使用既有 sing-box 桥接，支持分享链接、Base64 订阅、Clash YAML、分享导出及节点测试。保留密码、SNI、证书验证开关、TLS 指纹和 ALPN，UDP 负载通过 UoT 承载；本地真实转发及错误密码、无效证书拒绝已验证，公网和 TUN 验收仍需单独进行。支持边界见 [支持列表](docs/支持列表.md)。
 
 ## 后续
 

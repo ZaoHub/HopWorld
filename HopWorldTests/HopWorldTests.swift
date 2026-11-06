@@ -1203,6 +1203,84 @@ final class ParserTests: XCTestCase {
         XCTAssertEqual(tls.security, .tls)
     }
 
+    func testVMessAndTrojanRealityCredentialsRoundTrip() throws {
+        let payload: [String: Any] = [
+            "ps": "Reality", "add": "example.com", "port": "443",
+            "id": "11111111-1111-4111-8111-111111111111", "aid": "0", "scy": "auto",
+            "net": "tcp", "tls": "reality", "sni": "www.example.com", "fp": "chrome",
+            "pbk": "fixture-key", "sid": "00ab", "spx": "/"
+        ]
+        let data = try JSONSerialization.data(withJSONObject: payload)
+        let vmess = try VMessParser.parse("vmess://\(data.base64EncodedString())")
+        XCTAssertEqual(vmess.security, .reality)
+        XCTAssertEqual(vmess.publicKey, "fixture-key")
+        XCTAssertEqual(vmess.shortID, "00ab")
+        XCTAssertEqual(vmess.spiderX, "/")
+        XCTAssertTrue(NodeConfigChecker.validate(vmess).0)
+        let exportedVMess = try XCTUnwrap(ShareLinkExporter.makeShareLink(from: vmess))
+        let vmessRoundTrip = try VMessParser.parse(exportedVMess)
+        XCTAssertEqual(vmessRoundTrip.publicKey, vmess.publicKey)
+        XCTAssertEqual(vmessRoundTrip.shortID, vmess.shortID)
+        XCTAssertEqual(vmessRoundTrip.spiderX, vmess.spiderX)
+        try assertRealityOutbound(vmess)
+
+        var mislabeled = payload
+        mislabeled["tls"] = "tls"
+        let mislabeledData = try JSONSerialization.data(withJSONObject: mislabeled)
+        XCTAssertEqual(try VMessParser.parse("vmess://\(mislabeledData.base64EncodedString())").security, .reality)
+
+        let trojanLink = "trojan://secret@example.com:443?security=reality&pbk=fixture-key&sid=00ab&spx=/&fp=chrome&sni=www.example.com#Reality"
+        let trojan = try TrojanParser.parse(trojanLink)
+        XCTAssertEqual(trojan.password, "secret")
+        XCTAssertEqual(trojan.security, .reality)
+        XCTAssertEqual(trojan.publicKey, "fixture-key")
+        XCTAssertEqual(trojan.shortID, "00ab")
+        XCTAssertEqual(trojan.spiderX, "/")
+        XCTAssertTrue(NodeConfigChecker.validate(trojan).0)
+        let exportedTrojan = try XCTUnwrap(ShareLinkExporter.makeShareLink(from: trojan))
+        let trojanRoundTrip = try TrojanParser.parse(exportedTrojan)
+        XCTAssertEqual(trojanRoundTrip.password, "secret")
+        XCTAssertEqual(trojanRoundTrip.publicKey, trojan.publicKey)
+        XCTAssertEqual(trojanRoundTrip.shortID, trojan.shortID)
+        XCTAssertEqual(trojanRoundTrip.spiderX, trojan.spiderX)
+        try assertRealityOutbound(trojan)
+
+        let alias = try TrojanParser.parse("trojan://secret@example.com:443?security=reality&password=fixture-key")
+        XCTAssertEqual(alias.password, "secret")
+        XCTAssertEqual(alias.publicKey, "fixture-key")
+        let plain = try TrojanParser.parse("trojan://secret@example.com:443?security=tls&password=not-a-key")
+        XCTAssertEqual(plain.security, .tls)
+        XCTAssertNil(plain.publicKey)
+    }
+
+    private func assertRealityOutbound(_ node: ProxyNode) throws {
+        let ports = XrayConfigBuilder.LocalPorts(socksHost: "127.0.0.1", socksPort: 10808, httpHost: "127.0.0.1", httpPort: 10809)
+        let config = try XrayConfigBuilder.build(node: node, ports: ports, routingMode: .global)
+        let outbound = try XCTUnwrap((config["outbounds"] as? [[String: Any]])?.first { $0["tag"] as? String == "proxy" })
+        let stream = try XCTUnwrap(outbound["streamSettings"] as? [String: Any])
+        XCTAssertEqual(stream["security"] as? String, "reality")
+        let reality = try XCTUnwrap(stream["realitySettings"] as? [String: Any])
+        XCTAssertEqual(reality["publicKey"] as? String, "fixture-key")
+        XCTAssertEqual(reality["shortId"] as? String, "00ab")
+        XCTAssertEqual(reality["spiderX"] as? String, "/")
+    }
+
+    func testVMessXHTTPDoesNotFallBackToTCP() throws {
+        for net in ["xhttp", "splithttp"] {
+            let payload: [String: Any] = [
+                "add": "example.com", "port": 443, "id": "11111111-1111-4111-8111-111111111111",
+                "net": net, "path": "/xh", "host": "cdn.example"
+            ]
+            let data = try JSONSerialization.data(withJSONObject: payload)
+            let node = try VMessParser.parse("vmess://\(data.base64EncodedString())")
+            XCTAssertEqual(node.transport, .xhttp, net)
+            XCTAssertEqual(node.path, "/xh", net)
+            XCTAssertEqual(node.host, "cdn.example", net)
+            let exported = try XCTUnwrap(ShareLinkExporter.makeShareLink(from: node))
+            XCTAssertEqual(try VMessParser.parse(exported).transport, .xhttp, net)
+        }
+    }
+
     func testTrojanParse() throws {
         let link = "trojan://password@example.com:443?security=tls&sni=example.com#HK"
         let node = try TrojanParser.parse(link)
@@ -2710,7 +2788,18 @@ final class SingBoxConnectionTests: XCTestCase {
                 node.pinnedCertSHA256 = nil
                 node.security = .reality
                 node.publicKey = "public-key"
-                XCTAssertFalse(NodeConfigChecker.validate(node).0)
+                node.shortID = "00ab"
+                XCTAssertTrue(NodeConfigChecker.validate(node).0)
+                let realityTLS = try XCTUnwrap(try SingBoxConnectionConfig.outbound(node)["tls"] as? [String: Any])
+                let reality = try XCTUnwrap(realityTLS["reality"] as? [String: Any])
+                XCTAssertEqual(reality["enabled"] as? Bool, true)
+                XCTAssertEqual(reality["public_key"] as? String, "public-key")
+                XCTAssertEqual(reality["short_id"] as? String, "00ab")
+                node.publicKey = nil
+                XCTAssertEqual(NodeConfigChecker.validate(node).1, "REALITY 缺少 publicKey")
+                node.publicKey = "public-key"
+                node.spiderX = "/custom"
+                XCTAssertEqual(NodeConfigChecker.validate(node).1, "旧 H2/HTTP 桥接无法保留 REALITY spiderX")
             }
         }
         let yaml = """

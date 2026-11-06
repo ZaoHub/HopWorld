@@ -12,7 +12,15 @@ enum TrojanParser {
         let name = parts.fragment ?? "\(parts.host):\(parts.port)"
         let transport = mapTransport(query["type"] ?? "tcp")
         let securityRaw = (query["security"] ?? "tls").lowercased()
-        let security = SecurityType(rawValue: securityRaw) ?? .tls
+        var security = SecurityType(rawValue: securityRaw) ?? .tls
+        let keyFields = ["pbk", "publicKey", "publickey", "public-key", "public_key"]
+            + (security == .reality ? ["password"] : [])
+        let publicKey = keyFields.lazy.compactMap { query[$0]?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first { !$0.isEmpty }
+        let shortID = query["sid"] ?? query["shortId"] ?? query["shortID"] ?? query["short-id"] ?? query["short_id"]
+        if publicKey != nil {
+            security = .reality
+        }
 
         return ProxyNode(
             name: name,
@@ -26,7 +34,10 @@ enum TrojanParser {
             host: query["host"] ?? query["Host"],
             path: query["path"],
             serviceName: query["serviceName"],
+            publicKey: publicKey,
+            shortID: shortID,
             fingerprint: query["fp"],
+            spiderX: query["spx"],
             alpn: query["alpn"],
             finalMaskJSON: FinalMaskCodec.normalize(query["fm"])
         )

@@ -80,11 +80,18 @@ enum ClashYAMLParser {
         if type == "ss" || type == "shadowsocks" {
             guard !(proxy["cipher"] ?? "").isEmpty else { throw ParserError.missingField("cipher") }
         }
-        let host = proxy["ws-opts.headers.host"] ?? proxy["h2-opts.host"] ?? proxy["http-opts.headers.host"] ?? proxy["host"]
-        let path = proxy["ws-opts.path"] ?? proxy["h2-opts.path"] ?? proxy["http-opts.path"] ?? proxy["path"]
+        let host = proxy["ws-opts.headers.host"] ?? proxy["h2-opts.host"] ?? proxy["http-opts.headers.host"]
+            ?? proxy["xhttp-opts.host"] ?? proxy["host"]
+        let path = proxy["ws-opts.path"] ?? proxy["h2-opts.path"] ?? proxy["http-opts.path"]
+            ?? proxy["xhttp-opts.path"] ?? proxy["path"]
         let serviceName = proxy["grpc-opts.grpc-service-name"] ?? proxy["grpc-service-name"] ?? proxy["servicename"]
         let publicKey = ["reality-opts.public-key", "reality-opts.publickey", "reality-opts.public_key",
                          "reality-opts.password", "public-key", "publickey", "public_key"]
+            .lazy.compactMap { proxy[$0]?.trimmingCharacters(in: .whitespacesAndNewlines) }.first { !$0.isEmpty }
+        let shortID = proxy["reality-opts.short-id"] ?? proxy["reality-opts.shortid"] ?? proxy["reality-opts.short_id"]
+            ?? proxy["short-id"] ?? proxy["shortid"] ?? proxy["short_id"]
+        let spiderX = ["reality-opts.spider-x", "reality-opts.spiderx", "reality-opts.spider_x", "reality-opts.spx",
+                       "spider-x", "spiderx", "spider_x", "spx"]
             .lazy.compactMap { proxy[$0]?.trimmingCharacters(in: .whitespacesAndNewlines) }.first { !$0.isEmpty }
         let security: SecurityType = {
             if publicKey != nil || proxy.keys.contains(where: { $0.hasPrefix("reality") || $0.contains("public-key") }) {
@@ -121,9 +128,9 @@ enum ClashYAMLParser {
                 path: path,
                 serviceName: serviceName,
                 publicKey: publicKey,
-                shortID: proxy["reality-opts.short-id"] ?? proxy["reality-opts.shortid"] ?? proxy["reality-opts.short_id"]
-                    ?? proxy["short-id"] ?? proxy["shortid"] ?? proxy["short_id"],
+                shortID: shortID,
                 fingerprint: proxy["client-fingerprint"] ?? proxy["fingerprint"],
+                spiderX: spiderX,
                 alpn: proxy["alpn"]
             )
         case "vmess":
@@ -141,7 +148,10 @@ enum ClashYAMLParser {
                 host: host,
                 path: path,
                 serviceName: serviceName,
+                publicKey: publicKey,
+                shortID: shortID,
                 fingerprint: proxy["client-fingerprint"] ?? proxy["fingerprint"],
+                spiderX: spiderX,
                 alpn: proxy["alpn"]
             )
         case "trojan":
@@ -152,12 +162,15 @@ enum ClashYAMLParser {
                 port: port,
                 password: proxy["password"],
                 transport: transport,
-                security: .tls,
+                security: security == .reality ? .reality : .tls,
                 sni: proxy["sni"] ?? proxy["servername"],
                 host: host,
                 path: path,
                 serviceName: serviceName,
+                publicKey: publicKey,
+                shortID: shortID,
                 fingerprint: proxy["client-fingerprint"] ?? proxy["fingerprint"],
+                spiderX: spiderX,
                 alpn: proxy["alpn"]
             )
         case "ss", "shadowsocks":
@@ -183,7 +196,7 @@ enum ClashYAMLParser {
         case "h2", "http": return .h2
         case "httpupgrade": return .httpupgrade
         case "tcp": return .tcp
-        case "xhttp": return .xhttp
+        case "xhttp", "splithttp": return .xhttp
         default: return nil
         }
     }

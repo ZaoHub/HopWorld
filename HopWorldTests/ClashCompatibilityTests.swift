@@ -78,6 +78,66 @@ final class ClashCompatibilityTests: XCTestCase {
         XCTAssertEqual(node.publicKey, "fixture-key")
     }
 
+    func testVMessAndTrojanRealityOptsKeepPublicKey() throws {
+        for type in ["vmess", "trojan"] {
+            let credential = type == "vmess"
+                ? "uuid: 11111111-1111-4111-8111-111111111111"
+                : "password: secret"
+            let text = """
+            proxies:
+              - name: Reality
+                type: \(type)
+                server: example.com
+                port: 443
+                \(credential)
+                reality-opts:
+                  public-key: fixture-key
+                  short-id: 00ab
+            """
+            let node = try XCTUnwrap(ClashYAMLParser.parse(text).validNodes.first)
+            XCTAssertEqual(node.security, .reality, type)
+            XCTAssertEqual(node.publicKey, "fixture-key", type)
+            XCTAssertEqual(node.shortID, "00ab", type)
+            XCTAssertTrue(NodeConfigChecker.validate(node).0, type)
+            XCTAssertEqual(node.spiderX, nil, type)
+        }
+    }
+
+    func testRealitySpiderXSurvivesYAML() throws {
+        for type in ["vless", "vmess", "trojan"] {
+            let credential = type == "trojan"
+                ? "password: secret"
+                : "uuid: 11111111-1111-4111-8111-111111111111"
+            let text = """
+            proxies:
+              - name: Reality
+                type: \(type)
+                server: example.com
+                port: 443
+                \(credential)
+                network: xhttp
+                xhttp-opts:
+                  path: /xh
+                  host: cdn.example
+                reality-opts:
+                  public-key: fixture-key
+                  short-id: 00ab
+                  spider-x: /crawl
+            """
+            let node = try XCTUnwrap(ClashYAMLParser.parse(text).validNodes.first)
+            XCTAssertEqual(node.transport, .xhttp, type)
+            XCTAssertEqual(node.path, "/xh", type)
+            XCTAssertEqual(node.host, "cdn.example", type)
+            XCTAssertEqual(node.security, .reality, type)
+            XCTAssertEqual(node.spiderX, "/crawl", type)
+            XCTAssertTrue(NodeConfigChecker.validate(node).0, type)
+        }
+        let alias = "proxies: [{name: Reality, type: vless, server: example.com, port: 443, uuid: 11111111-1111-4111-8111-111111111111, network: splithttp, reality-opts: {public-key: fixture-key, spx: /alias}}]"
+        let node = try XCTUnwrap(ClashYAMLParser.parse(alias).validNodes.first)
+        XCTAssertEqual(node.transport, .xhttp)
+        XCTAssertEqual(node.spiderX, "/alias")
+    }
+
     func testRealityKeySkipsEmptyFieldsWithoutBypassingMissingKeyValidation() throws {
         let prefix = "proxies: [{name: Reality, type: vless, server: example.com, port: 443, uuid: 11111111-1111-4111-8111-111111111111, reality-opts: {"
         for (fields, expected) in [("public-key: canonical, publicKey: alias", "canonical"),
