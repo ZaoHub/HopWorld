@@ -47,7 +47,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=Syne:wght@600;700;800&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
-  <link rel="stylesheet" href="./assets/css/landing.css?v=20261101m">
+  <link rel="stylesheet" href="./assets/css/landing.css?v=20261107a">
   <script type="application/ld+json">
   {
     "@context": "https://schema.org",
@@ -78,7 +78,7 @@
         "applicationCategory": "UtilitiesApplication",
         "applicationSubCategory": "NetworkProxy",
         "operatingSystem": "macOS 13.0+",
-        "softwareVersion": "1.0.2",
+        "softwareVersion": "1.0.3",
         "downloadUrl": "https://github.com/ZaoHub/HopWorld/releases/tag/v1.0.2",
         "installUrl": "https://github.com/ZaoHub/HopWorld/releases/tag/v1.0.2",
         "url": "https://zaohub.github.io/HopWorld/",
@@ -125,7 +125,7 @@
             "name": "HopWorld 支持哪些代理协议？",
             "acceptedAnswer": {
               "@type": "Answer",
-              "text": "支持 VLESS、VMess、Trojan、Shadowsocks、Hysteria2、MASQUE、TUIC、AnyTLS、WireGuard、SOCKS5、HTTP 共 11 种节点协议，并可导入订阅、分享链接与 Clash YAML。"
+              "text": "支持 VLESS、VMess、Trojan、Shadowsocks、Hysteria2、MASQUE、TUIC、AnyTLS、WireGuard、SOCKS5、HTTP 共 11 种节点协议。REALITY 是 VLESS、VMess、Trojan 的安全层，不是第 12 种协议。首页协议覆盖同时列出传输、Shadowsocks 加密和明确未接入的协议。"
             }
           },
           {
@@ -205,6 +205,7 @@
     </a>
     <nav class="nav" aria-label="页面导航">
       <a class="nav-hide-sm" href="#features">能力</a>
+      <a class="nav-hide-sm" href="#protocols">协议</a>
       <a class="nav-hide-sm" href="#gallery">界面</a>
       <a class="nav-hide-sm" href="#faq">问答</a>
       <a href="#download">下载</a>
@@ -343,10 +344,10 @@
       </div>
     </section>
 
-    <section class="section" aria-labelledby="protocol-title">
+    <section class="section" id="protocols" aria-labelledby="protocol-title">
       <p class="section-kicker reveal">Protocols</p>
       <h2 class="section-title reveal" id="protocol-title">协议覆盖</h2>
-      <p class="section-copy reveal">十一种节点协议进入统一导入、测试与连接流程。</p>
+      <p class="section-copy reveal">11 种节点协议都能导入、测试和连接。TLS 与 REALITY 是安全层，不另算一种协议。范围以当前源码为准。</p>
       <div class="protocol-wrap reveal">
         <span class="protocol-chip">VLESS</span>
         <span class="protocol-chip">VMess</span>
@@ -359,6 +360,165 @@
         <span class="protocol-chip">WireGuard</span>
         <span class="protocol-chip">SOCKS5</span>
         <span class="protocol-chip">HTTP</span>
+      </div>
+
+      <div class="support-block">
+        <h3 class="support-heading">11 种节点协议</h3>
+        <div class="support-list">
+          <article class="support-card">
+            <h4>VLESS</h4>
+            <p class="support-meta">vless:// · YAML vless · 通常 Xray，公网无 TLS 或旧 H2/HTTP 转 sing-box</p>
+            <div class="support-split">
+              <p><span class="support-label">已接入</span>UUID，encryption=none。TCP、WebSocket、gRPC、HTTPUpgrade、XHTTP、旧 H2/HTTP。REALITY，以及 Xray 路径上的 FinalMask。</p>
+              <p><span class="support-label">未接入</span>sing-box 桥接拒绝 FinalMask 和 VLESS Encryption。公网明文 VLESS 不能同时使用 FinalMask。</p>
+            </div>
+          </article>
+          <article class="support-card">
+            <h4>VMess</h4>
+            <p class="support-meta">vmess:// Base64 JSON · YAML vmess · 通常 Xray，旧 H2/HTTP 转 sing-box</p>
+            <div class="support-split">
+              <p><span class="support-label">已接入</span>UUID，加密默认 auto。aid、scy、net、tls。XHTTP 与 splithttp。REALITY 公钥、短 ID、SpiderX。</p>
+              <p><span class="support-label">未接入</span>旧 H2/HTTP 上非默认 SpiderX 无法保留。</p>
+            </div>
+          </article>
+          <article class="support-card">
+            <h4>Trojan</h4>
+            <p class="support-meta">trojan:// · YAML trojan · 通常 Xray，旧 H2/HTTP 转 sing-box</p>
+            <div class="support-split">
+              <p><span class="support-label">已接入</span>密码，默认 TLS。SNI、Host、Path、gRPC 服务名。REALITY 公钥、短 ID、SpiderX。</p>
+              <p><span class="support-label">未接入</span>旧 H2/HTTP 上非默认 SpiderX 无法保留。</p>
+            </div>
+          </article>
+          <article class="support-card">
+            <h4>Shadowsocks</h4>
+            <p class="support-meta">ss:// · YAML ss、shadowsocks · 现代加密走 Xray，rc4-md5 与 AES-CFB 走 sing-box</p>
+            <div class="support-split">
+              <p><span class="support-label">已接入</span>下方 13 个加密名称。SIP002 与旧式 Base64。</p>
+              <p><span class="support-label">未接入</span>SIP003 插件。旧加密不接受额外传输、TLS、REALITY 或 FinalMask。</p>
+            </div>
+          </article>
+          <article class="support-card">
+            <h4>Hysteria2</h4>
+            <p class="support-meta">hysteria2://、hy2:// · YAML hysteria2、hy2 · 通常 Xray hysteria 版本 2</p>
+            <div class="support-split">
+              <p><span class="support-label">已接入</span>密码、TLS，缺端口时默认 443。SNI、ALPN、insecure、pinSHA256。导出统一为 hysteria2://。</p>
+              <p><span class="support-label">未接入</span>混淆、多端口。insecure=1 且没有证书固定摘要时转 sing-box。</p>
+            </div>
+          </article>
+          <article class="support-card">
+            <h4>MASQUE</h4>
+            <p class="support-meta">masque:// · YAML masque · Xray 26.10.21 或更新</p>
+            <div class="support-split">
+              <p><span class="support-label">已接入</span>标准 CONNECT-IP，H3/H2。Basic 或请求头认证，必须验证证书。默认 H3、端口 443。</p>
+              <p><span class="support-label">未接入</span>跳过证书验证。Cloudflare WARP 设备注册和专用密钥。</p>
+            </div>
+          </article>
+          <article class="support-card">
+            <h4>TUIC</h4>
+            <p class="support-meta">tuic:// · YAML tuic · sing-box</p>
+            <div class="support-split">
+              <p><span class="support-label">已接入</span>v5 的 UUID、密码、TLS。TCP/UDP，默认 443。</p>
+              <p><span class="support-label">未接入</span>v4 token。</p>
+            </div>
+          </article>
+          <article class="support-card">
+            <h4>AnyTLS</h4>
+            <p class="support-meta">anytls:// · YAML anytls · sing-box</p>
+            <div class="support-split">
+              <p><span class="support-label">已接入</span>密码、TLS/TCP，默认 443 并验证证书。UDP 经 UoT。SNI、insecure、指纹、ALPN。</p>
+              <p><span class="support-label">未接入</span>额外传输、FinalMask、ECH、证书固定摘要、自定义会话池、REALITY。</p>
+            </div>
+          </article>
+          <article class="support-card">
+            <h4>WireGuard</h4>
+            <p class="support-meta">wireguard://、wg:// 或单 Peer 标准配置 · YAML wireguard · Xray 用户态</p>
+            <div class="support-split">
+              <p><span class="support-label">已接入</span>单 Peer。私钥、本地地址、Peer 公钥、预共享密钥、AllowedIPs、Reserved、MTU、Keepalive、DNS。默认 51820。</p>
+              <p><span class="support-label">未接入</span>多 Peer，配置钩子。</p>
+            </div>
+          </article>
+          <article class="support-card">
+            <h4>SOCKS5</h4>
+            <p class="support-meta">socks5://、socks:// · YAML socks5 · Xray</p>
+            <div class="support-split">
+              <p><span class="support-label">已接入</span>匿名或用户名密码。TCP 与标准 UDP relay，默认 1080。</p>
+              <p><span class="support-label">未接入</span>SOCKS4/4a，TLS 或 WebSocket 包装。</p>
+            </div>
+          </article>
+          <article class="support-card">
+            <h4>HTTP</h4>
+            <p class="support-meta">http://、https:// · YAML http（tls: true 为 HTTPS）· Xray</p>
+            <div class="support-split">
+              <p><span class="support-label">已接入</span>HTTP/1.1 CONNECT，仅 TCP。匿名、Basic 或 CONNECT 请求头。默认 80/443。HTTPS 必须验证证书，可固定证书摘要。</p>
+              <p><span class="support-label">未接入</span>UDP。</p>
+            </div>
+          </article>
+        </div>
+      </div>
+
+      <div class="support-block">
+        <h3 class="support-heading">8 种传输</h3>
+        <ul class="support-plain">
+          <li><strong>TCP</strong>原生 TCP。</li>
+          <li><strong>WebSocket</strong>保留 Path。Host 缺省时按 SNI、节点地址补选。</li>
+          <li><strong>gRPC</strong>保留服务名。服务名可以为空，是否匹配由服务端决定。</li>
+          <li><strong>HTTPUpgrade</strong>保留 Host、Path。</li>
+          <li><strong>XHTTP</strong>VLESS 链接、VMess JSON 和 Clash YAML 里的 splithttp 也按 XHTTP 识别。YAML 保留 xhttp-opts 的 Host 和 Path。mode、extra 使用内核默认值。</li>
+          <li><strong>旧 H2、HTTP</strong>VLESS、VMess、Trojan 交给 sing-box。保留 Host 列表和 Path。有 TLS 时为 H2，无 TLS 时为 HTTP/1.1。</li>
+          <li><strong>旧 QUIC</strong>当前按 XHTTP 生成，不保证能连上旧 QUIC 服务端。</li>
+          <li><strong>原生传输</strong>Hysteria2、TUIC、WireGuard、MASQUE、AnyTLS 使用各自的原生传输。模型里默认的 transport=tcp 不代表外层一定是 TCP。</li>
+        </ul>
+      </div>
+
+      <div class="support-block">
+        <h3 class="support-heading">REALITY</h3>
+        <p class="support-note">只接在 VLESS、VMess、Trojan 上。</p>
+        <ul class="support-plain">
+          <li><strong>分享链接</strong>pbk 非空就按 REALITY 处理，即使写成 security=tls。sid、fp、spx 分别是短 ID、指纹、SpiderX。</li>
+          <li><strong>Clash YAML</strong>reality-opts.public-key、short-id、spider-x 三种协议都保留。</li>
+          <li><strong>Xray 路径</strong>TCP、WebSocket、gRPC、HTTPUpgrade、XHTTP 写出 realitySettings，含公钥、短 ID、SpiderX。</li>
+          <li><strong>旧 H2/HTTP</strong>走 sing-box，保留公钥和短 ID。没有指纹时 uTLS 使用 chrome。SpiderX 只允许空或 /。FinalMask 和证书 SHA-256 固定摘要会拒绝。</li>
+          <li><strong>缺少公钥</strong>判为配置失败，不猜测公钥，也不改成普通 TLS。</li>
+        </ul>
+      </div>
+
+      <div class="support-block">
+        <h3 class="support-heading">Shadowsocks 加密 · 13 个</h3>
+        <p class="support-note">Xray AEAD</p>
+        <div class="protocol-wrap">
+          <span class="protocol-chip">aes-128-gcm</span>
+          <span class="protocol-chip">aes-256-gcm</span>
+          <span class="protocol-chip">chacha20-ietf-poly1305</span>
+          <span class="protocol-chip">chacha20-poly1305</span>
+          <span class="protocol-chip">xchacha20-ietf-poly1305</span>
+          <span class="protocol-chip">xchacha20-poly1305</span>
+        </div>
+        <p class="support-note">Xray SS2022</p>
+        <div class="protocol-wrap">
+          <span class="protocol-chip">2022-blake3-aes-128-gcm</span>
+          <span class="protocol-chip">2022-blake3-aes-256-gcm</span>
+          <span class="protocol-chip">2022-blake3-chacha20-poly1305</span>
+        </div>
+        <p class="support-note">sing-box 旧加密，仅 TCP 且 security=none</p>
+        <div class="protocol-wrap">
+          <span class="protocol-chip">rc4-md5</span>
+          <span class="protocol-chip">aes-128-cfb</span>
+          <span class="protocol-chip">aes-192-cfb</span>
+          <span class="protocol-chip">aes-256-cfb</span>
+        </div>
+      </div>
+
+      <div class="support-block">
+        <h3 class="support-heading">明确未接入 · 6 项</h3>
+        <p class="support-note">这些都不能作为节点导入。</p>
+        <div class="protocol-wrap">
+          <span class="protocol-chip protocol-chip-off">ShadowsocksR</span>
+          <span class="protocol-chip protocol-chip-off">Hysteria 1</span>
+          <span class="protocol-chip protocol-chip-off">NaiveProxy</span>
+          <span class="protocol-chip protocol-chip-off">SOCKS4/4a</span>
+          <span class="protocol-chip protocol-chip-off">TUIC v4</span>
+          <span class="protocol-chip protocol-chip-off">WARP MASQUE</span>
+        </div>
       </div>
     </section>
 
@@ -373,7 +533,7 @@
         </details>
         <details class="faq-item reveal" style="--d: 1">
           <summary>支持哪些节点协议？</summary>
-          <p>统一支持 <strong>VLESS、VMess、Trojan、Shadowsocks、Hysteria2、MASQUE、TUIC、AnyTLS、WireGuard、SOCKS5、HTTP</strong> 共 11 种；可导入订阅、分享链接与 Clash YAML 轻量解析。</p>
+          <p>统一支持 <strong>VLESS、VMess、Trojan、Shadowsocks、Hysteria2、MASQUE、TUIC、AnyTLS、WireGuard、SOCKS5、HTTP</strong> 共 11 种。REALITY 是安全层，不是第 12 种协议。传输、加密名称和未接入项见本页<a href="#protocols">协议覆盖</a>。</p>
         </details>
         <details class="faq-item reveal" style="--d: 2">
           <summary>系统要求与下载方式？</summary>

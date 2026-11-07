@@ -421,7 +421,7 @@ struct DashboardView: View {
     }
 
     private var retestTargets: [ProxyNode] {
-        appState.nodes.filter { $0.enabled && !$0.pendingRemoval }
+        appState.nodes.filter { $0.enabled && !$0.pendingRemoval && appState.nodeSubscriptionEnabled($0) }
     }
 
     private func refreshQuickSwitch() {
@@ -484,7 +484,7 @@ struct DashboardView: View {
     }
 
     private func quickSwitchCountsText(rankedNodes: [ProxyNode]) -> String {
-        let counts = appState.settings.quickSwitchCounts(for: appState.nodes)
+        let counts = appState.settings.quickSwitchCounts(for: appState.nodes.filter(appState.nodeSubscriptionEnabled))
         let countries: String
         if quickSwitchMergeCountries {
             let countryCount = Set(rankedNodes.lazy
@@ -511,7 +511,8 @@ struct DashboardView: View {
         let visibleIDs = Set(ranked.map(\.id))
         // Keep blocked nodes reachable for unblocking even when later tests fail.
         return ranked + appState.nodes.filter {
-            !$0.pendingRemoval && appState.settings.isTemporarilyBlocked($0.id) && !visibleIDs.contains($0.id)
+            !$0.pendingRemoval && appState.nodeSubscriptionEnabled($0)
+                && appState.settings.isTemporarilyBlocked($0.id) && !visibleIDs.contains($0.id)
         }
     }
 

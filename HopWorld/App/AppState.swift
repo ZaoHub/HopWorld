@@ -128,13 +128,15 @@ final class AppState: ObservableObject {
         flashToastMessage = nil
     }
 
-    /// 一次新的断网或内容变化记一条。同一次里再点操作不重复记、也不再冒出来。
-    func presentMessage(title: String, body: String, announce: Bool) {
-        guard announce else { return }
-        messages.insert(AppMessage(title: title, body: body), at: 0)
-        if messages.count > 50 { messages.removeLast(messages.count - 50) }
-        unreadMessageCount += 1
-        toastMessage = messages[0]
+    /// 一次新的断网或内容变化记一条。同一次里再点操作不重复记，但对话框可以再显示。
+    func presentMessage(title: String, body: String, announce: Bool, showDialog: Bool) {
+        if announce {
+            messages.insert(AppMessage(title: title, body: body), at: 0)
+            if messages.count > 50 { messages.removeLast(messages.count - 50) }
+            unreadMessageCount += 1
+        }
+        guard showDialog else { return }
+        toastMessage = AppMessage(title: title, body: body)
         toastHideTask?.cancel()
         toastHideTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 4_000_000_000)
@@ -284,8 +286,9 @@ final class AppState: ObservableObject {
     private var connectionCountryCode: String?
 
     private var connectionScopedNodes: [ProxyNode] {
-        guard let code = connectionCountryCode else { return nodes }
-        return nodes.filter { CountryResolver.effectiveCode(for: $0) == code }
+        let allowed = nodes.filter(nodeSubscriptionEnabled)
+        guard let code = connectionCountryCode else { return allowed }
+        return allowed.filter { CountryResolver.effectiveCode(for: $0) == code }
     }
 
     private func beginConnectionRequest(preservingNodeID: UUID? = nil, countryCode: String? = nil) -> Int {
@@ -485,6 +488,7 @@ final class AppState: ObservableObject {
 
     var recentNodes: [ProxyNode] {
         recentNodeIDs.compactMap { id in nodes.first { $0.id == id } }
+            .filter(nodeSubscriptionEnabled)
     }
 
     /// Persisted across launches. Recent nodes are only kept for the current process.
@@ -1163,10 +1167,16 @@ final class AppState: ObservableObject {
                 offlineNoticeArmed = false
                 offlineNoticeTitle = title
                 offlineNoticeMessage = message
-                if notice?.presentsAlert == true, userInitiated || announce {
+                let alerts = notice?.presentsAlert == true
+                if alerts, userInitiated || announce {
                     showsNoNetworkAlert = true
                 }
-                presentMessage(title: title, body: message, announce: announce)
+                presentMessage(
+                    title: title,
+                    body: message,
+                    announce: announce,
+                    showDialog: !alerts && (userInitiated || announce)
+                )
             }
         }
         return notice == nil
@@ -1309,7 +1319,8 @@ final class AppState: ObservableObject {
         codexUsageReminderArmed = false
         presentMessage(title: "请保持代理连接",
                        body: "Codex 用量通知已开启，但现在读不到实时用量。请保持代理连接，到期和重置提醒才会继续更新。",
-                       announce: true)
+                       announce: true,
+                       showDialog: true)
     }
 
     deinit {
@@ -1356,7 +1367,10 @@ final class AppState: ObservableObject {
 
     /// “连接上次节点”恢复指定节点，不套用自动优选的国家筛选。
     private func restorableConnectedNode(_ id: UUID) -> ProxyNode? {
-        nodes.first { $0.id == id && $0.enabled && !$0.pendingRemoval && !settings.isTemporarilyBlocked($0.id) }
+        nodes.first {
+            $0.id == id && $0.enabled && !$0.pendingRemoval && !settings.isTemporarilyBlocked($0.id)
+                && nodeSubscriptionEnabled($0)
+        }
     }
 
     /// Retry Keychain / disk read without restarting the app.
@@ -2053,10 +2067,28 @@ final class AppState: ObservableObject {
         if refreshAfterSave {
             Task { await refreshSubscription(updated.id) }
         }
+        if previous.isEnabled && !updated.isEnabled {
+            disconnectIfUsingSubscription(updated.id, name: updated.name)
+        }
     }
 
     func subscription(for id: UUID) -> Subscription? {
         subscriptions.first { $0.id == id }
+    }
+
+    /// 订阅禁用后，其节点不可连接、不可测试，也不进入首页列表。手动导入没有订阅，不受影响。
+    func nodeSubscriptionEnabled(_ node: ProxyNode) -> Bool {
+        guard let id = node.subscriptionID, let sub = subscription(for: id) else { return true }
+        return sub.isEnabled
+    }
+
+    private func disconnectIfUsingSubscription(_ id: UUID, name: String) {
+        guard let currentID = connection.state.currentNodeID,
+              nodes.first(where: { $0.id == currentID })?.subscriptionID == id,
+              connection.state.status == .connected || connection.state.status == .connecting
+        else { return }
+        statusBanner = "「\(name)」已禁用，当前节点已断开"
+        Task { await disconnect(manual: false, reason: "订阅已禁用") }
     }
 
     func logs(for subscriptionID: UUID, limit: Int = 20) -> [SubscriptionUpdateLog] {
@@ -2951,7 +2983,7 @@ final class AppState: ObservableObject {
         if connection.state.autoSelectEnabled {
             return automaticallyRankedNodes(nodes).first
         }
-        if let current = currentNode, !settings.isTemporarilyBlocked(current.id),
+        if let current = currentNode, nodeSubscriptionEnabled(current), !settings.isTemporarilyBlocked(current.id),
            !isCountryExcludedFromAutoSelect(CountryResolver.effectiveCode(for: current)) {
             return current
         }
@@ -2978,8 +3010,10 @@ final class AppState: ObservableObject {
     func automaticallyRankedNodes(_ candidates: [ProxyNode], includingTemporarilyBlocked: Bool = false,
                                   preservingNodeID: UUID? = nil) -> [ProxyNode] {
         var usable = candidates.filter {
-            $0.id == preservingNodeID || ($0.enabled && !$0.pendingRemoval
-                && settings.allowsAutoSelectNode($0, includingTemporarilyBlocked: includingTemporarilyBlocked))
+            nodeSubscriptionEnabled($0) && (
+                $0.id == preservingNodeID || ($0.enabled && !$0.pendingRemoval
+                    && settings.allowsAutoSelectNode($0, includingTemporarilyBlocked: includingTemporarilyBlocked))
+            )
         }
         if settings.favoritePreference == .favoritesOnly {
             usable = usable.filter { $0.id == preservingNodeID || $0.isFavorite }
@@ -3092,6 +3126,10 @@ final class AppState: ObservableObject {
 
     func connect(to node: ProxyNode, restrictToCountry: String? = nil, userInitiated: Bool = true) async {
         guard !isTerminating else { return }
+        guard nodeSubscriptionEnabled(node) else {
+            if userInitiated { statusBanner = "该订阅已禁用，节点不可连接" }
+            return
+        }
         guard await requireInternet(userInitiated: userInitiated) else { return }
         let requestGeneration = beginConnectionRequest(preservingNodeID: node.id, countryCode: restrictToCountry)
         eligibilitySwitchTask?.cancel()
@@ -3258,12 +3296,17 @@ final class AppState: ObservableObject {
 
     /// - Parameter silent: 定时/更新后等自动测速时为 true，不弹横幅与完成提示。
     func testNodes(
-        _ targets: [ProxyNode],
+        _ requested: [ProxyNode],
         silent: Bool = false,
         strictResults: Bool = false,
         followsScheduledScope: Bool = false
     ) async {
-        guard !isTerminating, !targets.isEmpty else { return }
+        guard !isTerminating else { return }
+        let targets = requested.filter(nodeSubscriptionEnabled)
+        guard !targets.isEmpty else {
+            if !silent, !requested.isEmpty { statusBanner = "所选节点所属订阅已禁用" }
+            return
+        }
         guard await requireInternet(userInitiated: !silent) else { return }
         if testManager.isTesting {
             if silent {
@@ -3280,13 +3323,6 @@ final class AppState: ObservableObject {
 
         let orderedTargets = orderTargetsBySubscription(targets)
         let ids = Set(orderedTargets.map(\.id))
-        if silent, Set(orderedTargets.map(\.subscriptionID)).count > 1
-            || nodes.allSatisfy({ !$0.enabled || $0.pendingRemoval || ids.contains($0.id) }) {
-            updateSettings {
-                let filter = NodeListFilter.decode($0.nodeListCategoryRaw)
-                $0.nodeListCategoryRaw = NodeListFilter.encode(scope: filter.scope, source: .all)
-            }
-        }
         testSessionIncludesAppProbes = !silent
         let fingerprints = Dictionary(orderedTargets.map { ($0.id, NodeFingerprint.make(from: $0)) }, uniquingKeysWith: { first, _ in first })
         // 开始新一轮前，清掉上一轮遗留的「测试中」；各组要等轮到时再标成测试中。
@@ -3408,7 +3444,7 @@ final class AppState: ObservableObject {
 
     func usableNodesForAppProbe(in source: NodeListFilter.Source) -> [ProxyNode] {
         NodeListFilter.nodes(in: nodes, source: source, subscriptions: subscriptions)
-            .filter { $0.lastTestStatus.isUsable }
+            .filter { $0.lastTestStatus.isUsable && nodeSubscriptionEnabled($0) }
     }
 
     /// 显式测试所选组的全部可用节点，包括已有探测结果的节点。
@@ -3460,6 +3496,7 @@ final class AppState: ObservableObject {
         var pending = nodes.filter { node in
             node.enabled &&
             !node.pendingRemoval &&
+            nodeSubscriptionEnabled(node) &&
             node.lastTestStatus.isUsable &&
             (forceRetestIDs.contains(node.id) ||
              (settings.autoAppProbeUsableNodes && (node.lastAppProbeDate == nil || node.lastAppProbePassedIDs == nil)))
@@ -3508,6 +3545,7 @@ final class AppState: ObservableObject {
             // 期间节点可能被删或状态变了。
             guard let latest = nodes.first(where: { $0.id == node.id }),
                   latest.enabled, !latest.pendingRemoval,
+                  nodeSubscriptionEnabled(latest),
                   latest.lastTestStatus.isUsable,
                   (forceRetestIDs.contains(node.id) || latest.lastAppProbeDate == nil || latest.lastAppProbePassedIDs == nil)
             else { continue }
@@ -3525,6 +3563,7 @@ final class AppState: ObservableObject {
             appProbeBatch.completed += 1
             guard let current = nodes.first(where: { $0.id == latest.id }),
                   current.enabled, !current.pendingRemoval,
+                  nodeSubscriptionEnabled(current),
                   current.lastTestDate == latest.lastTestDate,
                   NodeFingerprint.make(from: current) == NodeFingerprint.make(from: latest),
                   let summary else {
@@ -3805,6 +3844,10 @@ final class AppState: ObservableObject {
             statusBanner = "当前未连接"
             return
         }
+        guard nodeSubscriptionEnabled(node) else {
+            statusBanner = "该订阅已禁用，不能测试此节点"
+            return
+        }
         guard connection.state.status == .connected else {
             statusBanner = "请先连接节点后再测试"
             return
@@ -3842,6 +3885,10 @@ final class AppState: ObservableObject {
     /// Probe apps for a node selected in Test Center — does **not** switch system proxy.
     func probeApps(forSelectedNode node: ProxyNode) async {
         guard !isTerminating else { return }
+        guard nodeSubscriptionEnabled(node) else {
+            statusBanner = "该订阅已禁用，不能测试此节点"
+            return
+        }
         guard await requireInternet(userInitiated: true) else { return }
         let label = appProbeNodeDescription(for: node, useOriginalName: true)
         let generation = autoSelectResultsGeneration

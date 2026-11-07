@@ -111,6 +111,10 @@ enum LocalNetworkSpeedTest {
     static let warmup: TimeInterval = 0.4
     /// 下载、上传各测这么久。单次文件或连接提前结束就再来一次，直到时间到。
     static let sampleSeconds: TimeInterval = 15
+    /// 默认先开 5 条。速度还在涨就再加 5 条。上下行同一套。
+    static let streamBatch = 5
+    /// shortcut: 最多 32 条。到顶后这一秒仍比上一批快 8% 以上，说明线路更快，再把上限调高。
+    static let streamCap = 32
 
     /// 这一轮正常结束但还没到点，就再测一次。失败或用户取消不再补，避免空转。
     static func shouldRepeatTransfer(elapsed: TimeInterval, stopping: Bool, status: Int, bytes: Int, failed: Bool) -> Bool {
@@ -134,6 +138,21 @@ enum LocalNetworkSpeedTest {
             return (totalBytes, elapsed)
         }
         return (totalBytes - warmupBytes, max(0.05, elapsed - warmup))
+    }
+
+    /// 再开一批之后，这一秒比加之前至少快 8%，才继续加。
+    static func shouldAddStreams(baseline: Double, current: Double, open: Int, cap: Int = streamCap) -> Bool {
+        guard open < cap, baseline > 1 else { return false }
+        return current >= baseline * 1.08
+    }
+
+    /// 多条连接的字节加在一起，时间用最久的那条，启动段只扣一次。
+    static func aggregate(bytes: [Int], seconds: [TimeInterval], warmupBytes: [Int]) -> (bytes: Int, seconds: TimeInterval) {
+        paced(
+            totalBytes: bytes.reduce(0, +),
+            elapsed: seconds.max() ?? 0,
+            warmupBytes: warmupBytes.reduce(0, +)
+        )
     }
 
     static func parseRoute(_ text: String) -> (gateway: String, interfaceName: String)? {
@@ -216,16 +235,25 @@ enum LocalNetworkSpeedTest {
         return value.isEmpty ? nil : value
     }
 
-    /// 家宽套餐档，单位是兆（Mbps）。取离实测最近的一档。网口协商速率不算宽带。
-    static let bandwidthTiers = [20, 50, 100, 200, 300, 500, 1000, 2000]
+    /// 兆就是 Mbps。下载速度用 MB/s，等于兆数除以 8：1000 兆 = 125 MB/s。
+    static func byteRate(mbps: Double) -> Double { mbps / 8 }
 
-    static func bandwidthTier(mbps: Double) -> Int {
-        bandwidthTiers.min { abs(Double($0) - mbps) < abs(Double($1) - mbps) } ?? Int(mbps.rounded())
-    }
+    /// 达到该档的九成就算。900 Mbps 记成 1000 Mbps（千兆）。
+    private static let bandwidthGrades: [(mbps: Int, name: String)] = [
+        (100, "100 Mbps"),
+        (200, "200 Mbps"),
+        (300, "300 Mbps"),
+        (500, "500 Mbps"),
+        (1_000, "1000 Mbps（千兆）"),
+        (2_000, "2000 Mbps（2G）"),
+        (10_000, "10000 Mbps（万兆）"),
+        (100_000, "100G")
+    ]
 
     static func bandwidthLine(mbps: Double?) -> String {
         guard let mbps, mbps > 0 else { return "当前带宽：未能判断" }
-        return "当前带宽：\(bandwidthTier(mbps: mbps)) 兆"
+        let name = bandwidthGrades.last { mbps >= Double($0.mbps) * 0.9 }?.name ?? "不足 100 Mbps"
+        return "当前带宽：\(name)"
     }
 
     /// 下行电波在换成上行进度时还留着，两条线一起画。
@@ -296,34 +324,150 @@ enum LocalNetworkSpeedTest {
         var wave: [Double]
     }
 
+    private struct Sample {
+        var bytes: Int
+        var seconds: TimeInterval
+        var warmupBytes: Int
+        var error: String?
+    }
+
+    /// 多条连接各自一个 URLSession。同一个 session 走 HTTP/2 时会并成一条 TCP，千兆填不满。
+    private final class BytePump: @unchecked Sendable {
+        let source: String
+        let kind: String
+        let onUpdate: (@Sendable (String) -> Void)?
+        private let lock = NSLock()
+        private var bytes = 0
+        private var wave = SecondWave()
+        private let started: Date
+        private var lastPaint = Date.distantPast
+
+        init(source: String, kind: String, onUpdate: (@Sendable (String) -> Void)?, started: Date) {
+            self.source = source
+            self.kind = kind
+            self.onUpdate = onUpdate
+            self.started = started
+        }
+
+        func add(_ count: Int) {
+            guard count > 0 else { return }
+            lock.lock()
+            bytes += count
+            let elapsed = Date().timeIntervalSince(started)
+            let marked = wave.note(bytes: bytes, elapsed: elapsed)
+            let paint = marked || Date().timeIntervalSince(lastPaint) > 0.3
+            if paint { lastPaint = Date() }
+            let rates = wave.rates
+            let total = bytes
+            lock.unlock()
+            guard paint, let onUpdate else { return }
+            onUpdate(LocalNetworkSpeedTest.liveProgress(source: source, kind: kind, bytes: total, elapsed: elapsed, rates: rates))
+        }
+
+        func latestRate() -> Double {
+            lock.lock()
+            defer { lock.unlock() }
+            _ = wave.note(bytes: bytes, elapsed: Date().timeIntervalSince(started))
+            return wave.rates.last ?? 0
+        }
+
+        func mark() -> [Double] {
+            lock.lock()
+            defer { lock.unlock() }
+            _ = wave.note(bytes: bytes, elapsed: Date().timeIntervalSince(started))
+            return wave.rates
+        }
+    }
+
+    private static func liveProgress(source: String, kind: String, bytes: Int, elapsed: TimeInterval, rates: [Double]) -> String {
+        let rate = byteRate(mbps: mbps(bytes: bytes, seconds: elapsed))
+        var text = String(format: "测速中 · \(source)\n已传输 %@\n当前 %.1f MB/s",
+                          ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file), rate)
+        if !rates.isEmpty {
+            text += "\n" + waveLine(kind: kind, rates: rates)
+        }
+        return text
+    }
+
     private static func transfer(
         kind: String, name: String, url: URL, upload: Bool,
         configuration: URLSessionConfiguration, onUpdate: (@Sendable (String) -> Void)?
     ) async -> Transfer {
         onUpdate?("正在从\(name)测\(kind)…")
+        let started = Date()
+        let pump = BytePump(source: "\(name) · \(kind)", kind: upload ? "上" : "下", onUpdate: onUpdate, started: started)
+        var parts: [Sample] = []
+        await withTaskGroup(of: Sample.self) { group in
+            var open = 0
+            func launch(_ count: Int) {
+                let n = min(count, streamCap - open)
+                guard n > 0 else { return }
+                for _ in 0..<n {
+                    group.addTask {
+                        await single(
+                            upload: upload, url: url, configuration: configuration,
+                            source: pump.source, started: started, onBytes: { pump.add($0) }
+                        )
+                    }
+                }
+                open += n
+            }
+            launch(streamBatch)
+            var beforeAdd: Double?
+            while Date().timeIntervalSince(started) < sampleSeconds - 1 {
+                do { try await Task.sleep(nanoseconds: 1_000_000_000) } catch { break }
+                let current = pump.latestRate()
+                guard current > 1 else { continue }
+                if let beforeAdd, !shouldAddStreams(baseline: beforeAdd, current: current, open: open) { break }
+                if open >= streamCap { break }
+                launch(streamBatch)
+                beforeAdd = current
+            }
+            for await part in group { parts.append(part) }
+        }
+        return combined(parts, wave: pump.mark())
+    }
+
+    private static func combined(_ parts: [Sample], wave: [Double]) -> Transfer {
+        let usable = parts.filter { $0.error == nil && $0.bytes >= 64 * 1024 }
+        guard !usable.isEmpty else {
+            return Transfer(mbps: nil, bytes: parts.reduce(0) { $0 + $1.bytes }, seconds: 0, error: parts.compactMap(\.error).first ?? "没有数据", wave: [])
+        }
+        let sample = aggregate(bytes: usable.map(\.bytes), seconds: usable.map(\.seconds), warmupBytes: usable.map(\.warmupBytes))
+        return Transfer(
+            mbps: mbps(bytes: sample.bytes, seconds: sample.seconds),
+            bytes: usable.reduce(0) { $0 + $1.bytes },
+            seconds: usable.map(\.seconds).max() ?? 0,
+            error: nil,
+            wave: wave
+        )
+    }
+
+    private static func single(
+        upload: Bool, url: URL, configuration: URLSessionConfiguration, source: String,
+        started: Date, onBytes: @escaping @Sendable (Int) -> Void
+    ) async -> Sample {
         if upload {
-            let meter = UploadMeter(onUpdate: onUpdate, source: "\(name) · \(kind)")
+            let meter = UploadMeter(onUpdate: nil, source: source, onBytes: onBytes, started: started)
             let session = URLSession(configuration: configuration, delegate: meter, delegateQueue: nil)
             do {
                 let sample = try await meter.run(url: url, session: session)
                 session.finishTasksAndInvalidate()
-                let paced = paced(totalBytes: sample.bytes, elapsed: sample.seconds, warmupBytes: sample.warmupBytes)
-                return Transfer(mbps: mbps(bytes: paced.bytes, seconds: paced.seconds), bytes: sample.bytes, seconds: sample.seconds, error: nil, wave: sample.wave)
+                return Sample(bytes: sample.bytes, seconds: sample.seconds, warmupBytes: sample.warmupBytes, error: nil)
             } catch {
                 session.invalidateAndCancel()
-                return Transfer(mbps: nil, bytes: 0, seconds: 0, error: error.localizedDescription, wave: [])
+                return Sample(bytes: 0, seconds: 0, warmupBytes: 0, error: error.localizedDescription)
             }
         }
-        let meter = DownloadMeter(onUpdate: onUpdate, source: "\(name) · \(kind)")
+        let meter = DownloadMeter(onUpdate: nil, source: source, onBytes: onBytes, started: started)
         let session = URLSession(configuration: configuration, delegate: meter, delegateQueue: nil)
         do {
             let sample = try await meter.run(url: url, session: session)
             session.finishTasksAndInvalidate()
-            let paced = paced(totalBytes: sample.bytes, elapsed: sample.seconds, warmupBytes: sample.warmupBytes)
-            return Transfer(mbps: mbps(bytes: paced.bytes, seconds: paced.seconds), bytes: sample.bytes, seconds: sample.seconds, error: nil, wave: sample.wave)
+            return Sample(bytes: sample.bytes, seconds: sample.seconds, warmupBytes: sample.warmupBytes, error: nil)
         } catch {
             session.invalidateAndCancel()
-            return Transfer(mbps: nil, bytes: 0, seconds: 0, error: error.localizedDescription, wave: [])
+            return Sample(bytes: 0, seconds: 0, warmupBytes: 0, error: error.localizedDescription)
         }
     }
 
@@ -339,9 +483,9 @@ enum LocalNetworkSpeedTest {
         return "当前网络"
     }
 
-    static func mbpsText(_ value: Double?) -> String {
-        guard let value else { return "—" }
-        return String(format: "%.1f Mbps", value)
+    static func speedText(_ mbps: Double?) -> String {
+        guard let mbps else { return "—" }
+        return String(format: "%.1f MB/s", byteRate(mbps: mbps))
     }
 
     static func summary(_ report: Report) -> String {
@@ -350,14 +494,14 @@ enum LocalNetworkSpeedTest {
             lines.append("网络：\(networkKind(signal: local.signal)) · 网关 \(local.gateway)")
         }
         if let mbps = report.downloadMbps {
-            lines.append(String(format: "下载：%.1f Mbps", mbps))
+            lines.append("下载：\(speedText(mbps))")
         } else {
             lines.append("下载：失败（\(report.downloadError ?? "无结果")）")
         }
         lines.append("下载数据：\(byteText(report.downloadBytes))")
         if let mbps = report.uploadMbps {
             let title = report.uploadSource == report.source ? "上传" : "上传（\(report.uploadSource ?? "")）"
-            lines.append(String(format: "%@：%.1f Mbps", title, mbps))
+            lines.append("\(title)：\(speedText(mbps))")
         } else {
             lines.append("上传：失败（\(report.uploadError ?? "无结果")）")
         }
@@ -566,9 +710,10 @@ private final class DownloadMeter: NSObject, URLSessionDataDelegate, @unchecked 
     }
 
     let onUpdate: (@Sendable (String) -> Void)?
+    let onBytes: (@Sendable (Int) -> Void)?
     let source: String
     private let lock = NSLock()
-    private let started = Date()
+    private let started: Date
     private var firstByte: Date?
     private var count = 0
     private var warmupBytes = 0
@@ -588,9 +733,11 @@ private final class DownloadMeter: NSObject, URLSessionDataDelegate, @unchecked 
     private var session: URLSession?
     private var url: URL?
 
-    init(onUpdate: (@Sendable (String) -> Void)?, source: String) {
+    init(onUpdate: (@Sendable (String) -> Void)?, source: String, onBytes: (@Sendable (Int) -> Void)? = nil, started: Date = Date()) {
         self.onUpdate = onUpdate
+        self.onBytes = onBytes
         self.source = source
+        self.started = started
     }
 
     func run(url: URL, session: URLSession) async throws -> Result {
@@ -703,6 +850,7 @@ private final class DownloadMeter: NSObject, URLSessionDataDelegate, @unchecked 
         } else if finishedBody {
             rotate()
         }
+        onBytes?(data.count)
     }
 
     private func publish(bytes: Int, elapsed: TimeInterval) {
@@ -711,8 +859,8 @@ private final class DownloadMeter: NSObject, URLSessionDataDelegate, @unchecked 
     }
 
     private func progressText(kind: String, bytes: Int, elapsed: TimeInterval) -> String {
-        let rate = LocalNetworkSpeedTest.mbps(bytes: bytes, seconds: elapsed)
-        var text = String(format: "测速中 · \(source)\n已传输 %@\n当前 %.1f Mbps",
+        let rate = LocalNetworkSpeedTest.byteRate(mbps: LocalNetworkSpeedTest.mbps(bytes: bytes, seconds: elapsed))
+        var text = String(format: "测速中 · \(source)\n已传输 %@\n当前 %.1f MB/s",
                           ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file), rate)
         if !wave.rates.isEmpty {
             text += "\n" + LocalNetworkSpeedTest.waveLine(kind: kind, rates: wave.rates)
@@ -769,9 +917,10 @@ private final class UploadMeter: NSObject, URLSessionTaskDelegate, URLSessionDat
     }
 
     let onUpdate: (@Sendable (String) -> Void)?
+    let onBytes: (@Sendable (Int) -> Void)?
     let source: String
     private let lock = NSLock()
-    private let started = Date()
+    private let started: Date
     private var count = 0
     private var sentBefore = 0
     private var warmupBytes = 0
@@ -787,9 +936,11 @@ private final class UploadMeter: NSObject, URLSessionTaskDelegate, URLSessionDat
     private var session: URLSession?
     private var url: URL?
 
-    init(onUpdate: (@Sendable (String) -> Void)?, source: String) {
+    init(onUpdate: (@Sendable (String) -> Void)?, source: String, onBytes: (@Sendable (Int) -> Void)? = nil, started: Date = Date()) {
         self.onUpdate = onUpdate
+        self.onBytes = onBytes
         self.source = source
+        self.started = started
     }
 
     func run(url: URL, session: URLSession) async throws -> Result {
@@ -871,6 +1022,7 @@ private final class UploadMeter: NSObject, URLSessionTaskDelegate, URLSessionDat
     }
 
     func urlSession(_ session: URLSession, task: URLSessionTask, didSendBodyData bytesSent: Int64, totalBytesSent: Int64, totalBytesExpectedToSend: Int64) {
+        if bytesSent > 0 { onBytes?(Int(bytesSent)) }
         count = sentBefore + Int(totalBytesSent)
         let elapsed = Date().timeIntervalSince(started)
         if !warmed, elapsed >= LocalNetworkSpeedTest.warmup {
@@ -880,8 +1032,8 @@ private final class UploadMeter: NSObject, URLSessionTaskDelegate, URLSessionDat
         let marked = wave.note(bytes: count, elapsed: elapsed)
         if marked || Date().timeIntervalSince(lastPaint) > 0.3 {
             lastPaint = Date()
-            let rate = LocalNetworkSpeedTest.mbps(bytes: count, seconds: elapsed)
-            var text = String(format: "测速中 · \(source)\n已传输 %@\n当前 %.1f Mbps",
+            let rate = LocalNetworkSpeedTest.byteRate(mbps: LocalNetworkSpeedTest.mbps(bytes: count, seconds: elapsed))
+            var text = String(format: "测速中 · \(source)\n已传输 %@\n当前 %.1f MB/s",
                               ByteCountFormatter.string(fromByteCount: Int64(count), countStyle: .file), rate)
             if !wave.rates.isEmpty {
                 text += "\n" + LocalNetworkSpeedTest.waveLine(kind: "上", rates: wave.rates)

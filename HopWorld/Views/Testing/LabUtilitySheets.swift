@@ -596,8 +596,8 @@ struct NetworkToolsSheet: View {
                             historyColumns(
                                 date: record.at.formatted(date: .numeric, time: .shortened),
                                 network: record.snapshot.network,
-                                down: LocalNetworkSpeedTest.mbpsText(record.snapshot.downloadMbps),
-                                up: LocalNetworkSpeedTest.mbpsText(record.snapshot.uploadMbps),
+                                down: LocalNetworkSpeedTest.speedText(record.snapshot.downloadMbps),
+                                up: LocalNetworkSpeedTest.speedText(record.snapshot.uploadMbps),
                                 header: false
                             )
                             .padding(10)
@@ -608,7 +608,7 @@ struct NetworkToolsSheet: View {
                             }
                         }
                         .buttonStyle(.plain)
-                        .accessibilityLabel("\(record.snapshot.network)，下载 \(LocalNetworkSpeedTest.mbpsText(record.snapshot.downloadMbps))，上传 \(LocalNetworkSpeedTest.mbpsText(record.snapshot.uploadMbps))")
+                        .accessibilityLabel("\(record.snapshot.network)，下载 \(LocalNetworkSpeedTest.speedText(record.snapshot.downloadMbps))，上传 \(LocalNetworkSpeedTest.speedText(record.snapshot.uploadMbps))")
                         .accessibilityHint("查看测速详情")
                     }
                 }
@@ -1108,7 +1108,7 @@ private struct SpeedWaveChart: View {
         func numbers(_ values: [Double]) -> String {
             values.isEmpty ? "无" : values.map { String(format: "%.0f", $0) }.joined(separator: "、")
         }
-        return "下载每秒 \(numbers(down)) Mbps，上传每秒 \(numbers(up)) Mbps"
+        return "下载每秒 \(numbers(down.map { $0 / 8 })) MB/s，上传每秒 \(numbers(up.map { $0 / 8 })) MB/s"
     }
 
     private func waveLegend(_ title: String, _ color: Color) -> some View {

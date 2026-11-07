@@ -480,6 +480,95 @@ button,
   gap: 0.65rem;
 }
 
+.support-block {
+  margin-top: 2.75rem;
+}
+
+.support-heading {
+  margin: 0 0 0.9rem;
+  font-family: var(--font-display);
+  font-size: 1.2rem;
+  letter-spacing: -0.03em;
+}
+
+.support-note {
+  margin: 1rem 0 0.65rem;
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+.support-block > .support-note:first-of-type {
+  margin-top: 0;
+}
+
+.support-list {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.support-card {
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 1rem 1.1rem 1.05rem;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.support-card h4 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 1.15rem;
+  letter-spacing: -0.03em;
+}
+
+.support-meta {
+  margin: 0.25rem 0 0.75rem;
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+
+.support-split {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem 1.25rem;
+}
+
+.support-card p,
+.support-plain {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+.support-label {
+  display: block;
+  margin-bottom: 0.25rem;
+  color: var(--amber);
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+}
+
+.support-plain {
+  list-style: none;
+  padding: 0;
+  display: grid;
+  gap: 0.65rem;
+}
+
+.support-plain li {
+  padding-bottom: 0.65rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.support-plain li:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.support-plain strong {
+  color: var(--paper);
+  margin-right: 0.45rem;
+}
+
 .faq-list {
   display: grid;
   gap: 0;
@@ -860,6 +949,18 @@ main,
   animation-delay: calc(var(--i, 0) * 0.25s);
 }
 
+.protocol-chip-off {
+  color: rgba(242, 238, 230, 0.45);
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+}
+
+.protocol-chip-off::before {
+  background: rgba(242, 238, 230, 0.28);
+  box-shadow: none;
+  animation: none;
+}
+
 .protocol-chip:hover {
   color: var(--paper);
   border-color: rgba(227, 155, 74, 0.55);
@@ -1059,6 +1160,10 @@ main,
   .protocol-chip {
     padding: 0.45rem 0.75rem;
     font-size: 0.84rem;
+  }
+
+  .support-split {
+    grid-template-columns: 1fr;
   }
 
   .download-panel {

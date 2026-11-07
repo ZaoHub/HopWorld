@@ -85,13 +85,19 @@ struct ContentView: View {
         }
         .overlay(alignment: .bottomTrailing) {
             if let message = appState.toastMessage {
-                Text(message.title)
-                    .font(.headline)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(message.title).font(.headline)
+                    Text(message.body)
+                        .font(.callout)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .foregroundStyle(Color(red: 0.32, green: 0.16, blue: 0.02))
                 .padding(14)
                 .frame(width: 320, alignment: .leading)
-                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .background(Color(red: 1, green: 0.86, blue: 0.52), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                 .overlay {
-                    RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Color.primary.opacity(0.08))
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .stroke(Color(red: 0.78, green: 0.42, blue: 0.05), lineWidth: 1.5)
                 }
                 .shadow(color: .black.opacity(0.12), radius: 12, y: 4)
                 .padding(.trailing, 16)

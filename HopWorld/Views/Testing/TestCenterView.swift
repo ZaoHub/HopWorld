@@ -269,7 +269,6 @@ struct TestCenterView: View {
     /// Node picked in the results list for connect / app probe.
     @State private var selectedNodeID: UUID?
     @State private var appProbeTestNodeID: UUID?
-    @State private var appProbeScope: NodeListFilter.Source = .all
     @State private var showingLatencyTierHelp = false
     @State private var selectedStatistic: NodeTestStatistic?
     @State private var editingAppProbes = false
@@ -310,7 +309,7 @@ struct TestCenterView: View {
                     statusCard
                     controlsCard(wide: wide)
                     coverageStrip
-                    appProbeCard
+                    appProbeCard(wide: wide)
                     resultsCard
                 }
                 .padding(.horizontal, 20)
@@ -346,9 +345,6 @@ struct TestCenterView: View {
             if case .subscription(let id) = testScope, !ids.contains(id) {
                 setTestScope(.all)
             }
-        }
-        .onChange(of: subscriptionScopeOptions.map(\.scope)) { scopes in
-            if appProbeScope != .all, !scopes.contains(appProbeScope) { appProbeScope = .all }
         }
         .onChange(of: testScope) { _ in
             resultPage = 1
@@ -910,7 +906,7 @@ struct TestCenterView: View {
 
     // MARK: - 应用连通：试剂反应板
 
-    private var appProbeCard: some View {
+    private func appProbeCard(wide: Bool) -> some View {
         let connected = appState.connection.state.status == .connected
         let showsCurrentProxy = appProbeTestNode == nil && appState.currentNode != nil && (
             connected
@@ -926,7 +922,7 @@ struct TestCenterView: View {
             footnote: appProbeHasDraftChanges ? "预览中 · 尚未应用设置"
                 : (appState.appProbeBatch.isRunning ? "可用节点应用连通测试中" : testManager.appProbeStatusText)
         ) {
-            appProbeBatchControls
+            appProbeBatchControls(wide: wide)
             Divider().overlay(palette.line)
 
             HStack(spacing: 8) {
@@ -1056,23 +1052,26 @@ struct TestCenterView: View {
         .disabled(testManager.isProbingApps)
     }
 
-    private var appProbeBatchControls: some View {
+    private func appProbeBatchControls(wide: Bool) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: 16) {
-                    appProbeBatchSelection
-                    appProbeAutoTestToggle
-                    Spacer(minLength: 8)
-                    appProbeBatchButtons
-                        .fixedSize()
-                }
-                VStack(alignment: .leading, spacing: 8) {
-                    appProbeBatchSelection
+            Group {
+                if wide {
                     HStack(spacing: 16) {
+                        appProbeBatchSelection
                         appProbeAutoTestToggle
                         Spacer(minLength: 8)
                         appProbeBatchButtons
                             .fixedSize()
+                    }
+                } else {
+                    VStack(alignment: .leading, spacing: 8) {
+                        appProbeBatchSelection
+                        HStack(spacing: 16) {
+                            appProbeAutoTestToggle
+                            Spacer(minLength: 8)
+                            appProbeBatchButtons
+                                .fixedSize()
+                        }
                     }
                 }
             }
@@ -1116,7 +1115,7 @@ struct TestCenterView: View {
     }
 
     private var appProbeAvailablePicker: some View {
-        Picker("可用", selection: $appProbeScope) {
+        Picker("可用", selection: testScopeBinding) {
             Text("全部（\(appState.usableNodesForAppProbe(in: .all).count)）")
                 .tag(NodeListFilter.Source.all)
             ForEach(subscriptionScopeOptions) { option in
@@ -1135,13 +1134,12 @@ struct TestCenterView: View {
     private var appProbeBatchButtons: some View {
         HStack(spacing: 8) {
             Button("测试可用节点") {
-                setTestScope(appProbeScope)
-                appState.testUsableNodeApps(in: appProbeScope)
+                appState.testUsableNodeApps(in: testScope)
             }
             .buttonStyle(.bordered)
             .disabled(appProbeHasDraftChanges || appState.appProbeBatch.isRunning ||
                       appState.settings.automaticAppProbeTargets.isEmpty ||
-                      appState.usableNodesForAppProbe(in: appProbeScope).isEmpty)
+                      appState.usableNodesForAppProbe(in: testScope).isEmpty)
             if appState.appProbeBatch.isRunning {
                 Button("停止") { appState.stopAppProbeBatch() }
                     .buttonStyle(.bordered)
@@ -4386,7 +4384,8 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         nodes.filter {
             $0.enabled &&
             !$0.pendingRemoval &&
-            $0.lastTestStatus.isUsable
+            $0.lastTestStatus.isUsable &&
+            appState.nodeSubscriptionEnabled($0)
         }
     }
 
@@ -4398,6 +4397,7 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         return nodes.filter {
             $0.enabled &&
             !$0.pendingRemoval &&
+            appState.nodeSubscriptionEnabled($0) &&
             ($0.lastTestStatus.isUsable
                 || $0.lastTestStatus == .unavailable
                 || $0.lastTestStatus == .failed)

@@ -143,7 +143,8 @@ struct SubscriptionListView: View {
                                 onTest: {
                                     Task { await appState.testSubscriptionNodes([sub.id]) }
                                 },
-                                onDelete: { confirmDelete = sub }
+                                onDelete: { confirmDelete = sub },
+                                onToggleEnabled: { toggleSubscriptionEnabled(sub) }
                             )
                             .equatable()
                             .contextMenu {
@@ -159,6 +160,7 @@ struct SubscriptionListView: View {
                                 }
                                 Divider()
                                 Button("删除", role: .destructive) { confirmDelete = sub }
+                                Button(sub.isEnabled ? "禁用" : "启用") { toggleSubscriptionEnabled(sub) }
                             }
                         }
                     }
@@ -219,6 +221,12 @@ struct SubscriptionListView: View {
         .onAppear(perform: refreshListCounts)
         .onReceive(appState.$subscriptions) { _ in refreshShareLinkCounts() }
         .onReceive(appState.$nodes) { nodes in refreshNodeCounts(nodes) }
+    }
+
+    private func toggleSubscriptionEnabled(_ subscription: Subscription) {
+        var updated = subscription
+        updated.isEnabled.toggle()
+        appState.updateSubscription(updated)
     }
 
     private func refreshListCounts() {
@@ -460,6 +468,7 @@ struct SubscriptionCard: View, Equatable {
     var onRefresh: () -> Void
     var onTest: () -> Void
     var onDelete: () -> Void
+    var onToggleEnabled: () -> Void
 
     static func == (lhs: SubscriptionCard, rhs: SubscriptionCard) -> Bool {
         lhs.subscription == rhs.subscription
@@ -556,6 +565,7 @@ struct SubscriptionCard: View, Equatable {
                 Button("测试本组全部节点", action: onTest)
                 Divider()
                 Button("删除", role: .destructive, action: onDelete)
+                Button(subscription.isEnabled ? "禁用" : "启用", action: onToggleEnabled)
             } label: {
                 Image(systemName: "ellipsis")
                     .frame(width: 28, height: 28)
