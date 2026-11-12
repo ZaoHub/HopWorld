@@ -78,7 +78,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         DockReopen.handleDockClick()
-        return false
+        return true
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
@@ -98,7 +98,6 @@ private struct MainWindowRevealAnchor: View {
                 MainWindowActivation.openMainWindow = { openWindow(id: MainWindowActivation.sceneID) }
             }
             .onAppear {
-                DockReopen.start()
                 MainWindowActivation.openMainWindow = { openWindow(id: MainWindowActivation.sceneID) }
             }
             .onReceive(NotificationCenter.default.publisher(for: MainWindowActivation.revealNotification)) { _ in

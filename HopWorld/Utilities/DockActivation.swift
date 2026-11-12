@@ -85,15 +85,6 @@ extension DockWindowTraits {
     }
 }
 
-@MainActor
-private final class DockReopenReceiver: NSObject {
-    static let shared = DockReopenReceiver()
-
-    @objc func reopen(_ event: NSAppleEventDescriptor, reply: NSAppleEventDescriptor) {
-        DockReopen.handleDockClick()
-    }
-}
-
 /// Uses AppKit's standard reopen callback and completes window ordering after
 /// application activation, so a Dock click also works while already active.
 @MainActor
@@ -102,13 +93,7 @@ enum DockReopen {
     private static var activationObserver: NSObjectProtocol?
 
     static func start() {
-        installReopenHandler()
-        DispatchQueue.main.async {
-            installReopenHandler()
-        }
         guard activationObserver == nil else { return }
-        // Observe AppKit directly: SwiftUI may consume the reopen event before
-        // forwarding it to the application delegate.
         activationObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.didBecomeActiveNotification,
             object: NSApp,
@@ -120,20 +105,20 @@ enum DockReopen {
         }
     }
 
-    private static func installReopenHandler() {
-        NSAppleEventManager.shared().setEventHandler(
-            DockReopenReceiver.shared,
-            andSelector: #selector(DockReopenReceiver.reopen(_:reply:)),
-            forEventClass: AEEventClass(0x61657674),
-            andEventID: AEEventID(0x72617070)
-        )
+    private static func activateApplication() {
+        if NSApp.activationPolicy() != .regular {
+            NSApp.setActivationPolicy(.regular)
+        }
+        NSApp.unhide(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        NSRunningApplication.current.activate(options: [.activateAllWindows])
     }
 
     static func applicationDidBecomeActive() {
         trace("didBecomeActive")
         if revealPending {
             finishPendingReveal()
-        } else {
+        } else if NSApp.isActive {
             _ = raiseExistingWindows(moveToActiveSpace: true)
         }
         // Finish ordering after AppKit/SwiftUI's own activation processing.
@@ -147,26 +132,31 @@ enum DockReopen {
         trace("reopen")
         start()
         revealPending = true
-        if NSApp.activationPolicy() != .regular {
-            NSApp.setActivationPolicy(.regular)
-        }
-        NSApp.unhide(nil)
-        NSRunningApplication.current.activate(options: [.activateAllWindows])
-        if NSApp.isActive {
-            finishPendingReveal()
+        activateApplication()
+        finishPendingReveal()
+        if revealPending {
+            DispatchQueue.main.async {
+                guard revealPending else { return }
+                activateApplication()
+                finishPendingReveal()
+            }
         }
     }
 
     static func finishPendingReveal() {
-        guard revealPending, NSApp.isActive else { return }
-        revealPending = false
-        if !raiseExistingWindows(moveToActiveSpace: true) {
+        guard revealPending else { return }
+        if NSApp.isActive {
+            revealPending = false
+        }
+        let raised = raiseExistingWindows(moveToActiveSpace: true)
+        if !raised {
             MainWindowActivation.openMainWindow()
             NotificationCenter.default.post(name: MainWindowActivation.revealNotification, object: nil)
-            // SwiftUI creates the scene on the next main run-loop iteration.
-            DispatchQueue.main.async {
-                _ = raiseExistingWindows(moveToActiveSpace: true)
-            }
+        }
+        // SwiftUI may create or order the scene on the next main run-loop iteration.
+        DispatchQueue.main.async {
+            guard NSApp.isActive else { return }
+            _ = raiseExistingWindows(moveToActiveSpace: true)
         }
     }
 
@@ -179,14 +169,11 @@ enum DockReopen {
 
     @discardableResult
     static func raiseExistingWindows(moveToActiveSpace: Bool) -> Bool {
-        if NSApp.activationPolicy() != .regular {
-            NSApp.setActivationPolicy(.regular)
-        }
         let windows = NSApp.windows
         let plan = DockActivationPolicy.plan(for: windows.map(DockWindowTraits.init))
         trace("raise candidates=\(plan.orderFront.count)")
         guard !plan.orderFront.isEmpty else { return false }
-        NSApp.unhide(nil)
+        activateApplication()
         for index in plan.deminiaturize where windows.indices.contains(index) {
             windows[index].deminiaturize(nil)
         }

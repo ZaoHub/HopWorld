@@ -231,6 +231,15 @@ private final class SubscriptionTransportFixture: URLProtocol {
     override func stopLoading() {}
 }
 
+private final class ATSBlockedTransport: URLProtocol {
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        client?.urlProtocol(self, didFailWithError: URLError(.appTransportSecurityRequiresSecureConnection))
+    }
+    override func stopLoading() {}
+}
+
 final class SubscriptionFetcherTests: XCTestCase {
     @MainActor
     func testOriginCertificateFailureKeepsNodesAndRecordsHTTPStatus() async {
@@ -347,6 +356,62 @@ final class SubscriptionFetcherTests: XCTestCase {
         XCTAssertEqual(SubscriptionFetcher.temporaryProxyCandidates(nodes).map(\.name), ["4", "5", "2"])
         XCTAssertFalse(SubscriptionFetcher.shouldTryTemporaryProxy(URLError(.cancelled)))
         XCTAssertFalse(SubscriptionFetcher.shouldTryTemporaryProxy(URLError(.appTransportSecurityRequiresSecureConnection)))
+    }
+
+    func testCleartextSubscriptionFetchesWhenAppTransportSecurityBlocksURLSession() async throws {
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [ATSBlockedTransport.self]
+        let blocked = SubscriptionFetcher(session: URLSession(configuration: config))
+        do {
+            _ = try await blocked.fetch(urlString: "https://fixture.invalid/blocked")
+            XCTFail("HTTPS 仍应被 ATS 拒绝")
+        } catch SubscriptionFetcherError.insecureConnection {}
+
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("subscription-http-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let script = directory.appendingPathComponent("server.py")
+        let portFile = directory.appendingPathComponent("port")
+        try #"""
+        from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+        import sys
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                body = b"subscription fixture"
+                self.send_response(200)
+                self.send_header("ETag", "http-tag")
+                self.send_header("Content-Length", str(len(body)))
+                self.send_header("Connection", "close")
+                self.end_headers()
+                self.wfile.write(body)
+            def log_message(self, format, *args):
+                return
+        with ThreadingHTTPServer(("127.0.0.1", 0), Handler) as server:
+            with open(sys.argv[1], "w") as handle:
+                handle.write(str(server.server_address[1]))
+            server.serve_forever()
+        """#.write(to: script, atomically: true, encoding: .utf8)
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
+        process.arguments = [script.path, portFile.path]
+        try process.run()
+        defer {
+            process.terminate()
+            let deadline = Date().addingTimeInterval(3)
+            while process.isRunning && Date() < deadline { Thread.sleep(forTimeInterval: 0.02) }
+        }
+        for _ in 0..<100 {
+            if FileManager.default.fileExists(atPath: portFile.path) { break }
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        let port = try XCTUnwrap(Int(String(contentsOf: portFile, encoding: .utf8)))
+        let response = try await blocked.fetch(urlString: "http://127.0.0.1:\(port)/sub")
+        XCTAssertEqual(response.statusCode, 200)
+        XCTAssertEqual(response.etag, "http-tag")
+        XCTAssertEqual(String(data: response.data, encoding: .utf8), "subscription fixture")
+        XCTAssertFalse(response.usedTemporaryProxy)
+        let remaining = try FileManager.default.contentsOfDirectory(atPath: FileManager.default.temporaryDirectory.path)
+        XCTAssertFalse(remaining.contains { $0.hasPrefix("HopWorld-subscription-") })
     }
 
     func testTLSFailureDownloadsThroughIsolatedCoreAndCleansUp() async throws {

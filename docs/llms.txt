@@ -10,7 +10,7 @@
 - 平台：macOS 13.0+
 - 技术栈：SwiftUI；代理内核 Xray、sing-box
 - 许可：自有源码 MIT；第三方内核遵循上游许可证
-- 版本：v1.0.3（2026-11-07 DMG）
+- 版本：v2.0.0（2026-11-12 DMG）
 - 开发者组织：ZaoHub
 
 ## 支持的节点协议
@@ -19,6 +19,7 @@ VLESS、VMess、Trojan、Shadowsocks、Hysteria2、MASQUE、TUIC、AnyTLS、Wire
 
 ## 核心能力
 
+- 软路由：另开一份 Xray，供同一局域网设备使用 HTTP 17890 / SOCKS5 17891。其它设备不必再装代理 App，也不改本机主连接
 - 节点延迟测速；探测 Google、ChatGPT、Claude、GitHub 等应用是否可达
 - 规则代理、全局 TUN、仅指定应用 TUN；自定义强制代理 / 直连 / 拦截
 - 按国家一键连接与自动故障切换
@@ -30,9 +31,9 @@ VLESS、VMess、Trojan、Shadowsocks、Hysteria2、MASQUE、TUIC、AnyTLS、Wire
 
 ## 下载
 
-- Apple Silicon DMG：https://github.com/ZaoHub/HopWorld/releases/download/v1.0.3/HopWorld-2026-11-07-arm64.dmg
-- Intel DMG：https://github.com/ZaoHub/HopWorld/releases/download/v1.0.3/HopWorld-2026-11-07-x86_64.dmg
-- 全部 Release：https://github.com/ZaoHub/HopWorld/releases/tag/v1.0.3
+- Apple Silicon DMG：https://github.com/ZaoHub/HopWorld/releases/download/v2.0.0/HopWorld-2026-11-12-arm64.dmg
+- Intel DMG：https://github.com/ZaoHub/HopWorld/releases/download/v2.0.0/HopWorld-2026-11-12-x86_64.dmg
+- 全部 Release：https://github.com/ZaoHub/HopWorld/releases/tag/v2.0.0
 - 安装包为 ad-hoc 签名，未做 Apple 公证
 
 ## 链接

@@ -2,24 +2,24 @@ import SwiftUI
 import AppKit
 import Darwin
 
-struct CodexUsageSnapshot: Decodable, Sendable {
-    struct Window: Decodable, Sendable {
+struct CodexUsageSnapshot: Codable, Sendable {
+    struct Window: Codable, Sendable {
         let usedPercent: Double
         let windowDurationMins: Int?
         let resetsAt: Double?
         var remaining: Double { min(100, max(0, 100 - usedPercent)) }
     }
-    struct Credits: Decodable, Sendable {
+    struct Credits: Codable, Sendable {
         let balance: String?
         let unlimited: Bool
     }
-    struct Bucket: Decodable, Sendable {
+    struct Bucket: Codable, Sendable {
         let primary: Window?
         let secondary: Window?
         let credits: Credits?
     }
-    struct Resets: Decodable, Sendable {
-        struct Credit: Decodable, Sendable {
+    struct Resets: Codable, Sendable {
+        struct Credit: Codable, Sendable {
             let status: String?
             let expiresAt: Double?
         }
@@ -264,17 +264,41 @@ final class CodexUsageMonitor: ObservableObject {
     private var retryTimer: Timer?
     private let retryInterval: TimeInterval
     private let readSnapshot: (@Sendable () throws -> CodexUsageSnapshot)?
+    private let store: UserDefaults?
+    private static let storageKey = "usageCard.codexSnapshot.v1"
+    private struct SavedUsage: Codable {
+        var snapshot: CodexUsageSnapshot
+        var updatedAt: Date
+    }
 
     init(refreshInterval: TimeInterval = 300,
          retryInterval: TimeInterval = 60,
-         readSnapshot: (@Sendable () throws -> CodexUsageSnapshot)? = nil) {
+         readSnapshot: (@Sendable () throws -> CodexUsageSnapshot)? = nil,
+         store: UserDefaults? = nil) {
         self.readSnapshot = readSnapshot
         self.retryInterval = retryInterval
+        // A bare test executable has no bundle id and must not write the app's saved usage.
+        self.store = store ?? (Bundle.main.bundleIdentifier == nil ? nil : .standard)
+        if let data = self.store?.data(forKey: Self.storageKey),
+           let saved = try? JSONDecoder().decode(SavedUsage.self, from: data) {
+            snapshot = saved.snapshot
+            updatedAt = saved.updatedAt
+        }
         let timer = Timer(timeInterval: refreshInterval, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in await self?.refresh() }
         }
         refreshTimer = timer
         RunLoop.main.add(timer, forMode: .common)
+    }
+
+    private func persistUsage() {
+        guard let store else { return }
+        guard let snapshot, let updatedAt,
+              let data = try? JSONEncoder().encode(SavedUsage(snapshot: snapshot, updatedAt: updatedAt)) else {
+            store.removeObject(forKey: Self.storageKey)
+            return
+        }
+        store.set(data, forKey: Self.storageKey)
     }
 
     deinit { refreshTimer?.invalidate(); retryTimer?.invalidate() }
@@ -296,6 +320,7 @@ final class CodexUsageMonitor: ObservableObject {
             snapshot = result
             updatedAt = Date()
             message = nil
+            persistUsage()
             onSnapshot?(result)
         } catch {
             guard proxyConnected else { return }
@@ -306,6 +331,7 @@ final class CodexUsageMonitor: ObservableObject {
                     shouldRetry = false
                     snapshot = nil
                     updatedAt = nil
+                    persistUsage()
                 default: break
                 }
             }

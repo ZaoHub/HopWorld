@@ -10,6 +10,7 @@ enum AppProbeTarget: Hashable, Identifiable, Codable, Sendable {
     case twitter
     case claude
     case tiktok
+    case liveStream
 
     case application(path: String, name: String, url: URL?)
 
@@ -32,6 +33,7 @@ enum AppProbeTarget: Hashable, Identifiable, Codable, Sendable {
         case .twitter: return "X / Twitter"
         case .claude: return "Claude"
         case .tiktok: return "TikTok"
+        case .liveStream: return "直播"
         }
     }
 
@@ -81,10 +83,29 @@ enum AppProbeTarget: Hashable, Identifiable, Codable, Sendable {
                 URL(string: "https://www.tiktok.com/")!,
                 URL(string: "https://www.tiktok.com/explore")!
             ]
+        case .liveStream:
+            return [
+                URL(string: "https://zh.myavlive.com/api/front/models?limit=1&offset=0&primaryTag=girls")!
+            ]
         }
     }
 
     var probeURL: URL { probeURLs[0] }
+
+    /// API 探测需带站点要求的请求头；空字典表示走默认浏览器 UA。
+    var probeHTTPHeaders: [String: String] {
+        switch self {
+        case .liveStream:
+            return [
+                "Accept": "application/json",
+                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+                "Referer": "https://zh.myavlive.com/",
+                "Origin": "https://zh.myavlive.com"
+            ]
+        default:
+            return [:]
+        }
+    }
 
     /// 概览「应用代理」卡片副标题（服务商）。
     var provider: String {
@@ -98,6 +119,7 @@ enum AppProbeTarget: Hashable, Identifiable, Codable, Sendable {
         case .twitter: return "X"
         case .claude: return "Anthropic"
         case .tiktok: return "ByteDance"
+        case .liveStream: return "MyAVLive"
         }
     }
 }
@@ -238,6 +260,7 @@ enum AppProbeRunner {
     ) async -> AppProbeResult {
         guard !target.probeURLs.isEmpty else { return .placeholder(target) }
         var bestMs: Int?
+        let headers = target.probeHTTPHeaders
         for url in target.probeURLs {
             if let ms = await ProxyHTTPTester.measure(
                 proxyHost: proxyHost,
@@ -248,7 +271,8 @@ enum AppProbeRunner {
                 strict: true,
                 singleURL: true,
                 acceptAnyHTTPResponse: true,
-                userAgent: browserUA
+                userAgent: headers.isEmpty ? browserUA : nil,
+                extraHeaders: headers.isEmpty ? nil : headers
             ) {
                 bestMs = ms
                 break
@@ -289,8 +313,15 @@ enum AppProbeSource: String, Codable, CaseIterable, Identifiable, Sendable {
 }
 
 extension AppSettings {
+    static let emptyCustomAppProbeNote = "自定义应用为空，不测试应用。"
+
     var effectiveAppProbeSource: AppProbeSource {
         appProbeSource ?? (proxyApplications.isEmpty ? .defaults : .rules)
+    }
+
+    /// 自定义来源但没有添加应用。这是空名单，不是还没配好。
+    var customAppProbeListIsEmpty: Bool {
+        effectiveAppProbeSource == .custom && installedAppProbes.isEmpty
     }
     /// 当前来源的全部目标（含概览「应用代理」中停用的），按用户排序。
     var allAppProbeTargets: [AppProbeTarget] {

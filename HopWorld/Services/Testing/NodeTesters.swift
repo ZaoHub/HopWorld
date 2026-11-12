@@ -195,7 +195,8 @@ enum ProxyHTTPTester {
         strict: Bool = false,
         singleURL: Bool = false,
         acceptAnyHTTPResponse: Bool = false,
-        userAgent: String? = nil
+        userAgent: String? = nil,
+        extraHeaders: [String: String]? = nil
     ) async -> Int? {
         let checksChatGPTConnectivity = isChatGPTConnectivityURL(testURL)
         let probeURLs = (singleURL || checksChatGPTConnectivity)
@@ -213,7 +214,8 @@ enum ProxyHTTPTester {
                     socksPort: socksPort,
                     timeout: timeout,
                     acceptAnyHTTPResponse: acceptAnyHTTPResponse,
-                    userAgent: userAgent
+                    userAgent: userAgent,
+                    extraHeaders: extraHeaders
                 ) {
                     return ms
                 }
@@ -227,7 +229,8 @@ enum ProxyHTTPTester {
                 httpProxyPort: proxyPort,
                 timeout: timeout,
                 acceptAnyHTTPResponse: acceptAnyHTTPResponse,
-                userAgent: userAgent
+                userAgent: userAgent,
+                extraHeaders: extraHeaders
             ) {
                 return ms
             }
@@ -301,11 +304,13 @@ enum ProxyHTTPTester {
     private static func curlHTTPS(
         url: URL, socksHost: String? = nil, socksPort: Int? = nil,
         httpProxyHost: String? = nil, httpProxyPort: Int? = nil,
-        timeout: TimeInterval, acceptAnyHTTPResponse: Bool = false, userAgent: String? = nil
+        timeout: TimeInterval, acceptAnyHTTPResponse: Bool = false, userAgent: String? = nil,
+        extraHeaders: [String: String]? = nil
     ) async -> Int? {
         await diagnoseHTTPS(url: url, socksHost: socksHost, socksPort: socksPort,
                             httpProxyHost: httpProxyHost, httpProxyPort: httpProxyPort,
-                            timeout: timeout, acceptAnyHTTPResponse: acceptAnyHTTPResponse, userAgent: userAgent).latency
+                            timeout: timeout, acceptAnyHTTPResponse: acceptAnyHTTPResponse,
+                            userAgent: userAgent, extraHeaders: extraHeaders).latency
     }
 
     struct HTTPSOutcome: Sendable {
@@ -325,6 +330,7 @@ enum ProxyHTTPTester {
         timeout: TimeInterval,
         acceptAnyHTTPResponse: Bool = false,
         userAgent: String? = nil,
+        extraHeaders: [String: String]? = nil,
         followRedirects: Bool = true
     ) async -> HTTPSOutcome {
         let checksChatGPTConnectivity = isChatGPTConnectivityURL(url)
@@ -341,7 +347,12 @@ enum ProxyHTTPTester {
         ]
         if checksChatGPTConnectivity { args.insert("--head", at: 1) }
         if followRedirects && !checksChatGPTConnectivity { args.insert(contentsOf: ["-L", "--max-redirs", "5"], at: 1) }
-        if let userAgent, !userAgent.isEmpty {
+        if let extraHeaders, !extraHeaders.isEmpty {
+            for name in extraHeaders.keys.sorted(by: { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }) {
+                guard let value = extraHeaders[name] else { continue }
+                args.insert(contentsOf: ["-H", "\(name): \(value)"], at: 1)
+            }
+        } else if let userAgent, !userAgent.isEmpty {
             args.insert(contentsOf: ["-A", userAgent], at: 1)
         }
         if let socksHost, let socksPort {

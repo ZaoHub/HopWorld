@@ -1327,6 +1327,22 @@ final class AutoSelectAppReachabilityTests: XCTestCase {
         XCTAssertFalse(settings.allowsAutoSelectNode(node), "Favorite must not override failed reachability")
         node.lastAppProbeOkCount = 2
         node.lastAppProbeLatency = 100
+        var settingsWithExclusion = settings
+        settingsWithExclusion.autoSelectExcludedCountryCodes = ["CN"]
+        var exitsInChina = node
+        exitsInChina.countryCode = "US"
+        exitsInChina.countryName = "美国"
+        exitsInChina.exitMetadata = NodeExitMetadata(ip: "1.2.3.4", countryCode: "CN")
+        XCTAssertFalse(settingsWithExclusion.allowsAutoSelectNode(exitsInChina), "Measured exit overrides the node name")
+        var nameOnly = node
+        nameOnly.countryCode = "CN"
+        nameOnly.name = "中国专线"
+        XCTAssertFalse(settingsWithExclusion.allowsAutoSelectNode(nameOnly), "An unmeasured node is not kept by its name")
+        var exitsInUS = node
+        exitsInUS.countryCode = "CN"
+        exitsInUS.exitMetadata = NodeExitMetadata(ip: "8.8.8.8", countryCode: "US")
+        XCTAssertTrue(settingsWithExclusion.allowsAutoSelectNode(exitsInUS))
+        XCTAssertTrue(settings.allowsAutoSelectNode(nameOnly), "No country rule still allows a node before its exit is known")
         XCTAssertTrue(settings.allowsAutoSelectNode(node))
         node.lastTestStatus = .unavailable
         XCTAssertFalse(settings.allowsAutoSelectNode(node), "Old app success must not override a failed connection")
@@ -2357,13 +2373,17 @@ final class TestURLSettingsTests: XCTestCase {
 
     func testPresetsAndCustomURLsPersistWithoutDuplicates() throws {
         var settings = AppSettings()
-        XCTAssertEqual(settings.availableTestURLs.count, 8)
+        XCTAssertEqual(settings.availableTestURLs.count, 21)
         XCTAssertTrue(settings.availableTestURLs.contains("http://www.msftconnecttest.com/connecttest.txt"))
         XCTAssertTrue(settings.availableTestURLs.contains(AppSettings.codexConnectivityTestURL))
+        XCTAssertEqual(AppSettings.testURLTitle("https://www.tiktok.com/"), "TikTok连通性检测")
+        XCTAssertEqual(AppSettings.connectivityProbeLabel(for: "https://www.youtube.com/generate_204", customName: nil), "YouTube")
+        XCTAssertEqual(AppSettings.connectivityProbeLabel(for: "https://www.v2ex.com/", customName: nil), "V2EX")
         settings.customTestURLs = ["https://example.com/probe", AppSettings.presetTestURLs[0]]
         settings.testURL = "https://legacy.example.com/check"
         let restored = try JSONDecoder().decode(AppSettings.self, from: JSONEncoder().encode(settings))
-        XCTAssertEqual(restored.availableTestURLs.count, 10)
+        XCTAssertEqual(AppSettings.connectivityProbeLabel(for: "https://www.linkedin.com/", customName: nil), "LinkedIn")
+        XCTAssertEqual(restored.availableTestURLs.count, 23)
         XCTAssertEqual(restored.testURL, settings.testURL)
         var legacy = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(settings)) as? [String: Any])
         legacy.removeValue(forKey: "customTestURLs")

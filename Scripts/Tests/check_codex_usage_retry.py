@@ -15,6 +15,10 @@ fixture = r'''
     func info(_ text: String) { retries += 1 }
 }
 
+enum LabUtilityProcess {
+    static func allowInternet(userInitiated: Bool) async -> Bool { true }
+}
+
 final class Attempts: @unchecked Sendable {
     private let lock = NSLock()
     private var count = 0
@@ -89,6 +93,30 @@ final class Attempts: @unchecked Sendable {
         await manual.refresh()
         check(manualAttempts.calls == 3, "Reconnecting permits a fresh usage query")
         manual.proxyConnected = false
+
+        let suiteName = "hopworld.codex.usage.fixture"
+        let suite = UserDefaults(suiteName: suiteName)!
+        suite.removePersistentDomain(forName: suiteName)
+        let savedAttempts = Attempts()
+        savedAttempts.failures = 0
+        let saving = CodexUsageMonitor(refreshInterval: 3600, retryInterval: 60,
+                                       readSnapshot: { try savedAttempts.read() }, store: suite)
+        saving.proxyConnected = true
+        await saving.refresh()
+        check(saving.snapshot?.bucket?.primary?.usedPercent == 25, "A successful read keeps the latest usage")
+        var restoredDeliveries = 0
+        let restored = CodexUsageMonitor(refreshInterval: 3600, retryInterval: 60, store: suite)
+        restored.onSnapshot = { _ in restoredDeliveries += 1 }
+        check(restored.snapshot?.bucket?.primary?.usedPercent == 25 && !restored.proxyConnected,
+              "Restart shows the last usage before the proxy connects")
+        check(restoredDeliveries == 0, "Restored usage is for display and does not notify")
+        let loggedOut = CodexUsageMonitor(refreshInterval: 3600, retryInterval: 60,
+                                          readSnapshot: { throw CodexUsageReader.ReadError.notLoggedIn }, store: suite)
+        loggedOut.proxyConnected = true
+        await loggedOut.refresh()
+        let afterLogout = CodexUsageMonitor(refreshInterval: 3600, retryInterval: 60, store: suite)
+        check(loggedOut.snapshot == nil && afterLogout.snapshot == nil, "Logging out removes the saved usage")
+        suite.removePersistentDomain(forName: suiteName)
         print("Codex usage retry: \(checks) checks, 0 failures; no real account requests")
         exit(0)
     }

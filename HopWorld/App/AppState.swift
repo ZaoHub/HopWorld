@@ -64,7 +64,20 @@ final class AppState: ObservableObject {
     let codexNotifications = CodexResetNotificationController()
 
     @Published var selectedSidebar: SidebarItem = .dashboard
-    @Published var nodes: [ProxyNode] = []
+    /// Not `@Published`: a batch test rewrites this many times a second, and each
+    /// publish redraws every open page. Silent writes set `nodeInterfaceDirty`.
+    private(set) var nodes: [ProxyNode] = [] {
+        didSet {
+            guard publishNodeChanges else { return }
+            nodeInterfaceDirty = false
+            objectWillChange.send()
+            nodesChanged.send(nodes)
+        }
+    }
+    private var publishNodeChanges = true
+    private var nodeInterfaceDirty = false
+    private let nodesChanged = PassthroughSubject<[ProxyNode], Never>()
+    var nodesForInterface: AnyPublisher<[ProxyNode], Never> { nodesChanged.eraseToAnyPublisher() }
     @Published private(set) var countryGroups: [CountryGroup] = []
     @Published var subscriptions: [Subscription] = []
     @Published var updateLogs: [SubscriptionUpdateLog] = []
@@ -225,6 +238,12 @@ final class AppState: ObservableObject {
     @Published var showComponentUpdates = false
 
     let connection = ConnectionManager()
+    /// LAN forwarding core. Independent of `connection`.
+    let softwareRouter = SoftwareRouter()
+    private var softwareRouteProbeTask: Task<Void, Never>?
+    private var softwareRouteProbeGeneration = 0
+    private var softwareRouteMaintenanceRunning = false
+    private var softwareRouteFailoverCycleRunning = false
     let subscriptionManager = SubscriptionManager()
     let testManager = NodeTestManager()
     let logger = AppLogger.shared
@@ -259,6 +278,8 @@ final class AppState: ObservableObject {
         var focusInNodeList: Bool
         var fetchYesterdayFirst: Bool
         var automatic: Bool
+        /// Software-route refresh must not start the main latency test or its prompt.
+        var quiet: Bool = false
     }
 
     private var pendingSubscriptionRefresh: [PendingSubscriptionRefresh] = []
@@ -269,7 +290,10 @@ final class AppState: ObservableObject {
     private var pendingAutomaticAppProbeNodeIDs: Set<UUID> = []
     private var pendingManualAppProbeNodeIDs: Set<UUID> = []
     private var automaticAppProbeTask: Task<Void, Never>?
-    @Published private(set) var appProbeBatch = AppProbeBatchProgress()
+    private(set) var appProbeBatch = AppProbeBatchProgress() {
+        didSet { scheduleAppProbeInterface(from: oldValue) }
+    }
+    private var appProbeInterfaceTask: Task<Void, Never>?
     private var unexpectedReconnectTask: Task<Void, Never>?
     private var unexpectedReconnectRunID = UUID()
     private var eligibilitySwitchTask: Task<Void, Never>?
@@ -360,7 +384,7 @@ final class AppState: ObservableObject {
                 statusBanner = "合格节点已全部尝试，正在重新测试全部节点"
                 logger.info("异常连接恢复触发全量测速：合格候选已全部尝试", category: .network)
                 let testing = Task { @MainActor in
-                    await self.testNodes(self.nodes.filter { $0.enabled && !$0.pendingRemoval }, silent: true, strictResults: true)
+                    await self.testNodes(self.nodes.filter { $0.enabled && !$0.pendingRemoval && self.nodeSubscriptionEnabled($0) }, silent: true, strictResults: true)
                 }
                 await testing.value
                 guard !Task.isCancelled, testManager.phase != .paused else { return }
@@ -399,7 +423,7 @@ final class AppState: ObservableObject {
 
     private func currentNodeNeedsEligibilityRecovery(_ node: ProxyNode, now: Date = Date()) -> Bool {
         if !node.enabled || node.pendingRemoval || settings.isTemporarilyBlocked(node.id)
-            || !settings.allowsAutoSelectCountry(CountryResolver.effectiveCode(for: node)) { return true }
+            || !settings.allowsAutoSelectCountry(of: node) { return true }
         // Speed and candidate ranking must not disconnect a node that is still usable.
         return connection.nodeQuality[node.id]?.usability(settings: settings, now: now).state == .unavailable
     }
@@ -1143,7 +1167,9 @@ final class AppState: ObservableObject {
         Task {
             await connection.bootstrapRestore(settings: settings)
             if libraryAvailable {
+                let route = Task { await self.restoreSoftwareRouteIfNeeded() }
                 await connectOnLaunchIfNeeded()
+                await route.value
                 if !isTerminating { startScheduler() }
             }
             guard !isTerminating else { return }
@@ -1380,7 +1406,7 @@ final class AppState: ObservableObject {
             nodes = snapshot.nodes
             subscriptions = snapshot.subscriptions
             updateLogs = snapshot.updateLogs
-            countryGroups = CountryResolver.group(nodes.filter { !$0.pendingRemoval })
+            publishCountryGroups(from: nodes)
             libraryAvailable = true
             persistenceError = nil
             if store.recoveredLibraryBackup {
@@ -1434,7 +1460,7 @@ final class AppState: ObservableObject {
             for index in nodes.indices {
                 KeychainStore.storeNodeCredentials(&nodes[index])
             }
-            countryGroups = CountryResolver.group(nodes.filter { !$0.pendingRemoval })
+            publishCountryGroups(from: nodes)
             libraryAvailable = true
             persistenceError = nil
             if imported.settings == nil {
@@ -1475,6 +1501,7 @@ final class AppState: ObservableObject {
             logger.error(persistenceError!)
         }
         settings = store.loadSettings()
+        softwareRouter.adoptConnectivityTargets(settings.connectivityProbeTargets)
         applyTheme()
         // Ad-hoc builds cannot start the Packet Tunnel — fall back to system proxy.
         if settings.connectionCaptureMode == .systemVPN, !HopWorldAppGroup.isSystemVPNAvailable {
@@ -1584,7 +1611,7 @@ final class AppState: ObservableObject {
             }
         }
         nodes = loadedNodes
-        countryGroups = CountryResolver.group(loadedNodes.filter { !$0.pendingRemoval })
+        publishCountryGroups(from: loadedNodes)
         logger.minimumLevel = settings.logLevel
         if localizedCities, libraryAvailable { persist() }
         if libraryAvailable {
@@ -1593,12 +1620,17 @@ final class AppState: ObservableObject {
             logger.warning("跃界已启动，但数据尚未读取，已暂停自动更新和自动连接；列表为空不代表原数据被删除")
         }
         Task.detached(priority: .utility) {
+            let ended = StorageCleaner.endOrphanSessionCores()
             let result = StorageCleaner.cleanTemporaryLeftovers()
-            guard result.removed > 0 || result.failures > 0 else { return }
+            guard ended > 0 || result.removed > 0 || result.failures > 0 else { return }
             let freed = ByteCountFormatter.string(fromByteCount: result.bytes, countStyle: .file)
             let failures = result.failures > 0 ? "；\(result.failures) 项无法删除" : ""
+            var parts: [String] = []
+            if ended > 0 { parts.append("结束上次留下的 \(ended) 个核心进程") }
+            if result.removed > 0 { parts.append("删除 \(result.removed) 个临时目录，释放 \(freed)") }
+            let summary = parts.joined(separator: "，")
             await MainActor.run {
-                AppLogger.shared.info("启动清理：删除上次留下的 \(result.removed) 个临时目录，释放 \(freed)\(failures)")
+                AppLogger.shared.info("启动清理：\(summary)\(failures)")
             }
         }
     }
@@ -1809,16 +1841,15 @@ final class AppState: ObservableObject {
 
         // Coalesce bulk mutations into one country regroup. This preserves live
         // dashboard updates without O(n²) work during imports or mass edits.
-        $nodes
-            .dropFirst()
+        nodesChanged
             .throttle(for: .milliseconds(100), scheduler: RunLoop.main, latest: true)
             .sink { [weak self] nodes in
-                self?.countryGroups = CountryResolver.group(nodes.filter { !$0.pendingRemoval })
+                self?.publishCountryGroups(from: nodes)
             }
             .store(in: &cancellables)
 
-        // Forward connection changes that matter for menus / chrome — NOT live traffic.
-        // Traffic updates every ~1s while connected and must not rebuild open UI.
+        // Forward connection changes that matter for menus / chrome — not live traffic or latency.
+        // Traffic updates every ~1s and latency every ~5s; either one redraws every open page.
         Publishers.CombineLatest3(
             connection.$state,
             connection.$isBusy,
@@ -1830,7 +1861,6 @@ final class AppState: ObservableObject {
                 currentNodeID: state.currentNodeID,
                 currentCountryCode: state.currentCountryCode,
                 currentCountryName: state.currentCountryName,
-                latency: state.latency,
                 exitIP: state.exitIP,
                 exitCountry: state.exitCountry,
                 lastError: state.lastError,
@@ -1897,7 +1927,6 @@ final class AppState: ObservableObject {
         var currentNodeID: UUID?
         var currentCountryCode: String?
         var currentCountryName: String?
-        var latency: Int?
         var exitIP: String?
         var exitCountry: String?
         var lastError: String?
@@ -2067,9 +2096,17 @@ final class AppState: ObservableObject {
         if refreshAfterSave {
             Task { await refreshSubscription(updated.id) }
         }
+        if previous.isEnabled != updated.isEnabled {
+            publishCountryGroups(from: nodes)
+        }
         if previous.isEnabled && !updated.isEnabled {
             disconnectIfUsingSubscription(updated.id, name: updated.name)
         }
+    }
+
+    /// 首页国家分组不含待删除节点，也不含已禁用订阅。手动导入和找不到订阅的节点仍保留。
+    private func publishCountryGroups(from nodes: [ProxyNode]) {
+        countryGroups = CountryResolver.group(nodes.filter { !$0.pendingRemoval && nodeSubscriptionEnabled($0) })
     }
 
     func subscription(for id: UUID) -> Subscription? {
@@ -2106,14 +2143,14 @@ final class AppState: ObservableObject {
         }
     }
 
-    func refreshSubscription(_ id: UUID, focusInNodeList: Bool = false, fetchYesterdayFirst: Bool = false, automatic: Bool = false, trustRecentInternetCheck: Bool = false) async {
+    func refreshSubscription(_ id: UUID, focusInNodeList: Bool = false, fetchYesterdayFirst: Bool = false, automatic: Bool = false, trustRecentInternetCheck: Bool = false, quiet: Bool = false) async {
         guard !isTerminating else { return }
         if !trustRecentInternetCheck {
             guard await requireInternet(userInitiated: !automatic) else { return }
         }
         guard let sub = subscriptions.first(where: { $0.id == id }) else { return }
         if !libraryAvailable && !sub.isShareLinksBundle {
-            statusBanner = "本地数据未就绪，无法拉取远程订阅"
+            if !quiet { statusBanner = "本地数据未就绪，无法拉取远程订阅" }
             return
         }
         if subscriptionRefreshInProgress {
@@ -2123,15 +2160,16 @@ final class AppState: ObservableObject {
                 }
                 pendingSubscriptionRefresh[index].fetchYesterdayFirst = pendingSubscriptionRefresh[index].fetchYesterdayFirst || fetchYesterdayFirst
                 pendingSubscriptionRefresh[index].automatic = pendingSubscriptionRefresh[index].automatic && automatic
+                pendingSubscriptionRefresh[index].quiet = pendingSubscriptionRefresh[index].quiet && quiet
             } else {
                 pendingSubscriptionRefresh.append(
-                    PendingSubscriptionRefresh(id: id, focusInNodeList: focusInNodeList, fetchYesterdayFirst: fetchYesterdayFirst, automatic: automatic)
+                    PendingSubscriptionRefresh(id: id, focusInNodeList: focusInNodeList, fetchYesterdayFirst: fetchYesterdayFirst, automatic: automatic, quiet: quiet)
                 )
             }
             return
         }
         guard subscriptionManager.updateState == .idle else {
-            statusBanner = "订阅地址测试进行中，请稍后再更新"
+            if !quiet { statusBanner = "订阅地址测试进行中，请稍后再更新" }
             return
         }
         subscriptionRefreshInProgress = true
@@ -2140,7 +2178,7 @@ final class AppState: ObservableObject {
             presentSubscriptionTestPromptIfNeeded()
         }
         var next: PendingSubscriptionRefresh? = PendingSubscriptionRefresh(
-            id: id, focusInNodeList: focusInNodeList, fetchYesterdayFirst: fetchYesterdayFirst, automatic: automatic
+            id: id, focusInNodeList: focusInNodeList, fetchYesterdayFirst: fetchYesterdayFirst, automatic: automatic, quiet: quiet
         )
         // Drain on this task so a batch waits for queued refreshes and never publishes midway.
         while let request = next, !isTerminating {
@@ -2154,13 +2192,18 @@ final class AppState: ObservableObject {
         let focusInNodeList = request.focusInNodeList
         let fetchYesterdayFirst = request.fetchYesterdayFirst
         let automatic = request.automatic
+        let quiet = request.quiet
         guard !isTerminating, let sub = subscription(for: id) else { return }
+        func show(_ message: String) {
+            guard !quiet else { return }
+            statusBanner = message
+        }
         if !libraryAvailable && !sub.isShareLinksBundle {
-            statusBanner = "本地数据未就绪，无法拉取远程订阅"
+            show("本地数据未就绪，无法拉取远程订阅")
             return
         }
-        refreshingSubscriptionID = id
-        defer { refreshingSubscriptionID = nil }
+        if !quiet { refreshingSubscriptionID = id }
+        defer { if !quiet { refreshingSubscriptionID = nil } }
         let initialNodes = nodes.filter { $0.subscriptionID == id }
         let offsets = sub.initialFetchOffsets(includeYesterday: fetchYesterdayFirst)
         var latestFailure: String?
@@ -2187,18 +2230,18 @@ final class AppState: ObservableObject {
             // MainActor is reentrant across the download. Never reuse its old index,
             // resurrect a deleted subscription or overwrite a newer edit.
             guard let index = subscriptions.firstIndex(where: { $0.id == id }) else {
-                statusBanner = "订阅已删除，本次下载结果未应用"
+                show("订阅已删除，本次下载结果未应用")
                 return
             }
             guard subscriptions[index].hasSameFetchSource(as: sub) else {
-                statusBanner = "订阅地址已修改，本次下载结果未应用，请重新更新"
+                show("订阅地址已修改，本次下载结果未应用，请重新更新")
                 return
             }
             guard let committed = SubscriptionMerger.commitRefresh(
                 subscriptionID: id, baseline: baseline, proposed: proposedNodes, current: nodes,
                 preserveNodeIDs: connection.state.currentNodeID.map { [$0] } ?? []
             ) else {
-                statusBanner = "更新期间节点发生变化，已保留最新修改，请重新更新订阅"
+                show("更新期间节点发生变化，已保留最新修改，请重新更新订阅")
                 return
             }
             var merged = updated
@@ -2221,15 +2264,21 @@ final class AppState: ObservableObject {
             merged.suppressedUnavailableFingerprints = current.suppressedUnavailableFingerprints
             merged.smartMergeMissingLimit = current.smartMergeMissingLimit
             merged.nextUpdateAt = subscriptionManager.computeNextUpdateAt(for: merged)
-            subscriptions[index] = merged
+            if !quiet {
+                subscriptions[index] = merged
+            }
             nodes = committed
-            updateLogs.insert(log, at: 0)
-            if updateLogs.count > 500 { updateLogs = Array(updateLogs.prefix(500)) }
+            if !quiet {
+                updateLogs.insert(log, at: 0)
+                if updateLogs.count > 500 { updateLogs = Array(updateLogs.prefix(500)) }
+            }
             latestFailure = log.success ? nil : merged.lastError ?? log.errorMessage ?? "未取得有效节点"
             persist()
-            markPendingConfigUpdates(subscriptionID: id, previousDigests: previousDigests)
+            if !quiet {
+                markPendingConfigUpdates(subscriptionID: id, previousDigests: previousDigests)
+            }
 
-            if merged.testAfterUpdate, log.success, automatic || merged.isShareLinksBundle {
+            if !quiet, merged.testAfterUpdate, log.success, automatic || merged.isShareLinksBundle {
                 let targets = nodes.filter { node in
                     guard node.subscriptionID == id, node.enabled, !node.pendingRemoval else { return false }
                     if merged.isShareLinksBundle { return !previousNodeIDs.contains(node.id) }
@@ -2248,18 +2297,18 @@ final class AppState: ObservableObject {
                 let imported = nodes.filter { $0.subscriptionID == id && !$0.pendingRemoval }
                 if !imported.isEmpty {
                     focusNodeList(source: .subscription(id), nodeID: imported.first?.id, openDetail: false)
-                    statusBanner = "已导入 \(imported.count) 个节点，已在节点列表中显示"
+                    show("已导入 \(imported.count) 个节点，已在节点列表中显示")
                 }
-            } else if log.success, merged.isShareLinksBundle {
+            } else if log.success, merged.isShareLinksBundle, !quiet {
                 statusBanner = merged.statusMessage
             } else if !log.success, let error = merged.lastError ?? log.errorMessage {
-                statusBanner = error
+                show(error)
             }
-            if log.success {
+            if log.success, !quiet {
                 let groupIDs = Set(nodes.filter { $0.subscriptionID == id && !$0.pendingRemoval }.map(\.id))
                 let removed = removeDuplicateNodes(among: groupIDs, reportEmptyResult: false)
                 if removed > 0 {
-                    statusBanner = "已删除 \(removed) 个重复节点（当前订阅）"
+                    show("已删除 \(removed) 个重复节点（当前订阅）")
                 }
             }
         }
@@ -2268,7 +2317,7 @@ final class AppState: ObservableObject {
                 ? current.nextRetryAt.map { "；下次重试：\($0.formatted(date: .abbreviated, time: .shortened))" } ?? ""
                 : ""
             logger.warning("订阅 \(current.name) 更新失败，保留上次数据：\(latestFailure)\(retry)", category: .subscription)
-        } else if !automatic, let current = subscription(for: id), !current.isShareLinksBundle,
+        } else if !quiet, !automatic, let current = subscription(for: id), !current.isShareLinksBundle,
                   SubscriptionMerger.hasNodeChanges(before: initialNodes, after: nodes.filter { $0.subscriptionID == id }) {
             pendingSubscriptionTestPromptIDs.insert(id)
         }
@@ -2918,7 +2967,7 @@ final class AppState: ObservableObject {
             cleared[index].lastAppProbeLatency = nil
         }
         nodes = cleared
-        countryGroups = CountryResolver.group(cleared.filter { !$0.pendingRemoval })
+        publishCountryGroups(from: cleared)
         testManager.resetAppProbes(targets: settings.automaticAppProbeTargets)
         persist()
         statusBanner = "已清除自动优选列表，重新测试节点后将按当前规则加入列表"
@@ -2984,17 +3033,17 @@ final class AppState: ObservableObject {
             return automaticallyRankedNodes(nodes).first
         }
         if let current = currentNode, nodeSubscriptionEnabled(current), !settings.isTemporarilyBlocked(current.id),
-           !isCountryExcludedFromAutoSelect(CountryResolver.effectiveCode(for: current)) {
+           settings.allowsAutoSelectCountry(of: current) {
             return current
         }
         if let recent = recentNodes.first(where: {
             $0.enabled && !settings.isTemporarilyBlocked($0.id) && !isChinaExit($0) &&
-            !isCountryExcludedFromAutoSelect(CountryResolver.effectiveCode(for: $0))
+            settings.allowsAutoSelectCountry(of: $0)
         }) {
             return recent
         }
         if let recent = recentNodes.first(where: {
-            $0.enabled && !settings.isTemporarilyBlocked($0.id) && !isCountryExcludedFromAutoSelect(CountryResolver.effectiveCode(for: $0))
+            $0.enabled && !settings.isTemporarilyBlocked($0.id) && settings.allowsAutoSelectCountry(of: $0)
         }) {
             return recent
         }
@@ -3274,6 +3323,8 @@ final class AppState: ObservableObject {
         if connection.state.status != .disconnected {
             connection.state.status = .disconnecting
         }
+        stopSoftwareRouteProbe()
+        await softwareRouter.stop(forget: false)
         await connection.disconnect(settings: settings, reason: "退出应用")
         await automaticProbes?.value
         await testingCleanup.value
@@ -3442,6 +3493,321 @@ final class AppState: ObservableObject {
         }
     }
 
+    /// Pulls the checked subscriptions, then optionally runs the software-route probe.
+    /// Does not change subscription schedules or start the main latency test.
+    func updateSoftwareRouteSubscriptions() {
+        Task { await runSoftwareRouteMaintenance(testAfter: false) }
+    }
+
+    private func runSoftwareRouteScheduleIfDue(now: Date) async {
+        guard !softwareRouteMaintenanceRunning, !softwareRouter.probeRunning, !softwareRouter.updateRunning else { return }
+        let updateDue = SoftwareRouteSchedule.isDue(
+            now: now,
+            enabled: softwareRouter.updateScheduleEnabled,
+            interval: TimeInterval(softwareRouter.updateIntervalHours) * 3600,
+            lastRun: softwareRouter.lastUpdateRun
+        )
+        let testDue = SoftwareRouteSchedule.isDue(
+            now: now,
+            enabled: softwareRouter.testScheduleEnabled,
+            interval: TimeInterval(softwareRouter.testIntervalMinutes) * 60,
+            lastRun: softwareRouter.lastTestRun
+        )
+        guard updateDue || testDue else { return }
+        if updateDue {
+            softwareRouter.markUpdateRan(now)
+            await runSoftwareRouteMaintenance(testAfter: false)
+        }
+        guard testDue, !isTerminating, !softwareRouter.probeRunning else { return }
+        softwareRouter.markTestRan(now)
+        refreshSoftwareRouteCandidates()
+    }
+
+    private func runSoftwareRouteMaintenance(testAfter: Bool) async {
+        guard !isTerminating, !softwareRouteMaintenanceRunning, !softwareRouter.probeRunning else { return }
+        softwareRouteMaintenanceRunning = true
+        defer { softwareRouteMaintenanceRunning = false }
+        let ids = softwareRouteSubscriptionIDs()
+        if !ids.isEmpty {
+            softwareRouter.beginUpdate(total: ids.count)
+            for (index, id) in ids.enumerated() {
+                if isTerminating { break }
+                await refreshSubscription(id, automatic: true, trustRecentInternetCheck: index > 0, quiet: true)
+                softwareRouter.noteUpdate(completed: index + 1)
+            }
+            softwareRouter.finishUpdate()
+        }
+        guard testAfter, !isTerminating else { return }
+        await runSoftwareRouteProbeNow()
+    }
+
+    /// Status line shows the subscription group before the node name.
+    func softwareRouteForwardTitle(_ node: ProxyNode) -> String {
+        "\(node.groupName(subscriptions: subscriptions)) · \(settings.nodeDisplayTitle(node))"
+    }
+
+    /// Starts the soft route's own last node. A disconnected main app does not block it.
+    private func restoreSoftwareRouteIfNeeded() async {
+        guard !isTerminating, softwareRouter.phase == .idle else { return }
+        let previousIDs = SoftwareRoutePreferences.consumePreviousMultiNodeIDs()
+        if SoftwareRoutePreferences.loadConnectedNodeID() == nil,
+           let id = previousIDs.first(where: { id in nodes.contains { $0.id == id && $0.enabled && !$0.pendingRemoval } }) {
+            SoftwareRoutePreferences.saveConnectedNodeID(id)
+        }
+        let saved = SoftwareRoutePreferences.loadConnectedNodeID()?.uuidString
+        guard let id = SoftwareRouteRestore.nodeID(saved: saved, nodes: nodes),
+              let node = nodes.first(where: { $0.id == id }) else {
+            if let saved, nodes.contains(where: { $0.id.uuidString == saved }) == false {
+                SoftwareRoutePreferences.saveConnectedNodeID(nil)
+            }
+            return
+        }
+        let avoid: Set<Int> = [settings.httpPort, settings.socksPort, XrayConfigBuilder.apiPort]
+        let title = softwareRouteForwardTitle(node)
+        logger.info("软路由按上次连接启动：\(title)。主连接未改动", category: .network)
+        await softwareRouter.start(node: node, title: title, avoidingPorts: avoid)
+    }
+
+    private func softwareRouteSubscriptionIDs() -> [UUID] {
+        let known = subscriptions.map(\.id)
+        if let selected = softwareRouter.selectedGroupIDs {
+            return known.filter { selected.contains($0.uuidString) }
+        }
+        return known
+    }
+
+    /// Tests every node in the software router's checked groups. A disabled subscription still counts.
+    /// Does not write settings, subscription flags, or node probe fields.
+    func refreshSoftwareRouteCandidates() {
+        guard !isTerminating else { return }
+        softwareRouteProbeTask?.cancel()
+        softwareRouteProbeTask = Task { [weak self] in
+            await self?.runSoftwareRouteProbeNow()
+        }
+    }
+
+    @MainActor
+    private func runSoftwareRouteProbeNow() async {
+        guard !isTerminating else { return }
+        softwareRouteProbeGeneration += 1
+        let token = softwareRouteProbeGeneration
+        let selection = softwareRouter.selectedGroupIDs
+        let targets = nodes.filter { SoftwareRouteGroups.includes($0, selection: selection) }
+        softwareRouter.beginProbe(total: targets.count)
+        await runSoftwareRouteProbe(targets, token: token)
+    }
+
+    func stopSoftwareRouteProbe() {
+        softwareRouteProbeGeneration += 1
+        softwareRouteProbeTask?.cancel()
+        softwareRouteProbeTask = nil
+        softwareRouter.cancelProbe()
+    }
+
+    private func recordSoftwareRouteRank(
+        _ id: UUID,
+        summary: (okCount: Int, bestLatencyMs: Int?, passedIDs: Set<String>, exit: SoftwareRouteExit?)?,
+        targets: [AppProbeTarget],
+        into ranks: inout [UUID: SoftwareRouteProbe.Rank]
+    ) {
+        if let summary, SoftwareRouteProbe.passes(summary.passedIDs, targets: targets) {
+            ranks[id] = SoftwareRouteProbe.Rank(
+                passedIDs: summary.passedIDs, latencyMs: summary.bestLatencyMs, exit: summary.exit
+            )
+        } else {
+            ranks[id] = SoftwareRouteProbe.Rank(passedIDs: [], latencyMs: nil, exit: nil)
+        }
+    }
+
+    private func runSoftwareRouteProbe(_ targets: [ProxyNode], token: Int) async {
+        guard !targets.isEmpty else {
+            guard token == softwareRouteProbeGeneration else { return }
+            softwareRouter.finishProbe(ranks: [:])
+            return
+        }
+        var ranks: [UUID: SoftwareRouteProbe.Rank] = [:]
+        var cursor = 0
+        let concurrency = min(16, max(1, settings.testConcurrency))
+        let batchSize = max(16, concurrency * 2)
+        while cursor < targets.count {
+            if Task.isCancelled || token != softwareRouteProbeGeneration { return }
+            let end = min(cursor + batchSize, targets.count)
+            let slice = Array(targets[cursor..<end])
+            cursor = end
+            let chosen = softwareRouter.selectedTargets
+            let timeout = TimeInterval(max(1, settings.batchTestTimeoutSeconds))
+            let summaries = await testManager.measureAppProbes(for: slice, timeout: timeout, targets: chosen, includeExit: true, concurrency: concurrency) { id, summary in
+                guard token == self.softwareRouteProbeGeneration else { return }
+                self.recordSoftwareRouteRank(id, summary: summary, targets: chosen, into: &ranks)
+                self.softwareRouter.noteProbe(completed: ranks.count, ranks: ranks)
+            }
+            guard !Task.isCancelled, token == softwareRouteProbeGeneration else { return }
+            for node in slice where ranks[node.id] == nil {
+                recordSoftwareRouteRank(node.id, summary: summaries[node.id], targets: chosen, into: &ranks)
+            }
+            softwareRouter.noteProbe(completed: ranks.count, ranks: ranks)
+        }
+        guard token == softwareRouteProbeGeneration else { return }
+        softwareRouter.finishProbe(ranks: ranks)
+        let opened = ranks.values.filter { SoftwareRouteProbe.passes($0.passedIDs, targets: softwareRouter.selectedTargets) }.count
+        logger.info("软路由连通测试完成：\(opened)/\(targets.count) 个节点可打开\(softwareRouter.selectionSummary)。主设置未改动", category: .test)
+        await applySoftwareRouteAutoSelectIfNeeded()
+        if softwareRouter.latencyFailoverEnabled, !softwareRouter.autoSelect, softwareRouter.phase != .connected {
+            await connectSoftwareRouteFailoverNode(at: 0)
+        }
+    }
+
+    /// Connects the software-router's own best node. The main connection is left alone.
+    func applySoftwareRouteAutoSelectIfNeeded() async {
+        guard softwareRouter.autoSelect, !softwareRouter.probeRunning, softwareRouter.phase != .connecting else { return }
+        guard !rankedSoftwareRouteNodes(limit: 1).isEmpty else { return }
+        await connectSoftwareRouteFailoverNode(at: 0)
+    }
+
+    private func rankedSoftwareRouteNodes(limit: Int? = nil) -> [ProxyNode] {
+        let order = softwareRouter.selectedTargets
+        let passed = nodes.filter { softwareRouter.passedNodeIDs.contains($0.id) }
+        let withExit = passed.filter { SoftwareRouteProbe.hasVerifiedExit(softwareRouter.ranks[$0.id]) }
+        let pool = withExit.isEmpty ? passed : withExit
+        let sorted = pool
+            .sorted { lhs, rhs in
+                let left = softwareRouter.ranks[lhs.id] ?? SoftwareRouteProbe.Rank(passedIDs: [], latencyMs: nil)
+                let right = softwareRouter.ranks[rhs.id] ?? SoftwareRouteProbe.Rank(passedIDs: [], latencyMs: nil)
+                if SoftwareRouteProbe.rank(left, before: right, order: order) { return true }
+                if SoftwareRouteProbe.rank(right, before: left, order: order) { return false }
+                return settings.nodeDisplayTitle(lhs).localizedStandardCompare(settings.nodeDisplayTitle(rhs)) == .orderedAscending
+            }
+        guard let limit else { return sorted }
+        return Array(sorted.prefix(max(0, limit)))
+    }
+
+    private func softwareRouteFailoverPool() -> [ProxyNode] {
+        rankedSoftwareRouteNodes(limit: softwareRouter.latencyFailoverTopCount)
+    }
+
+    private func connectSoftwareRouteFailoverNode(at index: Int) async {
+        guard !softwareRouter.probeRunning, softwareRouter.phase != .connecting else { return }
+        let pool = softwareRouteFailoverPool()
+        guard !pool.isEmpty else { return }
+        let start = min(max(0, index), pool.count - 1)
+        let verifyExit = softwareRouter.autoSelect || softwareRouter.latencyFailoverEnabled
+        let attempts = verifyExit ? min(3, pool.count - start) : 1
+        let avoid: Set<Int> = [settings.httpPort, settings.socksPort, XrayConfigBuilder.apiPort]
+        for offset in 0..<attempts {
+            let position = start + offset
+            let node = pool[position]
+            softwareRouter.noteFailoverRotationIndex(position)
+            let title = softwareRouteForwardTitle(node)
+            if verifyExit,
+               node.id == softwareRouter.nodeID, softwareRouter.phase == .connected {
+                if await softwareRouteLanExitVerified() { return }
+            }
+            guard node.id != softwareRouter.nodeID || softwareRouter.phase != .connected else { continue }
+            await softwareRouter.start(node: node, title: title, avoidingPorts: avoid)
+            guard softwareRouter.phase == .connected else { continue }
+            if !verifyExit {
+                return
+            }
+            if await softwareRouteLanExitVerified() {
+                return
+            }
+            logger.warning(
+                "软路由节点「\(title)」勾选目标可达，但经 17890 的出口 HTTPS 未验证（常见于仅谷歌 204 假通），尝试下一个",
+                category: .network
+            )
+        }
+    }
+
+    private func softwareRouteLanExitVerified() async -> Bool {
+        guard let port = softwareRouter.httpPort else { return false }
+        let timeout = TimeInterval(max(3, settings.batchTestTimeoutSeconds))
+        let info = await ExitIPTester.fetch(
+            proxyHost: "127.0.0.1",
+            proxyPort: port,
+            timeout: timeout,
+            socksPort: softwareRouter.socksPort
+        )
+        let ip = info.ip?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return !ip.isEmpty
+    }
+
+    private func measureSoftwareRouteLiveLatencyMs() async -> Int? {
+        guard let port = softwareRouter.httpPort else { return nil }
+        let timeout = TimeInterval(max(2, softwareRouter.latencyFailoverMaxSeconds))
+        var best: Int?
+        for target in softwareRouter.selectedTargets {
+            let result = await AppProbeRunner.probeOne(
+                target: target,
+                proxyHost: "127.0.0.1",
+                httpPort: port,
+                socksPort: softwareRouter.socksPort,
+                timeout: timeout
+            )
+            if result.status == .ok, let ms = result.latencyMs {
+                best = min(best ?? ms, ms)
+            }
+        }
+        return best
+    }
+
+    /// While connected, probe through the LAN HTTP port and rotate within the ranked top-N pool when slow.
+    func runSoftwareRouteLatencyFailoverIfNeeded() async {
+        guard softwareRouter.latencyFailoverEnabled else { return }
+        guard softwareRouter.phase == .connected, !softwareRouter.probeRunning,
+              !softwareRouter.updateRunning, !softwareRouteMaintenanceRunning,
+              !softwareRouteFailoverCycleRunning else { return }
+        guard !softwareRouter.selectedTargets.isEmpty else { return }
+        let now = Date()
+        if let since = softwareRouter.connectedSince, now.timeIntervalSince(since) < 20 { return }
+        if let last = softwareRouter.lastLatencyFailoverAction,
+           now.timeIntervalSince(last) < 25 { return }
+        if let checked = softwareRouter.lastLatencyFailoverCheck,
+           now.timeIntervalSince(checked) < 15 { return }
+        softwareRouter.noteLatencyFailoverCheck(now)
+
+        let pool = softwareRouteFailoverPool()
+        guard !pool.isEmpty else { return }
+
+        let thresholdMs = softwareRouter.latencyFailoverMaxSeconds * 1000
+        let latencyMs = await measureSoftwareRouteLiveLatencyMs()
+        let slow = latencyMs == nil || latencyMs! > thresholdMs
+        guard slow else { return }
+
+        let currentIndex = pool.firstIndex(where: { $0.id == softwareRouter.nodeID }) ?? softwareRouter.failoverRotationIndex
+        let nextIndex = currentIndex + 1
+        if nextIndex < pool.count {
+            softwareRouter.noteLatencyFailoverAction(now)
+            let title = settings.nodeDisplayTitle(pool[nextIndex])
+            logger.info(
+                "软路由延时超过 \(softwareRouter.latencyFailoverMaxSeconds) 秒（\(latencyMs.map { "\($0)ms" } ?? "不通")），切到第 \(nextIndex + 1) 个节点：\(title)。主连接未改动",
+                category: .network
+            )
+            await connectSoftwareRouteFailoverNode(at: nextIndex)
+            return
+        }
+
+        softwareRouter.noteLatencyFailoverAction(now)
+        logger.info(
+            "软路由前 \(pool.count) 个节点均慢于 \(softwareRouter.latencyFailoverMaxSeconds) 秒，更新订阅并重新测试。主连接未改动",
+            category: .network
+        )
+        await runSoftwareRouteFailoverRefreshCycle()
+    }
+
+    private func runSoftwareRouteFailoverRefreshCycle() async {
+        guard !softwareRouteFailoverCycleRunning else { return }
+        softwareRouteFailoverCycleRunning = true
+        defer { softwareRouteFailoverCycleRunning = false }
+        softwareRouter.resetFailoverRotation()
+        await runSoftwareRouteMaintenance(testAfter: true)
+        guard !isTerminating else { return }
+        if softwareRouter.autoSelect {
+            await applySoftwareRouteAutoSelectIfNeeded()
+        } else {
+            await connectSoftwareRouteFailoverNode(at: 0)
+        }
+    }
+
     func usableNodesForAppProbe(in source: NodeListFilter.Source) -> [ProxyNode] {
         NodeListFilter.nodes(in: nodes, source: source, subscriptions: subscriptions)
             .filter { $0.lastTestStatus.isUsable && nodeSubscriptionEnabled($0) }
@@ -3451,7 +3817,9 @@ final class AppState: ObservableObject {
     func testUsableNodeApps(in source: NodeListFilter.Source) {
         guard !isTerminating else { return }
         guard !settings.automaticAppProbeTargets.isEmpty else {
-            statusBanner = "请先配置应用连通测试目标"
+            statusBanner = settings.customAppProbeListIsEmpty
+                ? AppSettings.emptyCustomAppProbeNote
+                : "请先配置应用连通测试目标"
             return
         }
         let targets = usableNodesForAppProbe(in: source)
@@ -3487,6 +3855,10 @@ final class AppState: ObservableObject {
         guard settings.autoAppProbeUsableNodes || !forceRetestIDs.isEmpty else { return }
         guard await requireInternet(userInitiated: !silent || !forceRetestIDs.isEmpty) else { return }
         guard !settings.automaticAppProbeTargets.isEmpty else {
+            if settings.customAppProbeListIsEmpty {
+                appProbeBatch.statusText = AppSettings.emptyCustomAppProbeNote
+                return
+            }
             appProbeBatch.statusText = "未开始应用连通：请先配置测试目标"
             logger.warning(appProbeBatch.statusText, category: .test)
             if !silent { statusBanner = appProbeBatch.statusText }
@@ -3526,72 +3898,133 @@ final class AppState: ObservableObject {
         appProbeBatch = AppProbeBatchProgress(isRunning: true, total: targets.count)
         logger.info("应用连通批量测试开始：\(targets.count) 个可用节点", category: .test)
         defer {
-            appProbeBatch.isRunning = false
-            appProbeBatch.currentSubscriptionID = nil
-            let completed = !Task.isCancelled && generation == autoSelectResultsGeneration && appProbeBatch.completed == targets.count
-            appProbeBatch.statusText = "应用连通\(completed ? "测试完成" : "已停止")：\(appProbeBatch.completed)/\(targets.count) 个节点，\(appProbeBatch.connected) 个至少一项通过，\(appProbeBatch.failed) 个未完成探测"
-            if appProbeBatch.failed > 0 {
-                logger.warning(appProbeBatch.statusText, category: .test)
+            var done = appProbeBatch
+            done.isRunning = false
+            done.currentSubscriptionID = nil
+            let completed = !Task.isCancelled && generation == autoSelectResultsGeneration && done.completed == targets.count
+            done.statusText = "应用连通\(completed ? "测试完成" : "已停止")：\(done.completed)/\(targets.count) 个节点，\(done.connected) 个至少一项通过，\(done.failed) 个未完成探测"
+            appProbeBatch = done
+            if done.failed > 0 {
+                logger.warning(done.statusText, category: .test)
             } else {
-                logger.info(appProbeBatch.statusText, category: .test)
+                logger.info(done.statusText, category: .test)
             }
-            if !silent { statusBanner = appProbeBatch.statusText }
+            if !silent { statusBanner = done.statusText }
             persist()
         }
         let timeout = TimeInterval(max(1, settings.appProbeTimeoutSeconds))
-        for (index, node) in targets.enumerated() {
+        // 16 与批量测速同一档：一套核心覆盖一批，界面也只发布一次。
+        let probeBatchSize = 16
+        var cursor = 0
+        while cursor < targets.count {
             if Task.isCancelled || generation != autoSelectResultsGeneration || probeTargets != settings.automaticAppProbeTargets { break }
-            guard settings.autoAppProbeUsableNodes || forceRetestIDs.contains(node.id) else { continue }
-            // 期间节点可能被删或状态变了。
-            guard let latest = nodes.first(where: { $0.id == node.id }),
-                  latest.enabled, !latest.pendingRemoval,
-                  nodeSubscriptionEnabled(latest),
-                  latest.lastTestStatus.isUsable,
-                  (forceRetestIDs.contains(node.id) || latest.lastAppProbeDate == nil || latest.lastAppProbePassedIDs == nil)
-            else { continue }
+            let end = min(cursor + probeBatchSize, targets.count)
+            let slice = targets[cursor..<end]
+            cursor = end
 
-            appProbeBatch.statusText = "应用连通 \(index + 1)/\(targets.count)：\(self.settings.nodeDisplayTitle(latest))"
-            appProbeBatch.currentSubscriptionID = latest.subscriptionID
-            if !silent {
-                statusBanner = appProbeBatch.statusText
+            var runnable: [ProxyNode] = []
+            runnable.reserveCapacity(slice.count)
+            for node in slice {
+                guard settings.autoAppProbeUsableNodes || forceRetestIDs.contains(node.id) else { continue }
+                guard let latest = nodes.first(where: { $0.id == node.id }),
+                      latest.enabled, !latest.pendingRemoval,
+                      nodeSubscriptionEnabled(latest),
+                      latest.lastTestStatus.isUsable,
+                      (forceRetestIDs.contains(node.id) || latest.lastAppProbeDate == nil || latest.lastAppProbePassedIDs == nil)
+                else { continue }
+                runnable.append(latest)
             }
+            guard !runnable.isEmpty else { continue }
 
-            let summary = await testManager.measureAppProbe(for: latest, timeout: timeout, targets: probeTargets)
+            var progress = appProbeBatch
+            let first = progress.completed + 1
+            let last = progress.completed + runnable.count
+            progress.statusText = first == last
+                ? "应用连通 \(first)/\(targets.count)：\(settings.nodeDisplayTitle(runnable[0]))"
+                : "应用连通 \(first)-\(last)/\(targets.count)"
+            progress.currentSubscriptionID = runnable[0].subscriptionID
+            appProbeBatch = progress
+            if !silent { statusBanner = progress.statusText }
+
+            let fingerprints = Dictionary(uniqueKeysWithValues: runnable.map { ($0.id, NodeFingerprint.make(from: $0)) })
+            let testDates = Dictionary(uniqueKeysWithValues: runnable.map { ($0.id, $0.lastTestDate) })
+            let summaries = await testManager.measureAppProbes(for: runnable, timeout: timeout, targets: probeTargets)
             guard !Task.isCancelled, generation == autoSelectResultsGeneration,
                   probeTargets == settings.automaticAppProbeTargets else { break }
-            guard settings.autoAppProbeUsableNodes || forceRetestIDs.contains(node.id) else { break }
-            appProbeBatch.completed += 1
-            guard let current = nodes.first(where: { $0.id == latest.id }),
-                  current.enabled, !current.pendingRemoval,
-                  nodeSubscriptionEnabled(current),
-                  current.lastTestDate == latest.lastTestDate,
-                  NodeFingerprint.make(from: current) == NodeFingerprint.make(from: latest),
-                  let summary else {
-                appProbeBatch.failed += 1
-                continue
+            guard settings.autoAppProbeUsableNodes || runnable.contains(where: { forceRetestIDs.contains($0.id) }) else { break }
+
+            var updates: [(id: UUID, okCount: Int, bestLatencyMs: Int?, passedIDs: Set<String>)] = []
+            var failed = 0
+            var connected = 0
+            for node in runnable {
+                guard settings.autoAppProbeUsableNodes || forceRetestIDs.contains(node.id) else { continue }
+                guard let summary = summaries[node.id],
+                      let current = nodes.first(where: { $0.id == node.id }),
+                      current.enabled, !current.pendingRemoval,
+                      nodeSubscriptionEnabled(current),
+                      current.lastTestDate == testDates[node.id],
+                      NodeFingerprint.make(from: current) == fingerprints[node.id] else {
+                    failed += 1
+                    continue
+                }
+                if summary.okCount > 0 { connected += 1 }
+                updates.append((node.id, summary.okCount, summary.bestLatencyMs, summary.passedIDs))
             }
-            if summary.okCount > 0 { appProbeBatch.connected += 1 }
-            applyAppProbeSummary(
-                nodeID: latest.id,
-                okCount: summary.okCount,
-                bestLatencyMs: summary.bestLatencyMs,
-                passedIDs: summary.passedIDs
-            )
+            applyAppProbeSummaries(updates)
+            var done = appProbeBatch
+            done.completed += updates.count + failed
+            done.connected += connected
+            done.failed += failed
+            appProbeBatch = done
         }
     }
 
     private func applyAppProbeSummary(nodeID: UUID, okCount: Int, bestLatencyMs: Int?, passedIDs: Set<String>) {
-        guard let index = nodes.firstIndex(where: { $0.id == nodeID }) else { return }
+        applyAppProbeSummaries([(id: nodeID, okCount: okCount, bestLatencyMs: bestLatencyMs, passedIDs: passedIDs)])
+    }
+
+    private func applyAppProbeSummaries(_ updates: [(id: UUID, okCount: Int, bestLatencyMs: Int?, passedIDs: Set<String>)]) {
+        guard !updates.isEmpty else { return }
+        let now = Date()
         var copy = nodes
-        copy[index].lastAppProbePassedIDs = passedIDs
-        copy[index].lastAppProbeOkCount = okCount
-        copy[index].lastAppProbeLatency = bestLatencyMs
-        copy[index].lastAppProbeDate = Date()
-        if okCount >= 3 {
-            copy[index].lastAvailableAt = copy[index].lastAppProbeDate
-            copy[index].unavailableSince = nil
+        var changed = false
+        for update in updates {
+            guard let index = copy.firstIndex(where: { $0.id == update.id }) else { continue }
+            copy[index].lastAppProbePassedIDs = update.passedIDs
+            copy[index].lastAppProbeOkCount = update.okCount
+            copy[index].lastAppProbeLatency = update.bestLatencyMs
+            copy[index].lastAppProbeDate = now
+            if update.okCount >= 3 {
+                copy[index].lastAvailableAt = now
+                copy[index].unavailableSince = nil
+            }
+            changed = true
         }
-        nodes = copy
+        if changed { storeNodes(copy, publish: !appProbeBatch.isRunning) }
+    }
+
+    /// Progress ticks must not redraw every page. Starting and stopping still publish immediately.
+    private func scheduleAppProbeInterface(from oldValue: AppProbeBatchProgress) {
+        let stopped = oldValue.isRunning && !appProbeBatch.isRunning
+        let started = !oldValue.isRunning && appProbeBatch.isRunning
+        if started || stopped || !appProbeBatch.isRunning {
+            appProbeInterfaceTask?.cancel()
+            appProbeInterfaceTask = nil
+            if stopped, nodeInterfaceDirty {
+                notifyNodesChanged()
+            } else {
+                objectWillChange.send()
+            }
+            return
+        }
+        guard appProbeInterfaceTask == nil else { return }
+        appProbeInterfaceTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            guard let self else { return }
+            self.appProbeInterfaceTask = nil
+            guard !Task.isCancelled, self.appProbeBatch.isRunning else { return }
+            self.objectWillChange.send()
+        }
     }
 
     /// 把卡住的「测试中」恢复为「未测试」（可保留仍在本轮队列里的节点）。
@@ -3615,7 +4048,7 @@ final class AppState: ObservableObject {
         scope: ScheduledTestNodeScope,
         subscriptionRaw: String
     ) -> [ProxyNode] {
-        var list = nodes.filter { $0.enabled && !$0.pendingRemoval }
+        var list = nodes.filter { $0.enabled && !$0.pendingRemoval && nodeSubscriptionEnabled($0) }
         if subscriptionRaw.hasPrefix("subscription:"),
            let id = UUID(uuidString: String(subscriptionRaw.dropFirst("subscription:".count))) {
             list = list.filter { $0.subscriptionID == id }
@@ -3681,37 +4114,52 @@ final class AppState: ObservableObject {
             changed = true
         }
         if changed {
-            nodes = copy
+            storeNodes(copy, publish: !testManager.isTesting)
         }
+    }
+
+    private func storeNodes(_ updated: [ProxyNode], publish: Bool) {
+        if !publish { nodeInterfaceDirty = true }
+        publishNodeChanges = publish
+        nodes = updated
+        publishNodeChanges = true
+    }
+
+    private func notifyNodesChanged() {
+        nodeInterfaceDirty = false
+        objectWillChange.send()
+        nodesChanged.send(nodes)
     }
 
     private func enqueueTestResult(id: UUID, result: NodeTestResult, strictResults: Bool = false, fingerprint: String? = nil) {
         pendingTestResults[id] = (result, strictResults, fingerprint)
         guard testResultFlushTask == nil else { return }
-        // Publish one snapshot per interval instead of rebuilding every page for each node.
+        // Apply results for failover, but leave open pages alone until the run ends.
         testResultFlushTask = Task { @MainActor [weak self] in
             do { try await Task.sleep(nanoseconds: 200_000_000) }
             catch { return }
-            self?.flushTestResults()
+            self?.flushTestResults(publish: false)
         }
     }
 
-    private func flushTestResults() {
+    private func flushTestResults(publish: Bool = true) {
         testResultFlushTask?.cancel()
         testResultFlushTask = nil
-        guard !pendingTestResults.isEmpty else { return }
-        let results = pendingTestResults
-        pendingTestResults.removeAll(keepingCapacity: true)
-        var updated = nodes
         var changed = false
-        for index in updated.indices {
-            guard let entry = results[updated[index].id] else { continue }
-            if let fingerprint = entry.fingerprint,
-               fingerprint != NodeFingerprint.make(from: updated[index]) { continue }
-            applyTestResult(to: &updated, index: index, result: entry.result, strictResults: entry.strict)
-            changed = true
+        if !pendingTestResults.isEmpty {
+            let results = pendingTestResults
+            pendingTestResults.removeAll(keepingCapacity: true)
+            var updated = nodes
+            for index in updated.indices {
+                guard let entry = results[updated[index].id] else { continue }
+                if let fingerprint = entry.fingerprint,
+                   fingerprint != NodeFingerprint.make(from: updated[index]) { continue }
+                applyTestResult(to: &updated, index: index, result: entry.result, strictResults: entry.strict)
+                changed = true
+            }
+            if changed { storeNodes(updated, publish: publish) }
         }
-        if changed { nodes = updated }
+        if publish, nodeInterfaceDirty { notifyNodesChanged() }
     }
 
     private func applyTestResult(id: UUID, result: NodeTestResult, strictResults: Bool = false) {
@@ -3783,7 +4231,7 @@ final class AppState: ObservableObject {
 
     /// 重新测试全部启用节点（从头开始）。
     func retestAllNodes() async {
-        let targets = nodes.filter { $0.enabled && !$0.pendingRemoval }
+        let targets = nodes.filter { $0.enabled && !$0.pendingRemoval && nodeSubscriptionEnabled($0) }
         await testNodes(targets)
     }
 
@@ -4012,6 +4460,8 @@ final class AppState: ObservableObject {
         guard !isTerminating else { return }
         let now = Date()
         Task { await self.runScheduledTestIfDue(now: now) }
+        Task { await self.runSoftwareRouteScheduleIfDue(now: now) }
+        Task { await self.runSoftwareRouteLatencyFailoverIfNeeded() }
         let automaticSubscriptions = subscriptions.filter { $0.isEnabled && $0.autoUpdate }
         var refreshedCount = 0
         for sub in automaticSubscriptions {
@@ -4214,6 +4664,7 @@ final class AppState: ObservableObject {
             nodes = updatedNodes
         }
         settings = updated
+        softwareRouter.adoptConnectivityTargets(settings.connectivityProbeTargets)
         if previousSettings.scheduledTestSubscriptionRaw != settings.scheduledTestSubscriptionRaw
             || previousSettings.scheduledTestScope != settings.scheduledTestScope {
             applyCurrentScheduledScopeToRunningTest()

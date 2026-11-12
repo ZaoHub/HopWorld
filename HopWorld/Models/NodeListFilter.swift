@@ -20,7 +20,11 @@ enum NodeListFilter {
     }
 
     static func nodes(in nodes: [ProxyNode], source: Source, subscriptions: [Subscription]) -> [ProxyNode] {
-        let active = nodes.filter { $0.enabled && !$0.pendingRemoval }
+        let disabledSubscriptionIDs = Set(subscriptions.filter { !$0.isEnabled }.map(\.id))
+        let active = nodes.filter { node in
+            node.enabled && !node.pendingRemoval
+                && !(node.subscriptionID.map { disabledSubscriptionIDs.contains($0) } ?? false)
+        }
         switch source {
         case .all:
             return active

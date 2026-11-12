@@ -220,7 +220,7 @@ struct SubscriptionListView: View {
         }
         .onAppear(perform: refreshListCounts)
         .onReceive(appState.$subscriptions) { _ in refreshShareLinkCounts() }
-        .onReceive(appState.$nodes) { nodes in refreshNodeCounts(nodes) }
+        .onReceive(appState.nodesForInterface) { nodes in refreshNodeCounts(nodes) }
     }
 
     private func toggleSubscriptionEnabled(_ subscription: Subscription) {

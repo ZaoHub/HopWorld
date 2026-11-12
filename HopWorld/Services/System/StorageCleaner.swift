@@ -1,4 +1,5 @@
 import AppKit
+import Darwin
 import Foundation
 
 /// Disk leftovers that are safe to delete: temporary sessions from earlier runs and
@@ -35,9 +36,7 @@ enum StorageCleaner {
         var failures = 0
     }
 
-    private static let temporaryPrefixes = [
-        "hopworld-singbox-", "hopworld-tun-", "HopWorld-batch-", "HopWorld-subscription-", "HopWorld-runtime-"
-    ]
+    private static let temporaryPrefixes = LanForwardPorts.sessionDirectoryPrefixes
     private static let remindedDownloadPrefix = GitHubFileDownloader.partialPrefix
 
     static func scan() -> [Category] {
@@ -54,6 +53,42 @@ enum StorageCleaner {
               NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).count <= 1 else { return Result() }
         let items = candidates(for: .temporary).filter { !$0.lastPathComponent.hasPrefix(remindedDownloadPrefix) }
         return clean([Category(kind: .temporary, items: items, bytes: 0)])
+    }
+
+    /// Cores left behind when an earlier launch exited. A live bridge, TUN, or LAN
+    /// core is a descendant of this process and is left running. Another open
+    /// HopWorld may still own the leftovers, so this does nothing until it is the only copy.
+    static func endOrphanSessionCores() -> Int {
+        guard let bundleID = Bundle.main.bundleIdentifier,
+              NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).count <= 1 else { return 0 }
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: "/bin/ps")
+        task.arguments = ["-axo", "pid=,ppid=,command="]
+        let pipe = Pipe()
+        task.standardOutput = pipe
+        task.standardError = FileHandle.nullDevice
+        guard (try? task.run()) != nil else { return 0 }
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        task.waitUntilExit()
+        var parents: [Int32: Int32] = [:]
+        var commands: [(pid: Int32, command: String)] = []
+        for line in String(decoding: data, as: UTF8.self).split(separator: "\n") {
+            let parts = line.trimmingCharacters(in: .whitespaces).split(
+                maxSplits: 2, whereSeparator: { $0 == " " || $0 == "\t" }
+            )
+            guard parts.count == 3, let pid = Int32(parts[0]), let ppid = Int32(parts[1]), pid > 1 else { continue }
+            parents[pid] = ppid
+            commands.append((pid, String(parts[2])))
+        }
+        let selfPID = ProcessInfo.processInfo.processIdentifier
+        var ended = 0
+        for row in commands {
+            guard LanForwardPorts.isOrphanSessionCore(command: row.command),
+                  !LanForwardPorts.belongsToProcessTree(pid: row.pid, root: selfPID, parents: parents) else { continue }
+            kill(row.pid, SIGKILL)
+            ended += 1
+        }
+        return ended
     }
 
     static func clean(_ categories: [Category]) -> Result {

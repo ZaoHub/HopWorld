@@ -158,6 +158,48 @@ enum XrayConfigBuilder {
         ]
     }
 
+    /// A second core for LAN clients. It has no stats API, so it never takes the main core's port.
+    static func buildLanForward(node: ProxyNode, httpPort: Int, socksPort: Int) throws -> [String: Any] {
+        var hydrated = node
+        KeychainStore.hydrateCredentials(&hydrated)
+        let outbound = try buildOutbound(hydrated, tag: "proxy")
+        let direct: [String: Any] = [
+            "protocol": "freedom", "tag": "direct", "settings": [:] as [String: Any]
+        ]
+        return [
+            "log": ["loglevel": "warning"],
+            "policy": ["levels": connectionPolicy],
+            "inbounds": [
+                lanInbound(tag: "socks-in", port: socksPort, protocolName: "socks",
+                           settings: ["udp": true, "auth": "noauth"],
+                           destOverride: ["http", "tls", "quic"]),
+                lanInbound(tag: "http-in", port: httpPort, protocolName: "http",
+                           settings: [:], destOverride: ["http", "tls"])
+            ],
+            "outbounds": [outbound, direct],
+            "routing": [
+                "domainStrategy": "IPIfNonMatch",
+                "rules": [
+                    ["type": "field", "outboundTag": "direct", "ip": ["geoip:private"]],
+                    ["type": "field", "outboundTag": "proxy", "network": "tcp,udp"]
+                ]
+            ],
+            "dns": [
+                "servers": [bootstrapDNS(for: [hydrated]), "1.1.1.1", "8.8.8.8"],
+                "queryStrategy": "UseIP"
+            ]
+        ]
+    }
+
+    private static func lanInbound(tag: String, port: Int, protocolName: String,
+                                   settings: [String: Any], destOverride: [String]) -> [String: Any] {
+        [
+            "tag": tag, "listen": "0.0.0.0", "port": port, "protocol": protocolName,
+            "settings": settings,
+            "sniffing": ["enabled": true, "routeOnly": true, "destOverride": destOverride]
+        ]
+    }
+
     /// Local Stats API port (dokodemo-door).
     static let apiPort = 10_885
 

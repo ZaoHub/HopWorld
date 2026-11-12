@@ -60,6 +60,14 @@ struct NodeTestRunSummary: Equatable, Sendable {
     }
 }
 
+private struct AppProbeBatchOutcome: Sendable {
+    var id: UUID
+    var okCount: Int
+    var latencyMs: Int?
+    var passedIDs: Set<String>
+    var exit: SoftwareRouteExit?
+}
+
 @MainActor
 final class NodeTestManager: ObservableObject {
     @Published var phase: TestRunPhase = .idle
@@ -71,6 +79,13 @@ final class NodeTestManager: ObservableObject {
     @Published var unavailableCount = 0
     @Published var failedCount = 0
     @Published var statusText = ""
+    /// Counts behind the published fields. `record` updates these every node and
+    /// copies them to the published fields a few times a second.
+    private var countedTested = 0
+    private var countedAvailable = 0
+    private var countedUnavailable = 0
+    private var countedFailed = 0
+    private var progressInterfaceTask: Task<Void, Never>?
     /// 当前会话尚未测完的节点 ID（暂停后用于继续）。
     @Published private(set) var remainingNodeIDs: [UUID] = []
     @Published var lastFinishedSummary: NodeTestRunSummary?
@@ -155,47 +170,124 @@ final class NodeTestManager: ObservableObject {
         timeout: TimeInterval,
         targets: [AppProbeTarget] = AppProbeTarget.allCases
     ) async -> (okCount: Int, bestLatencyMs: Int?, passedIDs: Set<String>)? {
-        let xray = XrayProcessManager(binaryURL: binaryOverride)
-        let (valid, _) = NodeConfigChecker.validate(node)
-        guard valid else { return nil }
+        guard let summary = await measureAppProbes(for: [node], timeout: timeout, targets: targets)[node.id] else { return nil }
+        return (summary.okCount, summary.bestLatencyMs, summary.passedIDs)
+    }
 
+    /// 一批节点共用一个临时核心。逐个节点重启 xray / sing-box 会占满 CPU，并让界面每个结果都整表刷新。
+    func measureAppProbes(
+        for nodes: [ProxyNode],
+        timeout: TimeInterval,
+        targets: [AppProbeTarget],
+        includeExit: Bool = false,
+        concurrency: Int = 1,
+        onEach: (@MainActor (UUID, (okCount: Int, bestLatencyMs: Int?, passedIDs: Set<String>, exit: SoftwareRouteExit?)?) -> Void)? = nil
+    ) async -> [UUID: (okCount: Int, bestLatencyMs: Int?, passedIDs: Set<String>, exit: SoftwareRouteExit?)] {
+        guard !nodes.isEmpty, !targets.isEmpty else { return [:] }
         if binaryOverride == nil { _ = try? await XrayInstaller.ensureInstalled() }
         let discoveredBinary = binaryOverride == nil ? await XrayProcessManager.resolveBinaryURLForTesting() : nil
-        guard !Task.isCancelled, binaryOverride ?? discoveredBinary != nil else { return nil }
+        guard !Task.isCancelled, binaryOverride ?? discoveredBinary != nil else { return [:] }
+        return await probeAppBatch(nodes, timeout: timeout, targets: targets, includeExit: includeExit, concurrency: concurrency, onEach: onEach)
+    }
+
+    private func probeAppBatch(
+        _ nodes: [ProxyNode],
+        timeout: TimeInterval,
+        targets: [AppProbeTarget],
+        includeExit: Bool,
+        concurrency: Int = 1,
+        onEach: (@MainActor (UUID, (okCount: Int, bestLatencyMs: Int?, passedIDs: Set<String>, exit: SoftwareRouteExit?)?) -> Void)? = nil
+    ) async -> [UUID: (okCount: Int, bestLatencyMs: Int?, passedIDs: Set<String>, exit: SoftwareRouteExit?)] {
+        let valid = nodes.filter { NodeConfigChecker.validate($0).0 }
+        let validIDs = Set(valid.map(\.id))
+        for node in nodes where !validIDs.contains(node.id) {
+            onEach?(node.id, nil)
+        }
+        guard !valid.isEmpty else { return [:] }
+        let xray = XrayProcessManager(binaryURL: binaryOverride)
         do {
-            let reservation = try LocalTestPorts(count: 1)
-            let port = reservation.ports[0]
-            let dir = testDirectory
-            let file = dir.appendingPathComponent("app-probe-auto-\(UUID().uuidString).json")
+            let reservation = try LocalTestPorts(count: valid.count)
+            let mapped = zip(valid, reservation.ports).map { (node: $0.0, localPort: $0.1) }
+            let file = testDirectory.appendingPathComponent("app-probe-auto-\(UUID().uuidString).json")
             defer { try? FileManager.default.removeItem(at: file) }
-            try await XrayConfigBuilder.writeTestConfig(nodes: [(node, port)], to: file)
+            try await XrayConfigBuilder.writeTestConfig(nodes: mapped, to: file)
             try Task.checkCancellation()
             reservation.release()
             try await xray.start(configURL: file)
-            guard await waitForTestPorts([port], timeout: 3) else {
+            guard await waitForTestPorts(mapped.map(\.localPort), timeout: 3) else {
                 await xray.stop()
-                return nil
+                return await recoverAppProbeBatch(valid, error: XrayProcessError.startFailed("本地探测端口未就绪"), timeout: timeout, targets: targets, includeExit: includeExit, concurrency: concurrency, onEach: onEach)
             }
 
-            var collected: [AppProbeTarget: AppProbeResult] = [:]
-            await AppProbeRunner.probeAll(
-                targets: targets,
-                proxyHost: "127.0.0.1",
-                httpPort: port,
-                socksPort: nil,
-                timeout: timeout
-            ) { result in
-                collected[result.target] = result
+            var summaries: [UUID: (okCount: Int, bestLatencyMs: Int?, passedIDs: Set<String>, exit: SoftwareRouteExit?)] = [:]
+            await BatchProbeScheduler.run(mapped, concurrency: max(1, concurrency)) { (item: (node: ProxyNode, localPort: Int)) -> AppProbeBatchOutcome? in
+                let results = await withTaskGroup(of: AppProbeResult.self) { group in
+                    for target in targets {
+                        group.addTask {
+                            await AppProbeRunner.probeOne(
+                                target: target,
+                                proxyHost: "127.0.0.1",
+                                httpPort: item.localPort,
+                                socksPort: nil,
+                                timeout: timeout
+                            )
+                        }
+                    }
+                    var list: [AppProbeResult] = []
+                    for await result in group { list.append(result) }
+                    return list
+                }
+                guard !Task.isCancelled, results.count == targets.count else { return nil }
+                let ok = results.filter { $0.status == .ok }
+                let passed = Set(ok.map(\.target.id))
+                let latency = ok.compactMap(\.latencyMs).min()
+                await MainActor.run { onEach?(item.node.id, (ok.count, latency, passed, nil)) }
+                let exit = includeExit && !ok.isEmpty
+                    ? await self.softwareRouteExit(localPort: item.localPort, timeout: timeout)
+                    : nil
+                return AppProbeBatchOutcome(id: item.node.id, okCount: ok.count, latencyMs: latency, passedIDs: passed, exit: exit)
+            } onResult: { (outcome: AppProbeBatchOutcome) in
+                let summary = (outcome.okCount, outcome.latencyMs, outcome.passedIDs, outcome.exit)
+                summaries[outcome.id] = summary
+                if outcome.exit != nil { onEach?(outcome.id, summary) }
             }
             await xray.stop()
-
-            guard !Task.isCancelled, collected.count == targets.count else { return nil }
-            let ok = targets.compactMap { collected[$0] }.filter { $0.status == .ok }
-            return (ok.count, ok.compactMap(\.latencyMs).min(), Set(ok.map { $0.target.id }))
+            return summaries
         } catch {
             await xray.stop()
-            return nil
+            return await recoverAppProbeBatch(valid, error: error, timeout: timeout, targets: targets, includeExit: includeExit, concurrency: concurrency, onEach: onEach)
         }
+    }
+
+    /// Exit for the software-route list only. The result is not written onto the node.
+    private func softwareRouteExit(localPort: Int, timeout: TimeInterval) async -> SoftwareRouteExit? {
+        let info = await ExitIPTester.fetch(proxyHost: "127.0.0.1", proxyPort: localPort, timeout: timeout)
+        let exit = SoftwareRouteExit(country: info.countryName, countryCode: info.countryCode, city: info.city, ip: info.ip)
+        let empty = [exit.country, exit.countryCode, exit.city, exit.ip].allSatisfy { $0?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false }
+        return empty ? nil : exit
+    }
+
+    /// 一个坏节点会让整份配置起不来。只在这种情况下对半拆开，避免每个节点都付一次启动成本。
+    private func recoverAppProbeBatch(
+        _ nodes: [ProxyNode],
+        error: Error,
+        timeout: TimeInterval,
+        targets: [AppProbeTarget],
+        includeExit: Bool,
+        concurrency: Int,
+        onEach: (@MainActor (UUID, (okCount: Int, bestLatencyMs: Int?, passedIDs: Set<String>, exit: SoftwareRouteExit?)?) -> Void)? = nil
+    ) async -> [UUID: (okCount: Int, bestLatencyMs: Int?, passedIDs: Set<String>, exit: SoftwareRouteExit?)] {
+        if Task.isCancelled || error is CancellationError || nodes.count <= 1 { return [:] }
+        let discoveredBinary = binaryOverride == nil ? await XrayProcessManager.resolveBinaryURLForTesting() : nil
+        let binary = binaryOverride ?? discoveredBinary
+        let coreAvailable = binary.map { FileManager.default.isExecutableFile(atPath: $0.path) } ?? false
+        if !coreAvailable || error is POSIXError { return [:] }
+        let mid = nodes.count / 2
+        var merged = await probeAppBatch(Array(nodes[..<mid]), timeout: timeout, targets: targets, includeExit: includeExit, concurrency: concurrency, onEach: onEach)
+        guard !Task.isCancelled else { return merged }
+        let rest = await probeAppBatch(Array(nodes[mid...]), timeout: timeout, targets: targets, includeExit: includeExit, concurrency: concurrency, onEach: onEach)
+        for (id, summary) in rest { merged[id] = summary }
+        return merged
     }
 
     /// Probe popular apps through a temporary local proxy for the given node.
@@ -398,6 +490,10 @@ final class NodeTestManager: ObservableObject {
         sessionDetailLines = []
         sessionResultCounts = [:]
         failureLog = NodeTestFailureLog()
+        countedTested = 0
+        countedAvailable = 0
+        countedUnavailable = 0
+        countedFailed = 0
         testedCount = 0
         totalCount = nodes.count
         availableCount = 0
@@ -450,6 +546,7 @@ final class NodeTestManager: ObservableObject {
         if !Task.isCancelled { record(result, updateNode: updateNode) }
 
         isTesting = false
+        flushProgressInterface()
         if stopRequested {
             endStoppedSession()
         } else if pauseRequested || Task.isCancelled {
@@ -695,8 +792,10 @@ final class NodeTestManager: ObservableObject {
 
         isTesting = false
         if stopRequested {
+            flushProgressInterface()
             endStoppedSession()
         } else if pauseRequested || Task.isCancelled {
+            flushProgressInterface()
             phase = .paused
             statusText = "已暂停（剩余 \(remainingNodeIDs.count) 个，可继续）"
         } else {
@@ -715,6 +814,7 @@ final class NodeTestManager: ObservableObject {
                 )
             }
             remainingNodeIDs = []
+            flushProgressInterface()
             progress = 1
             phase = .finished
             statusText = "测试完成"
@@ -731,10 +831,10 @@ final class NodeTestManager: ObservableObject {
         let droppedIDs = Set(dropped)
         remainingNodeIDs.removeAll { droppedIDs.contains($0) }
         for id in droppedIDs { sessionNodeNames[id] = nil }
-        totalCount = max(testedCount, totalCount - dropped.count)
+        totalCount = max(countedTested, totalCount - dropped.count)
         progress = phase == .paused && remainingNodeIDs.isEmpty
             ? 1
-            : Double(testedCount) / Double(max(totalCount, 1))
+            : Double(countedTested) / Double(max(totalCount, 1))
         guard phase == .paused else { return }
         if remainingNodeIDs.isEmpty {
             phase = .finished
@@ -755,7 +855,7 @@ final class NodeTestManager: ObservableObject {
         guard !droppedIDs.isEmpty else { return nodes }
         let stillQueued = droppedIDs.intersection(remainingNodeIDs)
         remainingNodeIDs.removeAll { droppedIDs.contains($0) }
-        totalCount = max(testedCount, totalCount - stillQueued.count)
+        totalCount = max(countedTested, totalCount - stillQueued.count)
         return nodes.filter { scheduledAllowance.contains($0.id) }
     }
 
@@ -809,13 +909,40 @@ final class NodeTestManager: ObservableObject {
         guard !Task.isCancelled, remainingNodeIDs.contains(result.nodeID) else { return }
         applyCounts(result)
         updateNode(result.nodeID, result)
-        testedCount += 1
+        countedTested += 1
         markCompleted(id: result.nodeID)
-        progress = Double(testedCount) / Double(max(totalCount, 1))
-        statusText = "正在测试 \(testedCount) / \(totalCount)"
         sessionDetailLines.append(detailLine(for: result))
         sessionResultCounts[NodeTestRunSummary.category(for: result), default: 0] += 1
         failureLog.add(result)
+        scheduleProgressInterface()
+    }
+
+    private func scheduleProgressInterface() {
+        guard progressInterfaceTask == nil else { return }
+        progressInterfaceTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 400_000_000)
+            guard let self else { return }
+            self.progressInterfaceTask = nil
+            guard !Task.isCancelled else { return }
+            self.publishProgressInterface()
+        }
+    }
+
+    /// Publish the latest counts now. Session end calls this so tests and the summary see the final numbers.
+    private func flushProgressInterface() {
+        progressInterfaceTask?.cancel()
+        progressInterfaceTask = nil
+        publishProgressInterface()
+    }
+
+    private func publishProgressInterface() {
+        testedCount = countedTested
+        availableCount = countedAvailable
+        unavailableCount = countedUnavailable
+        failedCount = countedFailed
+        guard phase == .running else { return }
+        progress = Double(countedTested) / Double(max(totalCount, 1))
+        statusText = "正在测试 \(countedTested) / \(totalCount)"
     }
 
     private func detailLine(for result: NodeTestResult) -> String {
@@ -1038,11 +1165,11 @@ final class NodeTestManager: ObservableObject {
 
     private func applyCounts(_ result: NodeTestResult) {
         if result.success {
-            availableCount += 1
+            countedAvailable += 1
         } else if result.isConfigFailure {
-            failedCount += 1
+            countedFailed += 1
         } else {
-            unavailableCount += 1
+            countedUnavailable += 1
         }
     }
 }

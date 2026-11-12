@@ -17,9 +17,9 @@
 	<key>CFBundlePackageType</key>
 	<string>XPC!</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.0.3</string>
+	<string>2.0.0</string>
 	<key>CFBundleVersion</key>
-	<string>4</string>
+	<string>5</string>
 	<key>HopWorldAppGroupIdentifier</key>
 	<string>$(HOPWORLD_APP_GROUP)</string>
 	<key>LSMinimumSystemVersion</key>

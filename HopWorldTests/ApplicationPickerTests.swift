@@ -68,6 +68,12 @@ final class AutomaticAppProbeSelectionTests: XCTestCase {
                 .filter { $0.lastTestStatus.isUsable }.map(\.id)
         }
         XCTAssertEqual(available(.all), [grouped.id, orphan.id, manual.id])
+        var disabledSubscription = subscription
+        disabledSubscription.isEnabled = false
+        XCTAssertEqual(
+            NodeListFilter.nodes(in: nodes, source: .all, subscriptions: [disabledSubscription]).map(\.id),
+            [orphan.id, manual.id]
+        )
         XCTAssertEqual(available(.subscription(subscription.id)), [grouped.id])
         XCTAssertEqual(available(.namedSource(subscription.name)), [orphan.id])
         XCTAssertEqual(available(.manual), [manual.id])
@@ -154,6 +160,8 @@ extension AutomaticAppProbeSelectionTests {
         XCTAssertEqual(settings.automaticAppProbeTargets, AppProbeTarget.allCases)
         settings.appProbeSource = .custom
         XCTAssertTrue(settings.automaticAppProbeTargets.isEmpty)
+        XCTAssertTrue(settings.customAppProbeListIsEmpty)
+        XCTAssertEqual(AppSettings.emptyCustomAppProbeNote, "自定义应用为空，不测试应用。")
         let restored = try JSONDecoder().decode(AppSettings.self, from: JSONEncoder().encode(settings))
         XCTAssertEqual(restored.effectiveAppProbeSource, .custom)
     }

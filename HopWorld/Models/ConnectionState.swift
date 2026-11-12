@@ -726,18 +726,44 @@ struct AppSettings: Codable, Hashable, Sendable {
         "https://www.apple.com/library/test/success.html",
         "http://www.msftconnecttest.com/connecttest.txt",
         chatGPTConnectivityTestURL,
-        codexConnectivityTestURL
+        codexConnectivityTestURL,
+        "https://www.tiktok.com/",
+        "https://www.instagram.com/",
+        "https://telegram.org/",
+        "https://web.whatsapp.com/",
+        "https://vk.com/",
+        "https://discord.com/",
+        "https://www.meta.ai/",
+        "https://x.com/",
+        "https://www.v2ex.com/",
+        "https://www.facebook.com/",
+        "https://www.linkedin.com/",
+        "https://tinder.com/",
+        "https://www.amazon.com/"
     ]
     static func testURLTitle(_ url: String) -> String {
         switch url {
         case presetTestURLs[0]: return "谷歌连通性检测"
-        case presetTestURLs[1]: return "优兔连通性检测"
+        case presetTestURLs[1]: return "YouTube连通性检测"
         case presetTestURLs[2]: return "谷歌视频连通性检测"
         case presetTestURLs[3]: return "谷歌静态资源连通性检测（默认）"
         case presetTestURLs[4]: return "苹果网络连通性检测"
         case presetTestURLs[5]: return "微软网络连通性检测"
         case presetTestURLs[6]: return "ChatGPT 连通性检测"
         case presetTestURLs[7]: return "Codex连通性检测"
+        case presetTestURLs[8]: return "TikTok连通性检测"
+        case presetTestURLs[9]: return "Instagram连通性检测"
+        case presetTestURLs[10]: return "Telegram连通性检测"
+        case presetTestURLs[11]: return "WhatsApp连通性检测"
+        case presetTestURLs[12]: return "VK连通性检测"
+        case presetTestURLs[13]: return "Discord连通性检测"
+        case presetTestURLs[14]: return "Muse连通性检测"
+        case presetTestURLs[15]: return "X连通性检测"
+        case presetTestURLs[16]: return "V2EX连通性检测"
+        case presetTestURLs[17]: return "Facebook连通性检测"
+        case presetTestURLs[18]: return "LinkedIn连通性检测"
+        case presetTestURLs[19]: return "Tinder连通性检测"
+        case presetTestURLs[20]: return "Amazon连通性检测"
         default: return "自定义测试地址"
         }
     }
@@ -749,6 +775,41 @@ struct AppSettings: Codable, Hashable, Sendable {
         }
         if Self.presetTestURLs.contains(url) { return Self.testURLTitle(url) }
         return URL(string: url)?.host ?? Self.testURLTitle(url)
+    }
+
+    /// Soft-route name. Presets keep only the text before「连通性检测」. A custom name stays whole, with that phrase removed.
+    static func connectivityProbeLabel(for url: String, customName: String?) -> String {
+        let marker = "连通性检测"
+        if let custom = customName?.trimmingCharacters(in: .whitespacesAndNewlines), !custom.isEmpty {
+            return removingConnectivityMarker(custom, marker: marker)
+        }
+        if presetTestURLs.contains(url) {
+            return prefixBeforeConnectivityMarker(testURLTitle(url), marker: marker)
+        }
+        let fallback = URL(string: url)?.host ?? url
+        return removingConnectivityMarker(fallback, marker: marker)
+    }
+
+    var connectivityProbeTargets: [AppProbeTarget] {
+        availableTestURLs.compactMap { raw in
+            guard let url = Self.validatedTestURL(raw) else { return nil }
+            let label = Self.connectivityProbeLabel(for: raw, customName: customTestURLNames?[raw])
+            return .application(path: raw, name: label, url: url)
+        }
+    }
+
+    private static func prefixBeforeConnectivityMarker(_ title: String, marker: String) -> String {
+        guard let range = title.range(of: marker) else { return title }
+        let prefix = title[..<range.lowerBound].trimmingCharacters(in: .whitespacesAndNewlines)
+        return prefix.isEmpty ? title : prefix
+    }
+
+    private static func removingConnectivityMarker(_ title: String, marker: String) -> String {
+        guard title.contains(marker) else { return title }
+        let stripped = title.replacingOccurrences(of: marker, with: "")
+            .split(whereSeparator: \.isWhitespace)
+            .joined(separator: " ")
+        return stripped.isEmpty ? title : stripped
     }
     var availableTestURLs: [String] {
         var urls = Self.presetTestURLs
@@ -897,13 +958,29 @@ extension AppSettings {
         }
     }
 
+    /// Measured exit only. A node name or subscription label is not a country.
+    static func measuredExitCountryCode(for node: ProxyNode) -> String? {
+        guard let raw = node.exitMetadata?.countryCode?.trimmingCharacters(in: .whitespacesAndNewlines) else { return nil }
+        let code = raw.uppercased()
+        guard !code.isEmpty, code != "XX" else { return nil }
+        return code
+    }
+
+    func allowsAutoSelectCountry(of node: ProxyNode) -> Bool {
+        guard let code = Self.measuredExitCountryCode(for: node) else {
+            let restrictsCountry = autoSelectCountryScope == .specified || !autoSelectExcludedCountryCodes.isEmpty
+            return !restrictsCountry
+        }
+        return allowsAutoSelectCountry(code)
+    }
+
     func isTemporarilyBlocked(_ id: UUID) -> Bool {
         temporarilyBlockedNodeIDs?.contains(id) == true
     }
 
     func allowsAutoSelectNode(_ node: ProxyNode, includingTemporarilyBlocked: Bool = false) -> Bool {
         if !includingTemporarilyBlocked, isTemporarilyBlocked(node.id) { return false }
-        guard allowsAutoSelectCountry(CountryResolver.effectiveCode(for: node)) else { return false }
+        guard allowsAutoSelectCountry(of: node) else { return false }
         // A completed failed app probe disqualifies a node, including favorites.
         // Untested nodes remain eligible so automatic probing can evaluate them.
         if node.lastAppProbeDate != nil, !node.hasAppProbeSuccess { return false }

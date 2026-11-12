@@ -102,7 +102,11 @@ actor SubscriptionFetcher {
         do {
             (data, response) = try await session.data(for: request)
         } catch let error as URLError where error.code == .appTransportSecurityRequiresSecureConnection {
-            throw SubscriptionFetcherError.insecureConnection
+            // 用户填写的明文订阅会被 ATS 直接拒绝；curl 不受该策略约束，且不走系统代理。
+            guard request.url?.scheme?.lowercased() == "http" else {
+                throw SubscriptionFetcherError.insecureConnection
+            }
+            return try await fetchCleartext(request)
         } catch {
             try Task.checkCancellation()
             guard Self.shouldTryTemporaryProxy(error), !fallbackNodes.isEmpty else {
@@ -216,7 +220,7 @@ actor SubscriptionFetcher {
                 try await XrayConfigBuilder.writeTestConfig(nodes: [(node, port)], to: file)
                 reservation.release()
                 try await core.start(configURL: file)
-                let response = try await fetchUsingCurl(request, port: port, directory: directory)
+                let response = try await fetchUsingCurl(request, proxyPort: port, directory: directory)
                 await core.stop()
                 return response
             } catch {
@@ -227,15 +231,28 @@ actor SubscriptionFetcher {
         throw SubscriptionFetcherError.automaticRouteFailed(directError.localizedDescription)
     }
 
-    private func fetchUsingCurl(_ request: URLRequest, port: Int, directory: URL) async throws -> FetchResponse {
+    /// URLSession 被 ATS 拒绝后的明文直连。临时目录用完即删。
+    private func fetchCleartext(_ request: URLRequest) async throws -> FetchResponse {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("HopWorld-subscription-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false,
+                                                attributes: [.posixPermissions: 0o700])
+        defer { try? FileManager.default.removeItem(at: directory) }
+        return try await fetchUsingCurl(request, proxyPort: nil, directory: directory)
+    }
+
+    private func fetchUsingCurl(_ request: URLRequest, proxyPort: Int?, directory: URL) async throws -> FetchResponse {
         let url = request.url!
         let body = directory.appendingPathComponent("body")
         let headers = directory.appendingPathComponent("headers")
-        var arguments = ["--disable", "--silent", "--show-error", "--globoff", "--location", "--max-redirs", "5",
-                         "--noproxy", "", "--proxy", "http://127.0.0.1:\(port)",
-                         "--connect-timeout", "8", "--max-time", "20", "--compressed",
-                         "--proto", "=http,https", "--proto-redir", url.scheme?.lowercased() == "https" ? "=https" : "=http,https",
-                         "--output", body.path, "--dump-header", headers.path, "--write-out", "%{http_code}"]
+        var arguments = ["--disable", "--silent", "--show-error", "--globoff", "--location", "--max-redirs", "5"]
+        if let proxyPort {
+            arguments += ["--noproxy", "", "--proxy", "http://127.0.0.1:\(proxyPort)"]
+        } else {
+            arguments += ["--noproxy", "*"]
+        }
+        arguments += ["--connect-timeout", "8", "--max-time", "20", "--compressed",
+                      "--proto", "=http,https", "--proto-redir", url.scheme?.lowercased() == "https" ? "=https" : "=http,https",
+                      "--output", body.path, "--dump-header", headers.path, "--write-out", "%{http_code}"]
         for (name, value) in request.allHTTPHeaderFields ?? [:] {
             arguments += ["--header", "\(name): \(value)"]
         }
@@ -257,7 +274,7 @@ actor SubscriptionFetcher {
         if status == 400,
            Self.rejectsClientFlag((try? Data(contentsOf: body)) ?? Data()),
            let retry = Self.retryRequest(request) {
-            return try await fetchUsingCurl(retry, port: port, directory: directory)
+            return try await fetchUsingCurl(retry, proxyPort: proxyPort, directory: directory)
         }
         guard status == 304 || (200...299).contains(status) else { throw SubscriptionFetcherError.httpError(status) }
         let data = status == 304 ? Data() : try Data(contentsOf: body)
@@ -265,7 +282,7 @@ actor SubscriptionFetcher {
         return FetchResponse(url: url, statusCode: status, data: data,
                              etag: status == 304 ? request.value(forHTTPHeaderField: "If-None-Match") : fields["etag"],
                              lastModified: status == 304 ? request.value(forHTTPHeaderField: "If-Modified-Since") : fields["last-modified"],
-                             notModified: status == 304, usedTemporaryProxy: true)
+                             notModified: status == 304, usedTemporaryProxy: proxyPort != nil)
     }
 }
 

@@ -543,6 +543,19 @@ private struct ConnectedNodeScoreButton: View {
     }
 }
 
+/// Live latency for the log panel. Observing the connection here keeps the sample off the rest of the window.
+private struct LiveConnectionLatency: View {
+    @ObservedObject var connection: ConnectionManager
+
+    var body: some View {
+        if let latency = connection.state.latency, connection.state.status == .connected {
+            Text(LatencyFormat.display(latency))
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
+        }
+    }
+}
+
 // Only the open log panel observes log traffic, not the navigation/detail tree.
 private struct ConnectionLogPanel: View {
     @EnvironmentObject private var appState: AppState
@@ -582,12 +595,7 @@ private struct ConnectionLogPanel: View {
                 .help("收起日志面板")
                 .accessibilityLabel("收起日志面板")
 
-                if let latency = appState.connection.state.latency,
-                   appState.connection.state.status == .connected {
-                    Text(LatencyFormat.display(latency))
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(.secondary)
-                }
+                LiveConnectionLatency(connection: appState.connection)
 
                 if appState.connection.state.status == .connected ||
                     appState.connection.state.status == .connecting {

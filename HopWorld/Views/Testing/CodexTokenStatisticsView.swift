@@ -20,6 +20,8 @@ struct CodexTokenStatisticsView: View {
     @State private var selectedModelID: String?
     @State private var detailMode: DetailMode = .quota
     @State private var chartStyle: ChartStyle = .bars
+    /// nil shows both series. A name shows only that series so its own magnitude sets the axis.
+    @State private var isolatedSeries: String?
 
     private enum DetailMode { case time, quota, models }
     private enum ChartStyle: String, CaseIterable {
@@ -252,14 +254,8 @@ struct CodexTokenStatisticsView: View {
 
             VStack(spacing: 6) {
                 HStack(spacing: 12) {
-                    HStack(spacing: 5) {
-                        Circle().fill(Color.blue).frame(width: 8, height: 8)
-                        Text("输入")
-                    }
-                    HStack(spacing: 5) {
-                        Circle().fill(outputColor).frame(width: 8, height: 8)
-                        Text("输出")
-                    }
+                    seriesButton("输入", color: .blue)
+                    seriesButton("输出", color: outputColor)
                     Spacer()
                     HStack(spacing: 6) {
                         ForEach(ChartStyle.allCases, id: \.self) { style in
@@ -291,27 +287,35 @@ struct CodexTokenStatisticsView: View {
             } else {
                 Chart(buckets) { bucket in
                     if chartStyle == .bars {
-                    BarMark(x: .value("时段", key(bucket)), y: .value("Token", bucket.inputTokens))
-                        .foregroundStyle(by: .value("类型", "输入"))
-                        .position(by: .value("类型", "输入"))
-                        .accessibilityLabel(bucketRange(bucket) + "，输入")
-                        .accessibilityValue(exact(bucket.inputTokens) + " Token")
-                    BarMark(x: .value("时段", key(bucket)), y: .value("Token", bucket.outputTokens))
-                        .foregroundStyle(by: .value("类型", "输出"))
-                        .position(by: .value("类型", "输出"))
-                        .accessibilityLabel(bucketRange(bucket) + "，输出")
-                        .accessibilityValue(exact(bucket.outputTokens) + " Token")
+                        if showsSeries("输入") {
+                            BarMark(x: .value("时段", key(bucket)), y: .value("Token", bucket.inputTokens))
+                                .foregroundStyle(by: .value("类型", "输入"))
+                                .position(by: .value("类型", "输入"))
+                                .accessibilityLabel(bucketRange(bucket) + "，输入")
+                                .accessibilityValue(exact(bucket.inputTokens) + " Token")
+                        }
+                        if showsSeries("输出") {
+                            BarMark(x: .value("时段", key(bucket)), y: .value("Token", bucket.outputTokens))
+                                .foregroundStyle(by: .value("类型", "输出"))
+                                .position(by: .value("类型", "输出"))
+                                .accessibilityLabel(bucketRange(bucket) + "，输出")
+                                .accessibilityValue(exact(bucket.outputTokens) + " Token")
+                        }
                     } else if bucket.start <= (updatedAt ?? referenceDate) {
-                        LineMark(x: .value("时段", key(bucket)), y: .value("Token", bucket.inputTokens))
-                            .foregroundStyle(by: .value("类型", "输入"))
-                            .symbol(by: .value("类型", "输入"))
-                            .accessibilityLabel(bucketRange(bucket) + "，输入")
-                            .accessibilityValue(exact(bucket.inputTokens) + " Token")
-                        LineMark(x: .value("时段", key(bucket)), y: .value("Token", bucket.outputTokens))
-                            .foregroundStyle(by: .value("类型", "输出"))
-                            .symbol(by: .value("类型", "输出"))
-                            .accessibilityLabel(bucketRange(bucket) + "，输出")
-                            .accessibilityValue(exact(bucket.outputTokens) + " Token")
+                        if showsSeries("输入") {
+                            LineMark(x: .value("时段", key(bucket)), y: .value("Token", bucket.inputTokens))
+                                .foregroundStyle(by: .value("类型", "输入"))
+                                .symbol(by: .value("类型", "输入"))
+                                .accessibilityLabel(bucketRange(bucket) + "，输入")
+                                .accessibilityValue(exact(bucket.inputTokens) + " Token")
+                        }
+                        if showsSeries("输出") {
+                            LineMark(x: .value("时段", key(bucket)), y: .value("Token", bucket.outputTokens))
+                                .foregroundStyle(by: .value("类型", "输出"))
+                                .symbol(by: .value("类型", "输出"))
+                                .accessibilityLabel(bucketRange(bucket) + "，输出")
+                                .accessibilityValue(exact(bucket.outputTokens) + " Token")
+                        }
                     }
                 }
                 .chartForegroundStyleScale(domain: ["输入", "输出"], range: [Color.blue, outputColor])
@@ -559,6 +563,26 @@ struct CodexTokenStatisticsView: View {
         .buttonStyle(.plain)
         .disabled(isFuture)
         .accessibilityLabel(label)
+    }
+
+    private func showsSeries(_ name: String) -> Bool { isolatedSeries == nil || isolatedSeries == name }
+
+    private func seriesButton(_ title: String, color: Color) -> some View {
+        let isolated = isolatedSeries == title
+        return Button { isolatedSeries = isolated ? nil : title } label: {
+            HStack(spacing: 5) {
+                Circle().fill(color).frame(width: 8, height: 8)
+                Text(title)
+            }
+            .padding(.horizontal, 6)
+            .padding(.vertical, 3)
+            .background(isolated ? Color.accentColor.opacity(0.12) : Color.clear, in: RoundedRectangle(cornerRadius: 6))
+            .opacity(isolatedSeries != nil && !isolated ? 0.35 : 1)
+        }
+        .buttonStyle(.plain)
+        .help(isolated ? "同时显示输入与输出" : "只显示" + title)
+        .accessibilityLabel(isolated ? title + "，已单独显示" : "只显示" + title)
+        .accessibilityAddTraits(isolated ? .isSelected : [])
     }
 
     private func metric(_ title: String, value: Int64, note: String, color: Color) -> some View {

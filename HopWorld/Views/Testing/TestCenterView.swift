@@ -3,6 +3,69 @@ import Combine
 import SwiftUI
 import UniformTypeIdentifiers
 
+/// Same bubble as `UsageHelpButton`, shown with AppKit so it can open on top of the software-route panel.
+private struct PanelHelpButton: NSViewRepresentable {
+    var title: String
+    var text: String
+
+    func makeNSView(context: Context) -> NSButton {
+        let button = NSButton()
+        button.image = NSImage(systemSymbolName: "questionmark.circle", accessibilityDescription: title)
+        button.imagePosition = .imageOnly
+        button.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 13, weight: .regular)
+        button.isBordered = false
+        button.bezelStyle = .inline
+        button.contentTintColor = .secondaryLabelColor
+        button.target = context.coordinator
+        button.action = #selector(Coordinator.show(_:))
+        button.toolTip = title
+        button.setAccessibilityLabel(title)
+        return button
+    }
+
+    func updateNSView(_ nsView: NSButton, context: Context) {
+        context.coordinator.title = title
+        context.coordinator.text = text
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(title: title, text: text) }
+
+    final class Coordinator: NSObject, NSPopoverDelegate {
+        var title: String
+        var text: String
+        private var popover: NSPopover?
+
+        init(title: String, text: String) {
+            self.title = title
+            self.text = text
+        }
+
+        @objc func show(_ sender: NSButton) {
+            let content = VStack(alignment: .leading, spacing: 10) {
+                Text(title).font(.headline)
+                Text(text).font(.callout).fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(16)
+            .frame(width: 360, alignment: .leading)
+            let host = NSHostingController(rootView: content)
+            host.view.layoutSubtreeIfNeeded()
+            let fitted = host.view.fittingSize
+            host.preferredContentSize = CGSize(width: 360, height: max(fitted.height, 80))
+            let popover = NSPopover()
+            popover.behavior = .transient
+            popover.animates = true
+            popover.contentViewController = host
+            popover.delegate = self
+            popover.show(relativeTo: sender.bounds, of: sender, preferredEdge: .maxY)
+            self.popover = popover
+        }
+
+        func popoverDidClose(_ notification: Notification) {
+            popover = nil
+        }
+    }
+}
+
 struct UsageHelpButton: View {
     var title: String
     var text: String
@@ -341,8 +404,8 @@ struct TestCenterView: View {
                 testManager.appProbeStatusText = "已连接，可独立探测当前节点"
             }
         }
-        .onChange(of: appState.subscriptions.map(\.id)) { ids in
-            if case .subscription(let id) = testScope, !ids.contains(id) {
+        .onChange(of: appState.subscriptions.map { "\($0.id.uuidString):\($0.isEnabled)" }) { _ in
+            if case .subscription(let id) = testScope, appState.subscription(for: id)?.isEnabled != true {
                 setTestScope(.all)
             }
         }
@@ -950,6 +1013,11 @@ struct TestCenterView: View {
                     probeNodeLabel(node, note: "未连接 · 仅测试选中节点", noteColor: palette.subtext)
                 } else if let node = appState.recentNodes.first {
                     probeNodeLabel(node, note: "未连接 · 上次选中", noteColor: palette.subtext)
+                } else if appProbePreviewSettings.customAppProbeListIsEmpty {
+                    Text(AppSettings.emptyCustomAppProbeNote)
+                        .font(.system(size: 13))
+                        .foregroundStyle(.orange)
+                        .lineLimit(1)
                 } else {
                     Text("请先在下方节点列表点选一个节点")
                         .font(.system(size: 13))
@@ -1059,6 +1127,7 @@ struct TestCenterView: View {
                     HStack(spacing: 16) {
                         appProbeBatchSelection
                         appProbeAutoTestToggle
+                        emptyCustomAppProbeNote
                         Spacer(minLength: 8)
                         appProbeBatchButtons
                             .fixedSize()
@@ -1068,6 +1137,7 @@ struct TestCenterView: View {
                         appProbeBatchSelection
                         HStack(spacing: 16) {
                             appProbeAutoTestToggle
+                            emptyCustomAppProbeNote
                             Spacer(minLength: 8)
                             appProbeBatchButtons
                                 .fixedSize()
@@ -1080,8 +1150,8 @@ struct TestCenterView: View {
                 ProgressView(value: Double(appState.appProbeBatch.completed), total: Double(max(1, appState.appProbeBatch.total)))
                     .accessibilityLabel("可用节点应用连通测试进度")
             }
-            if !appState.appProbeBatch.statusText.isEmpty {
-                Text(appState.appProbeBatch.statusText)
+            if !appProbeBatchStatusLine.isEmpty {
+                Text(appProbeBatchStatusLine)
                     .font(.caption)
                     .foregroundStyle(palette.subtext)
                     .fixedSize(horizontal: false, vertical: true)
@@ -1100,6 +1170,17 @@ struct TestCenterView: View {
                 .foregroundStyle(palette.subtext)
                 .fixedSize()
             appProbeAvailablePicker
+        }
+    }
+
+    @ViewBuilder
+    private var emptyCustomAppProbeNote: some View {
+        if appProbePreviewSettings.customAppProbeListIsEmpty, !appState.appProbeBatch.isRunning {
+            Text(AppSettings.emptyCustomAppProbeNote)
+                .font(.caption)
+                .foregroundStyle(.orange)
+                .lineLimit(1)
+                .fixedSize()
         }
     }
 
@@ -1146,6 +1227,14 @@ struct TestCenterView: View {
                     .help("停止可用节点的批量应用连通测试")
             }
         }
+    }
+
+    private var appProbeBatchStatusLine: String {
+        let text = appState.appProbeBatch.statusText
+        if appProbePreviewSettings.customAppProbeListIsEmpty, !appState.appProbeBatch.isRunning, text == AppSettings.emptyCustomAppProbeNote {
+            return ""
+        }
+        return text
     }
 
     private var appProbePreviewSettings: AppSettings {
@@ -1396,7 +1485,7 @@ struct TestCenterView: View {
     }
 
     private var subscriptionScopeOptions: [SubscriptionScopeOption] {
-        var options: [SubscriptionScopeOption] = appState.subscriptions.map {
+        var options: [SubscriptionScopeOption] = appState.subscriptions.filter(\.isEnabled).map {
             SubscriptionScopeOption(
                 id: $0.id.uuidString,
                 title: $0.name,
@@ -1577,6 +1666,11 @@ struct TestCenterView: View {
         case .idle: return .secondary
         }
     }
+}
+
+private struct SoftwareRouteGroupOption: Identifiable {
+    var id: String
+    var title: String
 }
 
 private struct SubscriptionScopeOption: Identifiable {
@@ -1914,6 +2008,762 @@ private struct RouteRuleEditor: View {
     }
 }
 
+/// 路由页时间下方的局域网转发入口。连接的是另一份核心，不改主连接。
+private struct SoftwareRouteButton: View {
+    @EnvironmentObject private var appState: AppState
+    var palette: RoutePalette
+    @State private var showsPanel = false
+
+    var body: some View {
+        SoftwareRouteButtonChrome(router: appState.softwareRouter, palette: palette) {
+            showsPanel = true
+        }
+        .popover(isPresented: $showsPanel, arrowEdge: .top) {
+            SoftwareRoutePanel(router: appState.softwareRouter, palette: palette)
+                .environmentObject(appState)
+                .transaction { $0.animation = nil }
+        }
+    }
+}
+
+private struct SoftwareRouteButtonChrome: View {
+    @ObservedObject var router: SoftwareRouter
+    var palette: RoutePalette
+    var open: () -> Void
+
+    private var active: Bool { router.phase == .connected || router.phase == .connecting }
+
+    var body: some View {
+        Button(action: open) {
+            HStack(spacing: 6) {
+                Image(systemName: "network")
+                    .font(.system(size: 12, weight: .semibold))
+                Text("软路由")
+                    .font(.system(size: 12, weight: .semibold))
+                if active {
+                    Circle()
+                        .fill(router.phase == .connected ? palette.accent : palette.statusColor(.connecting))
+                        .frame(width: 6, height: 6)
+                }
+            }
+            .foregroundStyle(active ? palette.accent : palette.text)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(palette.card, in: Capsule())
+            .overlay {
+                Capsule().strokeBorder(active ? palette.accent.opacity(0.75) : palette.cardBorder, lineWidth: 1)
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("软路由")
+        .help(active
+              ? "软路由已单独连接\(router.nodeTitle.map { "「\($0)」" } ?? "节点")。局域网设备可使用它，主连接不受影响。"
+              : "单独连接一个节点，供同一局域网的其它设备使用。不影响当前主连接。")
+    }
+}
+
+private struct SoftwareRouteCollapsibleSection<Content: View, Trailing: View, ExpandedTrailing: View, TitleAccessory: View>: View {
+    let title: String
+    let summary: String
+    @Binding var expanded: Bool
+    var palette: RoutePalette
+    @ViewBuilder var content: () -> Content
+    @ViewBuilder var collapsedTrailing: () -> Trailing
+    @ViewBuilder var expandedTrailing: () -> ExpandedTrailing
+    @ViewBuilder var expandedTitleAccessory: () -> TitleAccessory
+
+    init(
+        title: String,
+        summary: String,
+        expanded: Binding<Bool>,
+        palette: RoutePalette,
+        @ViewBuilder content: @escaping () -> Content,
+        @ViewBuilder collapsedTrailing: @escaping () -> Trailing = { EmptyView() },
+        @ViewBuilder expandedTrailing: @escaping () -> ExpandedTrailing = { EmptyView() },
+        @ViewBuilder expandedTitleAccessory: @escaping () -> TitleAccessory = { EmptyView() }
+    ) {
+        self.title = title
+        self.summary = summary
+        _expanded = expanded
+        self.palette = palette
+        self.content = content
+        self.collapsedTrailing = collapsedTrailing
+        self.expandedTrailing = expandedTrailing
+        self.expandedTitleAccessory = expandedTitleAccessory
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Button {
+                    expanded.toggle()
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: expanded ? "chevron.down" : "chevron.right")
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundStyle(palette.subtext)
+                            .frame(width: 12, alignment: .center)
+                        Text(title)
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(palette.text)
+                        if !expanded {
+                            Text(summary)
+                                .font(.system(size: 11))
+                                .foregroundStyle(palette.subtext)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                        }
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                if expanded {
+                    expandedTitleAccessory()
+                }
+                Spacer(minLength: 0)
+                if expanded {
+                    expandedTrailing()
+                } else {
+                    collapsedTrailing()
+                }
+            }
+            if expanded {
+                content()
+                    .transition(.identity)
+            }
+        }
+        .animation(nil, value: expanded)
+    }
+}
+
+private struct SoftwareRoutePanel: View {
+    private let panelHeight: CGFloat = 580
+    @EnvironmentObject private var appState: AppState
+    @ObservedObject var router: SoftwareRouter
+    var palette: RoutePalette
+    @State private var query = ""
+    @State private var selectedID: UUID?
+    @State private var editingSettings = false
+    @State private var settingsExpanded = false
+    @State private var addressesExpanded = false
+
+    var body: some View {
+        VStack(spacing: 0) {
+            panelHeader
+                .padding(.horizontal, 16)
+                .padding(.top, 16)
+                .padding(.bottom, 10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(palette.bgBottom)
+            Divider().overlay(palette.cardBorder.opacity(0.6))
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    if router.phase == .connected {
+                        SoftwareRouteCollapsibleSection(
+                            title: "局域网代理地址",
+                            summary: addressSummary,
+                            expanded: $addressesExpanded,
+                            palette: palette
+                        ) {
+                            addressBlock
+                        } collapsedTrailing: {
+                            Button("复制") { copyAddresses() }
+                                .controlSize(.small)
+                                .disabled(shareLines.isEmpty && router.lanAddresses.isEmpty)
+                        } expandedTrailing: {
+                            Button("复制地址") { copyAddresses() }
+                                .controlSize(.small)
+                                .disabled(shareLines.isEmpty && router.lanAddresses.isEmpty)
+                        } expandedTitleAccessory: {
+                            PanelHelpButton(title: "在其它设备上设置", text: deviceSetupHelp)
+                                .fixedSize()
+                        }
+                    }
+                    settingsSection
+                    if !settingsExpanded, router.probeRunning || router.updateRunning {
+                        probeProgress
+                    }
+                    TextField("搜索可用节点", text: $query)
+                        .textFieldStyle(.roundedBorder)
+                    nodeList
+                }
+                .padding(16)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            Divider().overlay(palette.cardBorder.opacity(0.6))
+            actionRow
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+        }
+        .frame(width: 380, height: panelHeight)
+        .background(palette.bgBottom)
+        .onAppear { selectPreferredNodeIfNeeded() }
+        .onChange(of: router.passedNodeIDs) { _ in selectPreferredNodeIfNeeded() }
+        .onChange(of: settingsExpanded) { expanded in
+            if !expanded { editingSettings = false }
+        }
+    }
+
+    private var panelHeader: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Text("软路由")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(palette.text)
+                PanelHelpButton(
+                    title: "软路由使用说明",
+                    text: "单独连接一个节点，并在局域网地址上提供 HTTP / SOCKS5。其它设备把代理填到下面的地址，流量就走这个节点。本机主连接、系统代理和当前节点都不会改动。\n\n「延时换线」在转发中时监测实测延时，超过设定秒数则按列表排名切到下一个；在前 N 个都仍不达标时会自动更新勾选的订阅并重新测试，再从第一名连上。\n\n同一局域网里的设备都能直接使用，不需要密码。用完请断开。首次开启时，系统可能会询问是否允许入站连接。"
+                )
+                .fixedSize()
+                Spacer(minLength: 0)
+            }
+            statusLine
+        }
+    }
+
+    private var settingsSection: some View {
+        SoftwareRouteCollapsibleSection(
+            title: "策略与订阅",
+            summary: settingsSummary,
+            expanded: $settingsExpanded,
+            palette: palette
+        ) {
+            VStack(alignment: .leading, spacing: 12) {
+                connectivityChoices
+                subscriptionChoices
+                routeActions
+                probeProgress
+            }
+        } expandedTrailing: {
+            HStack(alignment: .center, spacing: 8) {
+                autoSelectControl
+                Button(editingSettings ? "完成" : "编辑") { editingSettings.toggle() }
+                    .controlSize(.small)
+            }
+        }
+    }
+
+    private var autoSelectControl: some View {
+        Toggle(isOn: Binding(
+            get: { router.autoSelect },
+            set: { on in
+                router.setAutoSelect(on)
+                guard on else { return }
+                Task { await appState.applySoftwareRouteAutoSelectIfNeeded() }
+            }
+        )) {
+            Text("自动优选")
+                .lineLimit(1)
+                .fixedSize()
+        }
+        .toggleStyle(.checkbox)
+        .font(.system(size: 12, weight: .semibold))
+        .fixedSize(horizontal: true, vertical: false)
+        .disabled(!editingSettings)
+    }
+
+    private var settingsSummary: String {
+        var parts = router.selectedTargets.map(SoftwareRouteProbe.title)
+        if router.autoSelect { parts.append("自动优选") }
+        if router.latencyFailoverEnabled {
+            parts.append("延时换线 \(router.latencyFailoverMaxSeconds)s")
+        }
+        if router.testScheduleEnabled { parts.append("测 \(router.testIntervalMinutes)分") }
+        if router.updateScheduleEnabled { parts.append("更 \(router.updateIntervalHours)时") }
+        let text = parts.joined(separator: " · ")
+        return text.isEmpty ? "点击展开" : text
+    }
+
+    private var connectivityChoices: some View {
+        let targets = appState.settings.connectivityProbeTargets
+        return VStack(alignment: .leading, spacing: 6) {
+            WrappingFlow(spacing: 12) {
+                ForEach(targets, id: \.id) { target in
+                    Toggle(isOn: Binding(
+                        get: { router.selectedTargets.contains { $0.id == target.id } },
+                        set: { on in
+                            _ = router.toggleTarget(target, on: on, available: targets)
+                        }
+                    )) {
+                        Text(SoftwareRouteProbe.title(target))
+                            .lineLimit(1)
+                            .fixedSize()
+                    }
+                    .toggleStyle(.checkbox)
+                    .font(.system(size: 12))
+                    .fixedSize(horizontal: true, vertical: false)
+                    .disabled(!editingSettings)
+                }
+            }
+            Text("与设置中的连通性测试地址相同，可单选或多选。自动优选在测试结束后连接排第一的节点，不改主连接。")
+                .font(.system(size: 11))
+                .foregroundStyle(palette.subtext)
+                .fixedSize(horizontal: false, vertical: true)
+            latencyFailoverSettings
+        }
+    }
+
+    private var latencyFailoverSettings: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                if router.latencyFailoverEnabled {
+                    Stepper(value: Binding(
+                        get: { router.latencyFailoverMaxSeconds },
+                        set: { router.setLatencyFailoverMaxSeconds($0) }
+                    ), in: 1...120) {
+                        Text("超过 \(router.latencyFailoverMaxSeconds) 秒")
+                            .lineLimit(1)
+                            .fixedSize()
+                    }
+                    .fixedSize(horizontal: true, vertical: false)
+                    .disabled(!editingSettings)
+                    Stepper(value: Binding(
+                        get: { router.latencyFailoverTopCount },
+                        set: { router.setLatencyFailoverTopCount($0) }
+                    ), in: 1...100) {
+                        Text("前 \(router.latencyFailoverTopCount) 个")
+                            .lineLimit(1)
+                            .fixedSize()
+                    }
+                    .fixedSize(horizontal: true, vertical: false)
+                    .disabled(!editingSettings)
+                }
+                Spacer(minLength: 8)
+                Toggle("延时换线", isOn: Binding(
+                    get: { router.latencyFailoverEnabled },
+                    set: { router.setLatencyFailover(enabled: $0) }
+                ))
+                .toggleStyle(.checkbox)
+                .font(.system(size: 12, weight: .semibold))
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
+                .disabled(!editingSettings)
+            }
+            .controlSize(.small)
+            Text("转发中按勾选的连通目标经局域网 HTTP 口实测延时。慢或不通时顺次切换列表前排节点；轮换完仍不行则更新勾选的订阅组、重测并从第一名重新连接。需先有一次测试结果。")
+                .font(.system(size: 11))
+                .foregroundStyle(palette.subtext)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private var subscriptionChoices: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("订阅组")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(palette.text)
+            if groupOptions.isEmpty {
+                Text("还没有订阅组")
+                    .font(.system(size: 11))
+                    .foregroundStyle(palette.subtext)
+            } else {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(groupOptions, id: \.id) { option in
+                            Toggle(option.title, isOn: Binding(
+                                get: { router.isGroupSelected(option.id) },
+                                set: { on in
+                                    _ = router.setGroup(option.id, on: on, available: groupOptions.map(\.id))
+                                }
+                            ))
+                            .toggleStyle(.checkbox)
+                            .font(.system(size: 12))
+                            .lineLimit(1)
+                            .disabled(!editingSettings)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .frame(maxHeight: min(96, CGFloat(groupOptions.count) * 22))
+            }
+            Text("只测试勾选的订阅组。禁用的组也能勾选，只用于软路由。")
+                .font(.system(size: 11))
+                .foregroundStyle(palette.subtext)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private var routeActions: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Toggle("定时", isOn: Binding(
+                    get: { router.testScheduleEnabled },
+                    set: { router.setTestSchedule(enabled: $0) }
+                ))
+                .toggleStyle(.checkbox)
+                .disabled(!editingSettings)
+                Stepper(value: Binding(
+                    get: { router.testIntervalMinutes },
+                    set: { router.setTestInterval(minutes: $0) }
+                ), in: 1...1440) {
+                    Text("每 \(router.testIntervalMinutes) 分钟")
+                }
+                .disabled(!editingSettings || !router.testScheduleEnabled)
+                Spacer(minLength: 8)
+                Button(router.probeRunning ? "停止" : "测试") {
+                    if router.probeRunning {
+                        appState.stopSoftwareRouteProbe()
+                    } else {
+                        appState.refreshSoftwareRouteCandidates()
+                    }
+                }
+                .disabled(router.updateRunning)
+            }
+            HStack(spacing: 8) {
+                Toggle("定时", isOn: Binding(
+                    get: { router.updateScheduleEnabled },
+                    set: { router.setUpdateSchedule(enabled: $0) }
+                ))
+                .toggleStyle(.checkbox)
+                .disabled(!editingSettings)
+                Stepper(value: Binding(
+                    get: { router.updateIntervalHours },
+                    set: { router.setUpdateInterval(hours: $0) }
+                ), in: 1...168) {
+                    Text("每 \(router.updateIntervalHours) 小时")
+                }
+                .disabled(!editingSettings || !router.updateScheduleEnabled)
+                Spacer(minLength: 8)
+                Button("更新") { appState.updateSoftwareRouteSubscriptions() }
+                    .disabled(!canUpdateGroups || router.probeRunning || router.updateRunning)
+            }
+            Text("定时测试按分钟测连通，定时更新按小时拉取订阅。打开后从现在起算，不改主应用的定时。")
+                .font(.system(size: 11))
+                .foregroundStyle(palette.subtext)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .controlSize(.small)
+    }
+
+    private var canUpdateGroups: Bool {
+        let ids = Set(appState.subscriptions.map { $0.id.uuidString })
+        guard !ids.isEmpty else { return false }
+        if let selected = router.selectedGroupIDs { return !selected.isDisjoint(with: ids) }
+        return true
+    }
+
+    private var groupOptions: [SoftwareRouteGroupOption] {
+        var options = appState.subscriptions.map { sub in
+            SoftwareRouteGroupOption(
+                id: sub.id.uuidString,
+                title: sub.isEnabled ? sub.name : "\(sub.name)（已禁用）"
+            )
+        }
+        let known = Set(appState.subscriptions.map(\.id))
+        let orphans = appState.nodes.filter { node in
+            guard let id = node.subscriptionID, !known.contains(id) else { return false }
+            return node.enabled && !node.pendingRemoval
+        }
+        for id in Set(orphans.compactMap(\.subscriptionID)).sorted(by: { $0.uuidString < $1.uuidString }) {
+            let name = orphans.first(where: { $0.subscriptionID == id })?.sourceName ?? "未知订阅"
+            options.append(SoftwareRouteGroupOption(id: id.uuidString, title: name))
+        }
+        let hasManual = appState.nodes.contains { $0.subscriptionID == nil && $0.enabled && !$0.pendingRemoval }
+        if hasManual {
+            options.append(SoftwareRouteGroupOption(id: SoftwareRouteGroups.manual, title: "手动导入"))
+        }
+        return options
+    }
+
+    @ViewBuilder
+    private var probeProgress: some View {
+        if router.updateRunning {
+            progressRow(
+                title: "正在更新勾选的订阅",
+                completed: router.updateCompleted,
+                total: router.updateTotal,
+                label: "软路由订阅更新进度"
+            )
+        } else if router.probeRunning {
+            progressRow(
+                title: "正在测试勾选订阅组的\(router.selectionSummary)",
+                completed: router.probeCompleted,
+                total: router.probeTotal,
+                label: "软路由连通测试进度"
+            )
+        } else {
+            Text("点「测试」后，只显示测出时延的节点。")
+                .font(.system(size: 11))
+                .foregroundStyle(palette.subtext)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private func progressRow(title: String, completed: Int, total: Int, label: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text(title)
+                Spacer(minLength: 8)
+                Text("\(completed)/\(total)")
+                    .monospacedDigit()
+            }
+            .font(.system(size: 11))
+            .foregroundStyle(palette.subtext)
+            ProgressView(value: Double(completed), total: Double(max(total, 1)))
+                .tint(palette.accent)
+                .accessibilityLabel(label)
+        }
+    }
+
+    private var statusLine: some View {
+        let text: String = {
+            switch router.phase {
+            case .idle: return "未开启"
+            case .connecting: return "正在连接\(router.nodeTitle.map { "「\($0)」" } ?? "")"
+            case .connected: return "正在转发\(router.nodeTitle.map { "「\($0)」" } ?? "")"
+            case .failed: return router.message ?? "连接失败"
+            }
+        }()
+        return Text(text)
+            .font(.system(size: 12, weight: .medium))
+            .foregroundStyle(router.phase == .failed ? palette.statusColor(.error) : palette.text)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private var addressSummary: String {
+        let lines = shareLines
+        guard !lines.isEmpty else {
+            if let http = router.httpPort, let socks = router.socksPort {
+                return "HTTP \(http) · SOCKS \(socks)"
+            }
+            return "点击展开"
+        }
+        if lines.count == 1 { return lines[0] }
+        let count = router.lanAddresses.isEmpty ? 1 : router.lanAddresses.count
+        if let first = router.lanAddresses.first, let http = router.httpPort {
+            return "\(first):\(http) 等 \(count) 个"
+        }
+        return "\(lines.count) 条地址"
+    }
+
+    private var addressBlock: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if router.lanAddresses.isEmpty {
+                Text("已在本机监听，但没有发现局域网地址。请确认这台 Mac 已接入局域网。")
+                    .font(.system(size: 12))
+                    .foregroundStyle(palette.subtext)
+            }
+            ForEach(shareLines, id: \.self) { line in
+                Text(line)
+                    .font(.system(size: 12, design: .monospaced))
+                    .foregroundStyle(palette.text)
+                    .textSelection(.enabled)
+            }
+            if let http = router.httpPort, let socks = router.socksPort, router.lanAddresses.isEmpty {
+                Text("HTTP \(http)　SOCKS5 \(socks)")
+                    .font(.system(size: 12, design: .monospaced))
+                    .foregroundStyle(palette.text)
+            }
+        }
+    }
+
+    private var nodeList: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 8) {
+                Text("名称")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Text("出口")
+                    .frame(maxWidth: 160, alignment: .leading)
+                Text("时延")
+                    .frame(width: 72, alignment: .trailing)
+            }
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(palette.subtext)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 4) {
+                    if candidates.isEmpty {
+                        Text(candidateEmptyText)
+                            .font(.system(size: 12))
+                            .foregroundStyle(palette.subtext)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.vertical, 8)
+                    } else {
+                        ForEach(candidates) { node in
+                            nodeRow(node)
+                        }
+                    }
+                }
+            }
+            .frame(height: 220)
+        }
+    }
+
+    private func nodeRow(_ node: ProxyNode) -> some View {
+        let title = appState.settings.nodeDisplayTitle(node)
+        let selected = selectedID == node.id
+        let forwarding = router.phase == .connected && router.nodeID == node.id
+        let rank = router.ranks[node.id]
+        let opened = rank.map { SoftwareRouteProbe.passes($0.passedIDs, targets: router.selectedTargets) } ?? false
+        let exit = opened
+            ? (SoftwareRouteProbe.exitText(rank?.exit, showChinese: true) ?? "—")
+            : "—"
+        let latency = opened ? LatencyFormat.display(rank?.latencyMs) : (rank == nil ? "—" : "不通")
+        return Button { selectedID = node.id } label: {
+            HStack(spacing: 8) {
+                Text(title)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(palette.text)
+                    .lineLimit(1)
+                    .help(title)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Text(exit)
+                    .font(.system(size: 11))
+                    .foregroundStyle(palette.subtext)
+                    .lineLimit(1)
+                    .help(exit)
+                    .frame(maxWidth: 160, alignment: .leading)
+                Text(latency)
+                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                    .foregroundStyle(palette.text)
+                    .lineLimit(1)
+                    .frame(width: 72, alignment: .trailing)
+                if forwarding {
+                    Text("转发中")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(palette.accent)
+                }
+                if selected {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(palette.accent)
+                }
+            }
+            .accessibilityLabel("名称 \(title)，出口 \(exit)，时延 \(latency)")
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+            .background(selected ? palette.accent.opacity(0.14) : Color.clear, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(router.phase == .connecting)
+    }
+
+    private var switchesNode: Bool {
+        router.phase == .connected && selectedID != nil && selectedID != router.nodeID
+    }
+
+    private var selectedCanConnect: Bool {
+        guard let selectedID else { return false }
+        return router.passedNodeIDs.contains(selectedID)
+    }
+
+    private var actionRow: some View {
+        HStack {
+            Spacer()
+            if switchesNode {
+                Button("断开") { Task { await router.stop() } }
+            }
+            Button(actionTitle) { performAction() }
+                .buttonStyle(.borderedProminent)
+                .disabled(router.phase != .connecting && router.phase != .connected && !selectedCanConnect)
+        }
+    }
+
+    private var actionTitle: String {
+        switch router.phase {
+        case .connecting: return "取消"
+        case .connected where switchesNode: return "改连此节点"
+        case .connected: return "断开"
+        case .idle, .failed: return "连接此节点"
+        }
+    }
+
+    private func performAction() {
+        if router.phase == .connecting || (router.phase == .connected && !switchesNode) {
+            Task { await router.stop() }
+            return
+        }
+        guard let selectedID,
+              let node = appState.nodes.first(where: { $0.id == selectedID }),
+              router.passedNodeIDs.contains(node.id) else { return }
+        let title = appState.softwareRouteForwardTitle(node)
+        let avoid: Set<Int> = [appState.settings.httpPort, appState.settings.socksPort, XrayConfigBuilder.apiPort]
+        Task { await router.start(node: node, title: title, avoidingPorts: avoid) }
+    }
+
+    private var candidates: [ProxyNode] {
+        let needle = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        return appState.nodes
+            .filter { node in
+                return router.ranks[node.id]?.latencyMs != nil
+            }
+            .filter { node in
+                guard !needle.isEmpty else { return true }
+                let title = appState.settings.nodeDisplayTitle(node)
+                return title.localizedCaseInsensitiveContains(needle)
+                    || node.server.localizedCaseInsensitiveContains(needle)
+                    || node.protocolType.displayName.localizedCaseInsensitiveContains(needle)
+                    || (node.countryName?.localizedCaseInsensitiveContains(needle) ?? false)
+            }
+            .sorted { lhs, rhs in
+                let order = router.selectedTargets
+                let left = router.ranks[lhs.id]
+                let right = router.ranks[rhs.id]
+                switch (left, right) {
+                case let (l?, r?):
+                    if SoftwareRouteProbe.rank(l, before: r, order: order) { return true }
+                    if SoftwareRouteProbe.rank(r, before: l, order: order) { return false }
+                case (.some, nil): return true
+                case (nil, .some): return false
+                case (nil, nil): break
+                }
+                return appState.settings.nodeDisplayTitle(lhs)
+                    .localizedStandardCompare(appState.settings.nodeDisplayTitle(rhs)) == .orderedAscending
+            }
+    }
+
+    private func selectPreferredNodeIfNeeded() {
+        guard selectedID == nil else { return }
+        let preferred = router.nodeID ?? appState.connection.state.currentNodeID
+        if let preferred, router.passedNodeIDs.contains(preferred) {
+            selectedID = preferred
+        }
+    }
+
+    private var candidateEmptyText: String {
+        if appState.nodes.isEmpty { return "还没有节点" }
+        if router.selectedGroupIDs?.isEmpty == true { return "请勾选订阅组" }
+        if router.updateRunning { return "正在更新订阅" }
+        if router.probeRunning { return "正在测试，测出时延的节点会陆续出现" }
+        if router.probeCompleted == 0 && router.ranks.isEmpty {
+            return "点「测试」后只显示有时延的节点"
+        }
+        if query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return "没有测出时延的节点"
+        }
+        return "没有匹配的可用节点"
+    }
+
+    private var deviceSetupHelp: String {
+        let http = router.httpPort ?? LanForwardPorts.firstChoice
+        let socks = router.socksPort ?? LanForwardPorts.socksChoice
+        let host = router.lanAddresses.first { $0.hasPrefix("192.168.") } ?? router.lanAddresses.first ?? "上面列表中和手机同一网段的 IP"
+        return """
+        手机和这台 Mac 要连同一个 Wi-Fi。上面有多条地址时，选和手机同一网段的那条。不需要用户名和密码。
+
+        iPhone：设置 → 无线局域网 → 点当前网络右边的 ⓘ → 配置代理 → 手动。服务器填 \(host)，端口填 \(http)，认证关掉。
+
+        Android：长按当前 Wi-Fi → 修改网络 → 高级 → 代理选手动。主机名填 \(host)，端口填 \(http)。
+
+        系统代理填 HTTP。SOCKS5 端口是 \(socks)，只有能单独设置 SOCKS 的应用才用。用完把手机代理改回关闭，并在这里断开。同一局域网里的设备都能直接使用。
+        """
+    }
+
+    private var shareLines: [String] {
+        guard let http = router.httpPort, let socks = router.socksPort else { return [] }
+        return router.lanAddresses.flatMap { ip in
+            ["HTTP \(ip):\(http)", "SOCKS5 \(ip):\(socks)"]
+        }
+    }
+
+    private func copyAddresses() {
+        let text = shareLines.joined(separator: "\n")
+        guard !text.isEmpty else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+    }
+}
+
 struct RoutingView: View {
     @EnvironmentObject private var appState: AppState
     @Environment(\.colorScheme) private var colorScheme
@@ -2050,11 +2900,14 @@ struct RoutingView: View {
                 }
             }
             Spacer(minLength: 8)
-            TimelineView(.periodic(from: .now, by: 1)) { context in
-                Text(context.date, format: .dateTime.hour().minute().second())
-                    .font(.system(size: 17, weight: .semibold, design: .monospaced))
-                    .monospacedDigit()
-                    .foregroundStyle(palette.text)
+            VStack(alignment: .trailing, spacing: 8) {
+                TimelineView(.periodic(from: .now, by: 1)) { context in
+                    Text(context.date, format: .dateTime.hour().minute().second())
+                        .font(.system(size: 17, weight: .semibold, design: .monospaced))
+                        .monospacedDigit()
+                        .foregroundStyle(palette.text)
+                }
+                SoftwareRouteButton(palette: palette)
             }
         }
     }
@@ -2835,6 +3688,9 @@ struct SettingsView: View {
                 Text("持续超时或低于最低速度要求后自动优选其它节点；恢复正常则重新计时。按实时探测结果检查，无合格节点时保留连接。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                Text("指定国家和排除国家都按已测到的出口，不看节点名称。设置了其中一项后，还没有出口记录的节点不会进入自动优选。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
 
                 if previewSettings.autoSelectCountryScope == .specified {
                     HStack {
@@ -2982,7 +3838,7 @@ struct SettingsView: View {
                     set: { value in updateDraftSettings { $0.scheduledTestSubscriptionRaw = value } }
                 )) {
                     Text("全部订阅").tag("all")
-                    ForEach(appState.subscriptions) { sub in
+                    ForEach(appState.subscriptions.filter(\.isEnabled)) { sub in
                         Text(sub.name).tag("subscription:\(sub.id.uuidString)")
                     }
                 }
@@ -3828,26 +4684,43 @@ struct SettingsView: View {
         countryListFeedback = toAllowed ? "待保存到指定国家：\(name)" : "待保存到排除国家：\(name)"
     }
 
+    private var measuredExitCountryGroups: [CountryGroup] {
+        let measured = appState.nodes.compactMap { node -> ProxyNode? in
+            guard let code = AppSettings.measuredExitCountryCode(for: node) else { return nil }
+            var copy = node
+            copy.countryCode = code
+            copy.countryName = CountryResolver.displayName(for: code)
+            return copy
+        }
+        return CountryResolver.group(measured)
+    }
+
     private var availableAutoSelectCountries: [CountryGroup] {
-        appState.countryGroups.filter {
+        measuredExitCountryGroups.filter {
             !previewSettings.autoSelectIncludedCountryCodes.contains($0.code.uppercased())
         }
     }
 
     private var availableAutoSelectExcludedCountries: [CountryGroup] {
-        appState.countryGroups.filter {
+        measuredExitCountryGroups.filter {
             !previewSettings.autoSelectExcludedCountryCodes.contains($0.code.uppercased())
         }
     }
 
+    private func exitNodeCount(for code: String) -> Int {
+        let normalized = code.uppercased()
+        return appState.nodes.filter { AppSettings.measuredExitCountryCode(for: $0) == normalized }.count
+    }
+
     private var excludedAutoSelectCountries: [(code: String, name: String, flag: String, nodeCount: Int)] {
         previewSettings.autoSelectExcludedCountryCodes.map { code in
-            let group = appState.countryGroups.first { $0.code.uppercased() == code.uppercased() }
+            let normalized = code.uppercased()
+            let group = measuredExitCountryGroups.first { $0.code.uppercased() == normalized }
             return (
-                code: code.uppercased(),
+                code: normalized,
                 name: group?.name ?? CountryResolver.displayName(for: code),
                 flag: group?.flag ?? FlagResolver.flag(for: code),
-                nodeCount: group?.nodes.count ?? 0
+                nodeCount: exitNodeCount(for: normalized)
             )
         }.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
     }
@@ -3855,12 +4728,13 @@ struct SettingsView: View {
     private var includedAutoSelectCountries: [(code: String, name: String, flag: String, nodeCount: Int)] {
         previewSettings.autoSelectIncludedCountryCodes
             .map { code in
-                let group = appState.countryGroups.first { $0.code.uppercased() == code.uppercased() }
+                let normalized = code.uppercased()
+                let group = measuredExitCountryGroups.first { $0.code.uppercased() == normalized }
                 return (
-                    code: code.uppercased(),
+                    code: normalized,
                     name: group?.name ?? CountryResolver.displayName(for: code),
                     flag: group?.flag ?? FlagResolver.flag(for: code),
-                    nodeCount: group?.nodes.count ?? 0
+                    nodeCount: exitNodeCount(for: normalized)
                 )
             }
             .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
@@ -4081,6 +4955,7 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
     private let menu = NSMenu()
     private var liveUpdate = StatusMenuLiveUpdate()
     private var chromeObserver: AnyCancellable?
+    private var latencyObserver: AnyCancellable?
 
     init(appState: AppState) {
         self.appState = appState
@@ -4099,6 +4974,13 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         chromeObserver = appState.objectWillChange.sink { [weak self] _ in
             Task { @MainActor in self?.applyChromeIfAllowed() }
         }
+        // Latency changes every few seconds. The title updates here; AppState does not.
+        latencyObserver = appState.connection.$state
+            .map(\.latency)
+            .removeDuplicates()
+            .sink { [weak self] _ in
+                Task { @MainActor in self?.applyChromeIfAllowed() }
+            }
     }
 
     func menuWillOpen(_ menu: NSMenu) {
@@ -4551,6 +5433,7 @@ struct AppProbeIcon: View {
         case .twitter: return "AppProbeTwitter"
         case .claude: return "AppProbeClaude"
         case .tiktok: return "AppProbeTikTok"
+        case .liveStream: return ""
         case .application: return ""
         }
     }
@@ -4565,6 +5448,7 @@ struct AppProbeIcon: View {
         case .twitter: return "X"
         case .claude: return "C"
         case .tiktok: return "TT"
+        case .liveStream: return "播"
         case .application: return ""
         }
     }
@@ -4578,6 +5462,7 @@ struct AppProbeIcon: View {
         case .twitter: return .black
         case .claude: return .orange
         case .tiktok: return .black
+        case .liveStream: return .pink
         case .application: return .accentColor
         }
     }

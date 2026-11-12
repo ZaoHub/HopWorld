@@ -47,7 +47,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=Syne:wght@600;700;800&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
-  <link rel="stylesheet" href="./assets/css/landing.css?v=20261107a">
+  <link rel="stylesheet" href="./assets/css/landing.css?v=20261112a">
   <script type="application/ld+json">
   {
     "@context": "https://schema.org",
@@ -78,13 +78,14 @@
         "applicationCategory": "UtilitiesApplication",
         "applicationSubCategory": "NetworkProxy",
         "operatingSystem": "macOS 13.0+",
-        "softwareVersion": "1.0.3",
-        "downloadUrl": "https://github.com/ZaoHub/HopWorld/releases/tag/v1.0.3",
-        "installUrl": "https://github.com/ZaoHub/HopWorld/releases/tag/v1.0.3",
+        "softwareVersion": "2.0.0",
+        "downloadUrl": "https://github.com/ZaoHub/HopWorld/releases/tag/v2.0.0",
+        "installUrl": "https://github.com/ZaoHub/HopWorld/releases/tag/v2.0.0",
         "url": "https://zaohub.github.io/HopWorld/",
         "image": "https://zaohub.github.io/HopWorld/assets/screenshots/promo.png",
         "description": "macOS 原生可视化代理客户端。支持 VLESS、VMess、Trojan、Shadowsocks、Hysteria2、MASQUE、TUIC、AnyTLS、WireGuard、SOCKS5、HTTP；订阅测速、按国家一键连接、规则/全局/分应用 TUN、应用连通探测与 Codex 重置提醒。",
         "featureList": [
+          "软路由：另开一份核心，供同一局域网的其它设备使用，不改本机主连接",
           "11 种节点协议统一导入、测试与连接",
           "订阅导入、分享链接与 Clash YAML 轻量解析",
           "节点延迟测速与 Google/ChatGPT/Claude/GitHub 等应用连通探测",
@@ -112,6 +113,14 @@
         "@type": "FAQPage",
         "@id": "https://zaohub.github.io/HopWorld/#faq",
         "mainEntity": [
+          {
+            "@type": "Question",
+            "name": "软路由会改掉本机正在用的节点吗？",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "不会。手机和平板不必再装自己的代理 App。软路由另开一份 Xray，在局域网地址上提供 HTTP 17890 和 SOCKS5 17891。其它设备只填这个地址，不需要密码，也不需要 Shadowrocket 一类客户端。本机主连接、系统代理、TUN 和当前节点都保持原样。可以按订阅组测试、自动优选，延时过高时按排名换线，也可以定时测试和定时更新订阅。"
+            }
+          },
           {
             "@type": "Question",
             "name": "跃界 HopWorld 是什么？",
@@ -204,6 +213,7 @@
       </span>
     </a>
     <nav class="nav" aria-label="页面导航">
+      <a class="nav-hide-sm" href="#soft-route">软路由</a>
       <a class="nav-hide-sm" href="#features">能力</a>
       <a class="nav-hide-sm" href="#protocols">协议</a>
       <a class="nav-hide-sm" href="#gallery">界面</a>
@@ -267,6 +277,21 @@
       <div class="stat reveal" style="--d: 3">
         <div class="stat-num"><span data-count="13">13</span><small>+</small></div>
         <div class="stat-label">macOS 版本</div>
+      </div>
+    </section>
+
+    <section class="section" id="soft-route" aria-labelledby="soft-route-title">
+      <p class="section-kicker reveal">2.0</p>
+      <h2 class="section-title reveal" id="soft-route-title">软路由</h2>
+      <p class="section-copy reveal">手机和平板不必再装自己的代理 App。和这台 Mac 处在同一局域网时，把代理地址指过来，就能用这份节点访问外部网络。本机正在用的连接不会被换掉。</p>
+      <div class="route-panel reveal">
+        <p>软路由另开一份 Xray，在局域网地址上提供 <strong>HTTP 17890</strong> 和 <strong>SOCKS5 17891</strong>。其它设备只填这个地址，不需要密码，也不需要 Shadowrocket 一类客户端。系统代理、TUN 和当前节点都保持原样。</p>
+        <div class="route-facts">
+          <p><span>独立核心</span>不改本机主连接，用完可以单独断开。</p>
+          <p><span>按组测试</span>只测勾选的订阅组，禁用的组也能用于软路由。</p>
+          <p><span>自动换线</span>可自动优选。延时过高时按排名换到下一个，也可以定时测试、定时更新订阅。</p>
+        </div>
+        <p class="route-note">首次开启时，系统可能会询问是否允许入站连接。目前只使用 IPv4 局域网地址。</p>
       </div>
     </section>
 
@@ -525,21 +550,25 @@
     <section class="section" id="faq" aria-labelledby="faq-title">
       <p class="section-kicker reveal">FAQ</p>
       <h2 class="section-title reveal" id="faq-title">常见问题</h2>
-      <p class="section-copy reveal">关于跃界 HopWorld 的产品定位、协议支持、系统要求与开源许可。</p>
+      <p class="section-copy reveal">关于软路由、产品定位、协议支持、系统要求与开源许可。</p>
       <div class="faq-list">
         <details class="faq-item reveal" style="--d: 0">
+          <summary>软路由会改掉本机正在用的节点吗？</summary>
+          <p>不会。手机和平板不必再装自己的代理 App。软路由另开一份 Xray，在局域网地址上提供 <strong>HTTP 17890</strong> 和 <strong>SOCKS5 17891</strong>。其它设备只填这个地址，不需要密码，也不需要 Shadowrocket 一类客户端。本机主连接、系统代理、TUN 和当前节点都保持原样。可以按订阅组测试、自动优选，延时过高时按排名换线，也可以定时测试和定时更新订阅。</p>
+        </details>
+        <details class="faq-item reveal" style="--d: 1">
           <summary>跃界 HopWorld 是什么？</summary>
           <p>跃界 HopWorld 是一款 <strong>macOS 原生可视化代理客户端</strong>（SwiftUI），面向 VNP/代理节点管理：订阅导入、测速、按国家一键连接，以及规则 / 全局 / 分应用 TUN。内核使用 <strong>Xray</strong> 与 <strong>sing-box</strong>。</p>
         </details>
-        <details class="faq-item reveal" style="--d: 1">
+        <details class="faq-item reveal" style="--d: 2">
           <summary>支持哪些节点协议？</summary>
           <p>统一支持 <strong>VLESS、VMess、Trojan、Shadowsocks、Hysteria2、MASQUE、TUIC、AnyTLS、WireGuard、SOCKS5、HTTP</strong> 共 11 种。REALITY 是安全层，不是第 12 种协议。传输、加密名称和未接入项见本页<a href="#protocols">协议覆盖</a>。</p>
         </details>
-        <details class="faq-item reveal" style="--d: 2">
+        <details class="faq-item reveal" style="--d: 3">
           <summary>系统要求与下载方式？</summary>
           <p>需要 <strong>macOS 13.0+</strong>。可在 GitHub Releases 下载 Apple Silicon 或 Intel 的 DMG。安装包为 ad-hoc 签名，未做 Apple 公证；首次连接或测速时可在应用内安装 Xray。</p>
         </details>
-        <details class="faq-item reveal" style="--d: 3">
+        <details class="faq-item reveal" style="--d: 4">
           <summary>是否开源？许可证是什么？</summary>
           <p>是。HopWorld 自有源码采用 <strong>MIT License</strong>，仓库：<a href="https://github.com/ZaoHub/HopWorld" rel="noopener noreferrer">github.com/ZaoHub/HopWorld</a>。外部代理内核与规则数据遵循各自上游许可证。</p>
         </details>
@@ -551,9 +580,9 @@
         <h2 id="download-title">下载跃界</h2>
         <p>macOS 13.0 及以上。首次运行可在「关于 → 管理更新」安装 Xray；连接或测速时也会自动下载。安装包为 ad-hoc 签名，未做 Apple 公证。</p>
         <div class="cta-row">
-          <a class="btn btn-primary" href="https://github.com/ZaoHub/HopWorld/releases/download/v1.0.3/HopWorld-2026-11-07-arm64.dmg">Apple Silicon · DMG</a>
-          <a class="btn btn-ghost" href="https://github.com/ZaoHub/HopWorld/releases/download/v1.0.3/HopWorld-2026-11-07-x86_64.dmg">Intel · DMG</a>
-          <a class="btn btn-ghost" href="https://github.com/ZaoHub/HopWorld/releases/tag/v1.0.3" rel="noopener noreferrer">全部 Release</a>
+          <a class="btn btn-primary" href="https://github.com/ZaoHub/HopWorld/releases/download/v2.0.0/HopWorld-2026-11-12-arm64.dmg">Apple Silicon · DMG</a>
+          <a class="btn btn-ghost" href="https://github.com/ZaoHub/HopWorld/releases/download/v2.0.0/HopWorld-2026-11-12-x86_64.dmg">Intel · DMG</a>
+          <a class="btn btn-ghost" href="https://github.com/ZaoHub/HopWorld/releases/tag/v2.0.0" rel="noopener noreferrer">全部 Release</a>
         </div>
         <p class="download-note">若系统提示无法打开，可在「隐私与安全性」允许，或右键 App 选择打开。</p>
       </div>

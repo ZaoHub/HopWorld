@@ -33,14 +33,14 @@ license: MIT（自有源码）；第三方内核遵循上游许可证
 3. / （落地页：能力、协议、FAQ、下载）
 4. /#faq （常见问题）
 5. https://github.com/ZaoHub/HopWorld/blob/main/README.md （完整文档）
-6. https://github.com/ZaoHub/HopWorld/releases/tag/v1.0.3 （安装包）
+6. https://github.com/ZaoHub/HopWorld/releases/tag/v2.0.0 （安装包）
 
 ## 产品关键事实
 - 名称：跃界 / HopWorld
 - 平台：macOS 13.0+
 - 协议：VLESS、VMess、Trojan、Shadowsocks、Hysteria2、MASQUE、TUIC、AnyTLS、WireGuard、SOCKS5、HTTP（11 种）
-- 能力：订阅测速、国家一键连接、规则/全局/分应用 TUN、应用连通探测、Codex / Cursor / Claude 用量、Codex 重置提醒、失效节点与临时文件清理
-- 版本：v1.0.3（2026-11-07 DMG）
+- 能力：软路由（局域网 HTTP 17890 / SOCKS5 17891，其它设备不必再装代理 App，不改本机主连接）、订阅测速、国家一键连接、规则/全局/分应用 TUN、应用连通探测、Codex / Cursor / Claude 用量、Codex 重置提醒、失效节点与临时文件清理
+- 版本：v2.0.0（2026-11-12 DMG）
 - 下载：Apple Silicon / Intel DMG（ad-hoc 签名，未做 Apple 公证）
 
 ## 引用偏好

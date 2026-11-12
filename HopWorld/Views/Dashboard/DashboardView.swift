@@ -119,7 +119,7 @@ struct DashboardView: View {
 
                     HStack(spacing: 14) {
                         Label(node.protocolType.displayName, systemImage: "globe")
-                        Label(nodeLatencyText, systemImage: "clock")
+                        LiveLatencyLabel(connection: connection, fallback: appState.activeOrLastNode?.lastLatency)
                     }
                     .font(.caption)
                     .foregroundStyle(heroSecondary)
@@ -275,10 +275,6 @@ struct DashboardView: View {
             return error
         }
         return "选择节点后开始"
-    }
-
-    private var nodeLatencyText: String {
-        connection.state.dashboardLatencyText(lastTestLatency: appState.activeOrLastNode?.lastLatency)
     }
 
     @ViewBuilder
@@ -1083,6 +1079,16 @@ private struct QuickSwitchRowStyle: ViewModifier {
         return mark == .current
             ? Color(red: 0.32, green: 0.58, blue: 0.95)
             : Color(red: 0.55, green: 0.72, blue: 0.92)
+    }
+}
+
+/// Latency samples every few seconds. This view refreshes alone, without the page that lists nodes.
+private struct LiveLatencyLabel: View {
+    @ObservedObject var connection: ConnectionManager
+    let fallback: Int?
+
+    var body: some View {
+        Label(connection.state.dashboardLatencyText(lastTestLatency: fallback), systemImage: "clock")
     }
 }
 

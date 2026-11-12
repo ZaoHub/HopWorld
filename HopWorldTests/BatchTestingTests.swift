@@ -126,6 +126,12 @@ final class BatchTestingTests: XCTestCase {
         XCTAssertNil(cancelledSummary)
     }
 
+    func testAppProbeBatchWithoutCoreDoesNotInventResults() async {
+        let manager = NodeTestManager(binaryURL: URL(fileURLWithPath: "/nonexistent/hopworld-xray"))
+        let summaries = await manager.measureAppProbes(for: nodes(count: 4, port: 443), timeout: 1, targets: [.github])
+        XCTAssertTrue(summaries.isEmpty, "核心没起来时不能写成探测失败，否则这批节点不会再试")
+    }
+
     func testBackgroundTestConfigPreservesPortsAndPermissions() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("config-worker-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: directory) }

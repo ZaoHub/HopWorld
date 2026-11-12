@@ -76,18 +76,25 @@ struct CountryListView: View {
                 }
             }
 
-            HStack(alignment: .center, spacing: 14) {
+            HStack(alignment: .center, spacing: 8) {
+                terminalTab(.all)
+                    .fixedSize()
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
-                        ForEach(shownRegions) { item in
+                        ForEach(shownRegions.filter { $0 != .all }) { item in
                             terminalTab(item)
                         }
                     }
                     .padding(.vertical, 1)
+                    .background(SubscriptionGroupDragScroll())
                 }
+                .frame(minWidth: 0)
+                .padding(.trailing, 6)
+                .help("按住并左右拖动，或使用触控板横向滚动区域")
 
                 searchField
                     .frame(width: 220)
+                    .layoutPriority(1)
             }
         }
         .padding(.horizontal, 16)
@@ -1258,8 +1265,8 @@ struct NodeListView: View {
                 setScope(.all)
             }
         }
-        .onChange(of: appState.subscriptions.map(\.id)) { ids in
-            if case .subscription(let id) = source, !ids.contains(id) {
+        .onChange(of: appState.subscriptions.map { "\($0.id.uuidString):\($0.isEnabled)" }) { _ in
+            if case .subscription(let id) = source, appState.subscription(for: id)?.isEnabled != true {
                 setSource(.all)
             }
         }
@@ -1685,10 +1692,10 @@ struct NodeListView: View {
 
     private var categoryBar: some View {
         HStack(spacing: 8) {
+            scopeChip(.all, label: "全部", count: nodesMatchingSource.count)
+                .fixedSize()
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
-                    scopeChip(.all, label: "全部", count: nodesMatchingSource.count)
-
                     let favorites = nodesMatchingSource.filter(\.isFavorite).count
                     if favorites > 0 {
                         scopeChip(.favorites, label: "收藏", count: favorites)
@@ -1726,6 +1733,7 @@ struct NodeListView: View {
                     }
                 }
             }
+            .frame(minWidth: 0)
 
             if !scopedCountryGroups.isEmpty {
                 countryPicker
@@ -1736,35 +1744,38 @@ struct NodeListView: View {
     private var subscriptionFilterBar: some View {
         Group {
             if !subscriptionFilterItems.isEmpty || !appState.subscriptions.isEmpty {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        Text("订阅")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-
-                        sourceChip(.all, label: "全部", count: nodesMatchingScope.count)
-
-                        ForEach(subscriptionFilterItems) { item in
-                            sourceChip(
-                                item.source,
-                                label: item.title,
-                                count: item.count
-                            )
-                        }
-
-                        if source != .all {
-                            Button {
-                                appState.showImportLinks = true
-                            } label: {
-                                Image(systemName: "plus.circle")
+                HStack(spacing: 8) {
+                    Text("订阅")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize()
+                    sourceChip(.all, label: "全部", count: nodesMatchingScope.count)
+                        .fixedSize()
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            ForEach(subscriptionFilterItems) { item in
+                                sourceChip(
+                                    item.source,
+                                    label: item.title,
+                                    count: item.count
+                                )
                             }
-                            .buttonStyle(.plain)
-                            .help("向当前选中的订阅添加分享链接")
+
+                            if source != .all {
+                                Button {
+                                    appState.showImportLinks = true
+                                } label: {
+                                    Image(systemName: "plus.circle")
+                                }
+                                .buttonStyle(.plain)
+                                .help("向当前选中的订阅添加分享链接")
+                            }
                         }
+                        .background(SubscriptionGroupDragScroll())
                     }
-                    .background(SubscriptionGroupDragScroll())
+                    .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
+                    .help("按住并左右拖动，或使用触控板横向滚动订阅分组")
                 }
-                .help("按住并左右拖动，或使用触控板横向滚动订阅分组")
             }
         }
     }
@@ -1878,7 +1889,7 @@ struct NodeListView: View {
         let scoped = nodesMatchingScope
         let counts = scoped.reduce(into: [UUID?: Int]()) { $0[$1.subscriptionID, default: 0] += 1 }
 
-        for sub in appState.subscriptions {
+        for sub in appState.subscriptions where sub.isEnabled {
             let count = counts[sub.id] ?? 0
             items.append(
                 SubscriptionFilterItem(
@@ -1934,7 +1945,7 @@ struct NodeListView: View {
         let bySubscription = Dictionary(grouping: active, by: \.subscriptionID)
         var sections: [SubscriptionSection] = []
 
-        for sub in appState.subscriptions {
+        for sub in appState.subscriptions where sub.isEnabled {
             let nodes = bySubscription[sub.id] ?? []
             sections.append(SubscriptionSection(id: sub.id.uuidString, title: sub.name, nodes: nodes))
         }
@@ -2035,7 +2046,7 @@ struct NodeListView: View {
     private var activeNodes: [ProxyNode] {
         let connectedID = appState.connection.state.currentNodeID
         return appState.nodes.filter { node in
-            !node.pendingRemoval || node.id == connectedID
+            (!node.pendingRemoval || node.id == connectedID) && appState.nodeSubscriptionEnabled(node)
         }
     }
 
@@ -2252,6 +2263,7 @@ private struct SubscriptionGroupDragScroll: NSViewRepresentable {
     final class DragAnchor: NSView, NSGestureRecognizerDelegate {
         private weak var scrollView: NSScrollView?
         private var startX: CGFloat = 0
+        private var showingHand = false
         private lazy var pan: NSPanGestureRecognizer = {
             let gesture = NSPanGestureRecognizer(target: self, action: #selector(dragged(_:)))
             // Delay chip clicks until we know this press is not a drag.
@@ -2271,8 +2283,24 @@ private struct SubscriptionGroupDragScroll: NSViewRepresentable {
         }
 
         func detach() {
+            hideHand()
             scrollView?.removeGestureRecognizer(pan)
             scrollView = nil
+        }
+
+        private func showHand() {
+            if showingHand {
+                NSCursor.closedHand.set()
+            } else {
+                showingHand = true
+                NSCursor.closedHand.push()
+            }
+        }
+
+        private func hideHand() {
+            guard showingHand else { return }
+            showingHand = false
+            NSCursor.pop()
         }
 
         func gestureRecognizerShouldBegin(_ gestureRecognizer: NSGestureRecognizer) -> Bool {
@@ -2281,6 +2309,8 @@ private struct SubscriptionGroupDragScroll: NSViewRepresentable {
         }
 
         @objc private func dragged(_ gesture: NSPanGestureRecognizer) {
+            if gesture.state == .began || gesture.state == .changed { showHand() }
+            defer { if gesture.state != .began && gesture.state != .changed { hideHand() } }
             guard let scrollView, let document = scrollView.documentView else { return }
             let clip = scrollView.contentView
             if gesture.state == .began { startX = clip.bounds.minX }
