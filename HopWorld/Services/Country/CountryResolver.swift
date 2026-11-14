@@ -122,7 +122,11 @@ enum CountryResolver {
         return cache
     }()
 
+#if os(iOS)
+    private static let knownISOCodes: Set<String> = Set(Locale.isoRegionCodes)
+#else
     private static let knownISOCodes: Set<String> = Set(Locale.Region.isoRegions.map(\.identifier))
+#endif
 
     /// Preferred zh display names; fall back to system localization.
     private static let zhNames: [String: String] = Dictionary(

@@ -14,3 +14,7 @@ HOPWORLD_TUNNEL_ENTITLEMENTS = HopWorldTunnel/HopWorldTunnel.vpn.entitlements
 HOPWORLD_CODE_SIGN_STYLE = Automatic
 HOPWORLD_CODE_SIGN_IDENTITY = Apple Development
 HOPWORLD_CODE_SIGNING_REQUIRED = YES
+
+// iOS 用同一前缀下的 .ios / group.*.ios，不要改回 Mac 的 Bundle ID。
+HOPWORLD_IOS_APP_ENTITLEMENTS = HopWorldIOS/App/HopWorldIOS.vpn.entitlements
+HOPWORLD_IOS_TUNNEL_ENTITLEMENTS = HopWorldIOS/Tunnel/HopWorldIOSTunnel.vpn.entitlements

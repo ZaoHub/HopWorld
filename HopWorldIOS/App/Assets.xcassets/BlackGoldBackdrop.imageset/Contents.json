@@ -1,0 +1,12 @@
+{
+  "images" : [
+    {
+      "filename" : "BlackGoldBackdrop.png",
+      "idiom" : "universal"
+    }
+  ],
+  "info" : {
+    "author" : "xcode",
+    "version" : 1
+  }
+}

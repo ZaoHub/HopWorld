@@ -528,7 +528,11 @@ struct ProxyNode: Identifiable, Codable, Hashable, Sendable {
     }
 
     var lastAvailableText: String {
-        lastAvailableAt?.formatted(date: .numeric, time: .shortened) ?? "暂无记录"
+        guard let date = lastAvailableAt else { return "暂无记录" }
+        if #available(iOS 15.0, macOS 12.0, *) {
+            return date.formatted(date: .numeric, time: .shortened)
+        }
+        return DateFormatter.localizedString(from: date, dateStyle: .short, timeStyle: .short)
     }
 
     var latencyText: String {

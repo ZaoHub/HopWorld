@@ -417,7 +417,13 @@ struct Subscription: Identifiable, Codable, Hashable, Sendable {
             parts.append("连续失败 \(updateFailureCount) 次")
         }
         if let nextRetryAt {
-            parts.append("下次重试 \(nextRetryAt.formatted(date: .abbreviated, time: .shortened))")
+            let dateText: String
+            if #available(iOS 15.0, macOS 12.0, *) {
+                dateText = nextRetryAt.formatted(date: .abbreviated, time: .shortened)
+            } else {
+                dateText = DateFormatter.localizedString(from: nextRetryAt, dateStyle: .medium, timeStyle: .short)
+            }
+            parts.append("下次重试 \(dateText)")
         }
         return parts.joined(separator: " · ")
     }

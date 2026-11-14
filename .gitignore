@@ -10,6 +10,8 @@ xcuserdata/
 HopWorld/Resources/xray
 HopWorld/Resources/geoip.dat
 HopWorld/Resources/geosite.dat
+HopWorldIOS/Vendor/
+Configs/Libbox.local.xcconfig
 
 # Local artifacts and editor state
 dist/
