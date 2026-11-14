@@ -1543,7 +1543,7 @@
 				INFOPLIST_FILE = HopWorldIOS/App/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 13.0;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
-				MARKETING_VERSION = 2.0.0;
+				MARKETING_VERSION = 1.0.0;
 				OTHER_LDFLAGS = "$(inherited) $(HOPWORLD_IOS_LIBBOX_LDFLAGS)";
 				PRODUCT_BUNDLE_IDENTIFIER = "$(HOPWORLD_IOS_APP_BUNDLE_ID)";
 				PRODUCT_MODULE_NAME = HopWorldIOS;
@@ -1604,7 +1604,7 @@
 				INFOPLIST_FILE = HopWorldIOS/Tunnel/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 13.0;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks @executable_path/../../Frameworks";
-				MARKETING_VERSION = 2.0.0;
+				MARKETING_VERSION = 1.0.0;
 				OTHER_LDFLAGS = "$(inherited) $(HOPWORLD_IOS_LIBBOX_LDFLAGS)";
 				PRODUCT_BUNDLE_IDENTIFIER = "$(HOPWORLD_IOS_TUNNEL_BUNDLE_ID)";
 				PRODUCT_MODULE_NAME = HopWorldIOSTunnel;
@@ -1808,7 +1808,7 @@
 				INFOPLIST_FILE = HopWorldIOS/App/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 13.0;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
-				MARKETING_VERSION = 2.0.0;
+				MARKETING_VERSION = 1.0.0;
 				OTHER_LDFLAGS = "$(inherited) $(HOPWORLD_IOS_LIBBOX_LDFLAGS)";
 				PRODUCT_BUNDLE_IDENTIFIER = "$(HOPWORLD_IOS_APP_BUNDLE_ID)";
 				PRODUCT_MODULE_NAME = HopWorldIOS;
@@ -1832,7 +1832,7 @@
 				INFOPLIST_FILE = HopWorldIOS/Tunnel/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 13.0;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks @executable_path/../../Frameworks";
-				MARKETING_VERSION = 2.0.0;
+				MARKETING_VERSION = 1.0.0;
 				OTHER_LDFLAGS = "$(inherited) $(HOPWORLD_IOS_LIBBOX_LDFLAGS)";
 				PRODUCT_BUNDLE_IDENTIFIER = "$(HOPWORLD_IOS_TUNNEL_BUNDLE_ID)";
 				PRODUCT_MODULE_NAME = HopWorldIOSTunnel;

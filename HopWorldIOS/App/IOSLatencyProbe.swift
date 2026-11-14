@@ -346,7 +346,7 @@ private final class IOSLibboxProbe: NSObject, LibboxPlatformInterfaceProtocol, L
         setup.logMaxLines = 50
         setup.crashReportSource = "HopWorldIOSProbe"
         setup.appVersion = "5"
-        setup.appMarketingVersion = "2.0.0"
+        setup.appMarketingVersion = "1.0.0"
         var setupError: NSError?
         guard LibboxSetup(setup, &setupError) else { throw setupError ?? probeFailure("sing-box 初始化失败") }
         var checkError: NSError?
