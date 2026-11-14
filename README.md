@@ -1,6 +1,6 @@
 # 跃界 / HopWorld
 
-macOS 原生可视化 Xray/V2Ray 代理客户端（SwiftUI）。
+macOS 和 iOS 原生可视化代理客户端（SwiftUI）。
 
 协议、传输、REALITY 与导入格式的支持范围见 [支持列表](docs/支持列表.md)。内核分工、维护入口和扩展流程见 [已支持协议与维护指南](docs/已支持协议与维护指南.md)。
 
@@ -11,6 +11,8 @@ HopWorld 自有源码采用 [MIT License](LICENSE)。外部代理内核及规则
 根据 `macOS_Xray_可视化代理客户端_开发文档_V1.0.md` 实现首版核心能力：订阅导入、日期型 URL、节点分类、测速、按国家一键连接、系统代理模式。
 
 **2.0** 增加 [软路由](#软路由)：另开一份核心，给同一局域网的手机和平板用。其它设备不必再装自己的代理 App，本机正在用的连接也不会被换掉。安装包：[Apple Silicon](https://github.com/ZaoHub/HopWorld/releases/download/v2.0.0/HopWorld-2026-11-12-arm64.dmg)、[Intel](https://github.com/ZaoHub/HopWorld/releases/download/v2.0.0/HopWorld-2026-11-12-x86_64.dmg)，说明见 [v2.0.0](https://github.com/ZaoHub/HopWorld/releases/tag/v2.0.0)。
+
+**iOS 1.0.0** 提供 [TrollStore 安装包](https://github.com/ZaoHub/HopWorld/releases/download/ios-v1.0.0/HopWorld-iOS-1.0.0-TrollStore.ipa)，校验文件在[同一发布页](https://github.com/ZaoHub/HopWorld/releases/tag/ios-v1.0.0)。主 App 与 VPN 扩展均为 1.0.0，最低目标为 iOS 13。说明见 [iOS 1.0.0](HopWorldIOS/RELEASE_NOTES_1.0.0.md)。这个安装包已通过真机架构构建、签名和完整性检查，尚未在手机上安装验证。
 
 ## 产品主页
 
@@ -38,11 +40,11 @@ HopWorld 自有源码采用 [MIT License](LICENSE)。外部代理内核及规则
 
 ## 环境
 
-- macOS 13.0+
+- macOS 13.0+；iOS 客户端最低目标版本为 iOS 13.0
 - Xcode 15+
 - [XcodeGen](https://github.com/yonaskolb/XcodeGen)
 
-> **系统 VPN**（Network Extension）仅在自行签名的构建中可用，需付费 Apple Developer 账号，见下文「启用系统 VPN」。公开发布的安装包不显示该选项。
+> 以下「启用系统 VPN」说明针对 macOS。iOS 安装方式见 [iOS 1.0.0 说明](HopWorldIOS/RELEASE_NOTES_1.0.0.md)。
 
 ## 从源码构建
 

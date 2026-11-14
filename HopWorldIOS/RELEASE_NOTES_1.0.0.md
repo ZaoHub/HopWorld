@@ -4,6 +4,10 @@ iPhone / iPad 版跃界，可导入订阅或分享链接、管理节点和订阅
 
 最低目标系统为 iOS 13.0。本次版本曾在 iPhone 13 Pro、iOS 16.1.2 上由用户实机使用；iOS 13 等其他系统版本尚未完成真机验证。
 
+2026-11-15 重新打包的 `HopWorld-iOS-1.0.0-TrollStore.ipa` 中，主 App 与 VPN 扩展的版本均为 1.0.0。真机架构构建、签名和 IPA 完整性检查已通过。这个重新打包的文件尚未在手机上安装验证。
+
+SHA-256：`efb0743147ac46595097eda4779a737bfd1e83534bc987e84afb50931a4890ab`
+
 ## 安装
 
 本版本提供用于 TrollStore 的 IPA。请确认设备和系统版本受 [TrollStore](https://github.com/opa334/TrollStore) 支持，通过 TrollStore 安装 IPA；更新时使用相同方式覆盖安装。此包不需要每七天使用个人 Apple ID 重新签名。普通免费 Apple ID 重签可能移除 VPN 所需权限，不适用于该安装包。
