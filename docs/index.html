@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>跃界 HopWorld — VNP节点可视化代理客户端</title>
-  <meta name="description" content="跃界 HopWorld 是 macOS 原生 VNP/代理节点可视化客户端：支持 VLESS、VMess、Trojan、Shadowsocks、Hysteria2 等 11 种协议，订阅测速、按国家一键连接、规则/全局/分应用 TUN、应用连通探测与 Codex 重置提醒。开源 MIT，基于 Xray 与 sing-box。">
+  <meta name="description" content="跃界 HopWorld 是 macOS 与 iOS 原生 VNP/代理节点可视化客户端：支持 VLESS、VMess、Trojan、Shadowsocks、Hysteria2 等 11 种协议，订阅测速、按国家一键连接。macOS 另有规则/全局/分应用 TUN 与软路由。开源 MIT。">
   <meta name="keywords" content="跃界,HopWorld,macOS代理,VNP节点,可视化代理客户端,Xray,sing-box,VLESS,VMess,Trojan,Shadowsocks,Hysteria2,TUN,节点测速,订阅导入,开源代理">
   <meta name="author" content="ZaoHub">
   <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1">
@@ -26,7 +26,7 @@
   <meta property="og:site_name" content="跃界 HopWorld">
   <meta property="og:url" content="https://zaohub.github.io/HopWorld/">
   <meta property="og:title" content="跃界 HopWorld — VNP节点可视化代理客户端">
-  <meta property="og:description" content="macOS 原生可视化代理客户端。11 种节点协议、订阅测速、按国家连接、TUN 接管与应用连通探测。开源 MIT。">
+  <meta property="og:description" content="macOS 与 iOS 原生可视化代理客户端。11 种节点协议、订阅测速、按国家连接。macOS 另有 TUN 与软路由。开源 MIT。">
   <meta property="og:image" content="https://zaohub.github.io/HopWorld/assets/screenshots/promo-desktop.jpg">
   <meta property="og:image:type" content="image/jpeg">
   <meta property="og:image:width" content="1024">
@@ -35,7 +35,7 @@
 
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="跃界 HopWorld — VNP节点可视化代理客户端">
-  <meta name="twitter:description" content="macOS 原生可视化代理客户端。多协议节点、订阅测速、国家一键连接与 TUN 接管。">
+  <meta name="twitter:description" content="macOS 与 iOS 原生可视化代理客户端。多协议节点、订阅测速、国家一键连接。macOS 另有 TUN 接管。">
   <meta name="twitter:image" content="https://zaohub.github.io/HopWorld/assets/screenshots/promo-desktop.jpg">
   <meta name="twitter:image:alt" content="跃界 HopWorld 宣传视觉">
 
@@ -47,7 +47,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=Syne:wght@600;700;800&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
-  <link rel="stylesheet" href="./assets/css/landing.css?v=20261112a">
+  <link rel="stylesheet" href="./assets/css/landing.css?v=20261116a">
   <script type="application/ld+json">
   {
     "@context": "https://schema.org",
@@ -58,7 +58,7 @@
         "url": "https://zaohub.github.io/HopWorld/",
         "name": "跃界 HopWorld",
         "alternateName": ["HopWorld", "跃界"],
-        "description": "macOS 原生 VNP/代理节点可视化客户端官方落地页。",
+        "description": "macOS 与 iOS 原生 VNP/代理节点可视化客户端官方落地页。",
         "inLanguage": "zh-Hans",
         "publisher": { "@id": "https://zaohub.github.io/HopWorld/#org" }
       },
@@ -110,6 +110,32 @@
         "publisher": { "@id": "https://zaohub.github.io/HopWorld/#org" }
       },
       {
+        "@type": "SoftwareApplication",
+        "@id": "https://zaohub.github.io/HopWorld/#ios",
+        "name": "跃界 HopWorld iOS",
+        "alternateName": "HopWorld iOS",
+        "applicationCategory": "UtilitiesApplication",
+        "applicationSubCategory": "NetworkProxy",
+        "operatingSystem": "iOS 13.0+",
+        "softwareVersion": "1.0.0",
+        "downloadUrl": "https://github.com/ZaoHub/HopWorld/releases/download/ios-v1.0.0/HopWorld-iOS-1.0.0-TrollStore.ipa",
+        "installUrl": "https://github.com/ZaoHub/HopWorld/releases/tag/ios-v1.0.0",
+        "url": "https://zaohub.github.io/HopWorld/#download",
+        "description": "iPhone / iPad 版跃界。可导入订阅或分享链接、测试延迟，并通过系统 VPN 连接。主 App 与 VPN 扩展均为 1.0.0，供 TrollStore 安装。",
+        "offers": {
+          "@type": "Offer",
+          "price": "0",
+          "priceCurrency": "USD",
+          "availability": "https://schema.org/InStock"
+        },
+        "license": "https://github.com/ZaoHub/HopWorld/blob/main/LICENSE",
+        "codeRepository": "https://github.com/ZaoHub/HopWorld",
+        "isAccessibleForFree": true,
+        "inLanguage": "zh-Hans",
+        "author": { "@id": "https://zaohub.github.io/HopWorld/#org" },
+        "publisher": { "@id": "https://zaohub.github.io/HopWorld/#org" }
+      },
+      {
         "@type": "FAQPage",
         "@id": "https://zaohub.github.io/HopWorld/#faq",
         "mainEntity": [
@@ -126,7 +152,7 @@
             "name": "跃界 HopWorld 是什么？",
             "acceptedAnswer": {
               "@type": "Answer",
-              "text": "跃界 HopWorld 是一款 macOS 原生可视化代理客户端，用 SwiftUI 编写，基于 Xray 与 sing-box，支持多协议节点导入、测速、按国家连接与 TUN 接管。"
+              "text": "跃界 HopWorld 是 macOS 与 iOS 原生可视化代理客户端，用 SwiftUI 编写。macOS 版基于 Xray 与 sing-box，支持多协议节点导入、测速、按国家连接与 TUN 接管。iOS 1.0.0 可导入订阅或分享链接、测速，并通过系统 VPN 连接，安装包供 TrollStore 使用。"
             }
           },
           {
@@ -142,7 +168,7 @@
             "name": "系统要求是什么？如何下载？",
             "acceptedAnswer": {
               "@type": "Answer",
-              "text": "需要 macOS 13.0 及以上。可在 GitHub Releases 下载 Apple Silicon 或 Intel 的 DMG。安装包为 ad-hoc 签名，未做 Apple 公证；首次连接或测速时可在应用内安装 Xray。"
+              "text": "macOS 需要 13.0 及以上，可下载 Apple Silicon 或 Intel 的 DMG，安装包为 ad-hoc 签名，未做 Apple 公证。iOS 客户端最低目标为 iOS 13，主 App 与 VPN 扩展均为 1.0.0，提供 TrollStore 安装包。该 iOS 安装包已通过构建、签名和完整性检查，尚未在手机上安装验证。"
             }
           },
           {
@@ -253,7 +279,7 @@
           <span class="hero-kicker">HopWorld</span>
           <span class="hero-word">跃界</span>
         </h1>
-        <p class="hero-lead reveal" style="--d: 1">用更稳的连接，打开更大的世界。macOS 原生可视化代理客户端。</p>
+        <p class="hero-lead reveal" style="--d: 1">用更稳的连接，打开更大的世界。macOS 与 iOS 原生可视化代理客户端。</p>
         <div class="cta-row reveal" style="--d: 2">
           <a class="btn btn-primary" href="#download">下载安装包</a>
           <a class="btn btn-ghost" href="https://github.com/ZaoHub/HopWorld" rel="noopener noreferrer">查看源码</a>
@@ -558,7 +584,7 @@
         </details>
         <details class="faq-item reveal" style="--d: 1">
           <summary>跃界 HopWorld 是什么？</summary>
-          <p>跃界 HopWorld 是一款 <strong>macOS 原生可视化代理客户端</strong>（SwiftUI），面向 VNP/代理节点管理：订阅导入、测速、按国家一键连接，以及规则 / 全局 / 分应用 TUN。内核使用 <strong>Xray</strong> 与 <strong>sing-box</strong>。</p>
+          <p>跃界 HopWorld 是 <strong>macOS 与 iOS 原生可视化代理客户端</strong>（SwiftUI）。macOS 版面向订阅导入、测速、按国家一键连接，以及规则 / 全局 / 分应用 TUN，内核使用 <strong>Xray</strong> 与 <strong>sing-box</strong>。iOS 1.0.0 可导入订阅或分享链接、测速，并通过系统 VPN 连接。</p>
         </details>
         <details class="faq-item reveal" style="--d: 2">
           <summary>支持哪些节点协议？</summary>
@@ -566,7 +592,7 @@
         </details>
         <details class="faq-item reveal" style="--d: 3">
           <summary>系统要求与下载方式？</summary>
-          <p>需要 <strong>macOS 13.0+</strong>。可在 GitHub Releases 下载 Apple Silicon 或 Intel 的 DMG。安装包为 ad-hoc 签名，未做 Apple 公证；首次连接或测速时可在应用内安装 Xray。</p>
+          <p><strong>macOS 13.0+</strong> 可下载 Apple Silicon 或 Intel 的 DMG，安装包为 ad-hoc 签名，未做 Apple 公证。<strong>iOS 13+</strong> 提供 TrollStore 安装包，主 App 与 VPN 扩展均为 1.0.0。这个 iOS 安装包已通过构建、签名和完整性检查，尚未在手机上安装验证。</p>
         </details>
         <details class="faq-item reveal" style="--d: 4">
           <summary>是否开源？许可证是什么？</summary>
@@ -578,13 +604,25 @@
     <section class="section" id="download" aria-labelledby="download-title">
       <div class="download-panel reveal">
         <h2 id="download-title">下载跃界</h2>
-        <p>macOS 13.0 及以上。首次运行可在「关于 → 管理更新」安装 Xray；连接或测速时也会自动下载。安装包为 ad-hoc 签名，未做 Apple 公证。</p>
-        <div class="cta-row">
-          <a class="btn btn-primary" href="https://github.com/ZaoHub/HopWorld/releases/download/v2.0.0/HopWorld-2026-11-12-arm64.dmg">Apple Silicon · DMG</a>
-          <a class="btn btn-ghost" href="https://github.com/ZaoHub/HopWorld/releases/download/v2.0.0/HopWorld-2026-11-12-x86_64.dmg">Intel · DMG</a>
-          <a class="btn btn-ghost" href="https://github.com/ZaoHub/HopWorld/releases/tag/v2.0.0" rel="noopener noreferrer">全部 Release</a>
+        <div class="download-group">
+          <h3>macOS 2.0.0</h3>
+          <p>macOS 13.0 及以上。首次运行可在「关于 → 管理更新」安装 Xray；连接或测速时也会自动下载。安装包为 ad-hoc 签名，未做 Apple 公证。</p>
+          <div class="cta-row">
+            <a class="btn btn-primary" href="https://github.com/ZaoHub/HopWorld/releases/download/v2.0.0/HopWorld-2026-11-12-arm64.dmg">Apple Silicon · DMG</a>
+            <a class="btn btn-ghost" href="https://github.com/ZaoHub/HopWorld/releases/download/v2.0.0/HopWorld-2026-11-12-x86_64.dmg">Intel · DMG</a>
+            <a class="btn btn-ghost" href="https://github.com/ZaoHub/HopWorld/releases/tag/v2.0.0" rel="noopener noreferrer">v2.0.0 说明</a>
+          </div>
+          <p class="download-note">若系统提示无法打开，可在「隐私与安全性」允许，或右键 App 选择打开。</p>
         </div>
-        <p class="download-note">若系统提示无法打开，可在「隐私与安全性」允许，或右键 App 选择打开。</p>
+        <div class="download-group">
+          <h3>iOS 1.0.0</h3>
+          <p>iPhone / iPad，最低 iOS 13。主 App 与 VPN 扩展均为 1.0.0，通过 TrollStore 安装。真机架构构建、签名和完整性检查已通过，这个安装包尚未在手机上安装验证。</p>
+          <div class="cta-row">
+            <a class="btn btn-primary" href="https://github.com/ZaoHub/HopWorld/releases/download/ios-v1.0.0/HopWorld-iOS-1.0.0-TrollStore.ipa">TrollStore · IPA</a>
+            <a class="btn btn-ghost" href="https://github.com/ZaoHub/HopWorld/releases/tag/ios-v1.0.0" rel="noopener noreferrer">校验与说明</a>
+          </div>
+          <p class="download-note">请确认设备受 TrollStore 支持。SHA-256：<code>efb0743147ac46595097eda4779a737bfd1e83534bc987e84afb50931a4890ab</code></p>
+        </div>
       </div>
     </section>
   </main>

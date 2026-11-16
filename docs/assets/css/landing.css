@@ -703,9 +703,31 @@ button,
   max-width: 38rem;
 }
 
+.download-group {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.download-group + .download-group {
+  padding-top: 0.35rem;
+  border-top: 1px solid var(--line);
+}
+
+.download-group h3 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 1.15rem;
+  letter-spacing: -0.03em;
+}
+
 .download-note {
   font-size: 0.92rem;
   color: rgba(242, 238, 230, 0.58);
+}
+
+.download-note code {
+  font-size: 0.82em;
+  word-break: break-all;
 }
 
 .site-footer {
