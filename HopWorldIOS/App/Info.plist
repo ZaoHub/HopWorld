@@ -26,6 +26,23 @@
 	<string>$(HOPWORLD_IOS_TUNNEL_BUNDLE_ID)</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>跃界测量所选节点的延迟时，会连接该节点的地址。</string>
+	<key>UIApplicationSceneManifest</key>
+	<dict>
+		<key>UIApplicationSupportsMultipleScenes</key>
+		<false/>
+		<key>UISceneConfigurations</key>
+		<dict>
+			<key>UIWindowSceneSessionRoleApplication</key>
+			<array>
+				<dict>
+					<key>UISceneConfigurationName</key>
+					<string>Default</string>
+					<key>UISceneDelegateClassName</key>
+					<string>$(PRODUCT_MODULE_NAME).HopWorldIOSSceneDelegate</string>
+				</dict>
+			</array>
+		</dict>
+	</dict>
 	<key>UILaunchScreen</key>
 	<dict/>
 	<key>UISupportedInterfaceOrientations</key>
@@ -40,6 +57,59 @@
 		<string>UIInterfaceOrientationPortraitUpsideDown</string>
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
+	</array>
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>youtube</string>
+		<string>tg</string>
+		<string>instagram</string>
+		<string>whatsapp</string>
+		<string>tiktok</string>
+		<string>twitter</string>
+		<string>discord</string>
+		<string>chatgpt</string>
+		<string>weixin</string>
+		<string>mqq</string>
+		<string>sinaweibo</string>
+		<string>bilibili</string>
+		<string>snssdk1128</string>
+		<string>xhsdiscover</string>
+		<string>taobao</string>
+		<string>alipay</string>
+		<string>openapp.jdmobile</string>
+		<string>imeituan</string>
+		<string>orpheus</string>
+		<string>pinduoduo</string>
+		<string>zhihu</string>
+		<string>iosamap</string>
+		<string>baiduboxapp</string>
+		<string>dingtalk</string>
+		<string>wxwork</string>
+		<string>kwai</string>
+		<string>eleme</string>
+		<string>spotify</string>
+		<string>nflx</string>
+		<string>fb</string>
+		<string>line</string>
+		<string>sgnl</string>
+		<string>reddit</string>
+		<string>googlechrome</string>
+		<string>slack</string>
+		<string>zoomus</string>
+		<string>msteams</string>
+		<string>notion</string>
+		<string>claude</string>
+		<string>googlegmail</string>
+		<string>firefox</string>
+		<string>snapchat</string>
+		<string>linkedin</string>
+		<string>pinterest</string>
+		<string>twitch</string>
+		<string>steam</string>
+		<string>capcut</string>
+		<string>duolingo</string>
+		<string>paypal</string>
+		<string>github</string>
 	</array>
 </dict>
 </plist>

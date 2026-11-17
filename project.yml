@@ -244,16 +244,17 @@ targets:
         GENERATE_INFOPLIST_FILE: NO
         CODE_SIGN_ENTITLEMENTS: $(HOPWORLD_IOS_APP_ENTITLEMENTS)
         TARGETED_DEVICE_FAMILY: "1,2"
-        # 文档要求 13.0。Xcode 27.1 的 ValidDeploymentTargets 从 15.0 起，再低会直接拒绝编译。
+        # 真机最低仍是 13.0。Xcode 27.1 模拟器 SDK 只接受 15.0–27.1，模拟器构建单独抬到 15.0。
         IPHONEOS_DEPLOYMENT_TARGET: "13.0"
+        "IPHONEOS_DEPLOYMENT_TARGET[sdk=iphonesimulator*]": "15.0"
         SUPPORTS_MACCATALYST: NO
         ENABLE_HARDENED_RUNTIME: NO
         LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/Frameworks"
         FRAMEWORK_SEARCH_PATHS: "$(inherited) $(HOPWORLD_IOS_LIBBOX_SEARCH)"
         OTHER_LDFLAGS: "$(inherited) $(HOPWORLD_IOS_LIBBOX_LDFLAGS)"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
-        MARKETING_VERSION: "1.0.0"
-        CURRENT_PROJECT_VERSION: "5"
+        MARKETING_VERSION: "1.0.1"
+        CURRENT_PROJECT_VERSION: "6"
         SWIFT_STRICT_CONCURRENCY: minimal
 
   HopWorldIOSTunnel:
@@ -276,14 +277,15 @@ targets:
         GENERATE_INFOPLIST_FILE: NO
         CODE_SIGN_ENTITLEMENTS: $(HOPWORLD_IOS_TUNNEL_ENTITLEMENTS)
         IPHONEOS_DEPLOYMENT_TARGET: "13.0"
+        "IPHONEOS_DEPLOYMENT_TARGET[sdk=iphonesimulator*]": "15.0"
         ENABLE_HARDENED_RUNTIME: NO
         SKIP_INSTALL: YES
         LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/Frameworks @executable_path/../../Frameworks"
         FRAMEWORK_SEARCH_PATHS: "$(inherited) $(HOPWORLD_IOS_LIBBOX_SEARCH)"
         OTHER_LDFLAGS: "$(inherited) $(HOPWORLD_IOS_LIBBOX_LDFLAGS)"
         APPLICATION_EXTENSION_API_ONLY: YES
-        MARKETING_VERSION: "1.0.0"
-        CURRENT_PROJECT_VERSION: "5"
+        MARKETING_VERSION: "1.0.1"
+        CURRENT_PROJECT_VERSION: "6"
         SWIFT_STRICT_CONCURRENCY: minimal
 
   HopWorldIOSTests:
@@ -300,6 +302,7 @@ targets:
         PRODUCT_MODULE_NAME: HopWorldIOSTests
         GENERATE_INFOPLIST_FILE: YES
         IPHONEOS_DEPLOYMENT_TARGET: "13.0"
+        "IPHONEOS_DEPLOYMENT_TARGET[sdk=iphonesimulator*]": "15.0"
         ENABLE_HARDENED_RUNTIME: NO
         FRAMEWORK_SEARCH_PATHS: "$(inherited) $(HOPWORLD_IOS_LIBBOX_SEARCH)"
         SWIFT_STRICT_CONCURRENCY: minimal

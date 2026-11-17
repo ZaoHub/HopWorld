@@ -3,6 +3,7 @@ import Foundation
 enum IOSSubscriptionError: LocalizedError {
     case invalidURL(String)
     case http(Int)
+    case rejectedClient
     case empty
     case timeout
     case insecure
@@ -11,6 +12,7 @@ enum IOSSubscriptionError: LocalizedError {
         switch self {
         case .invalidURL(let value): return "无效 URL：\(value)"
         case .http(let code): return "HTTP \(code)"
+        case .rejectedClient: return "HTTP 400"
         case .empty: return "响应内容为空"
         case .timeout: return "请求超时"
         case .insecure: return "HTTP 订阅被系统安全策略拦截，当前仅支持 HTTPS 订阅。"
@@ -19,7 +21,7 @@ enum IOSSubscriptionError: LocalizedError {
 
     var rejectsUserAgent: Bool {
         switch self {
-        case .http(403), .http(415): return true
+        case .http(403), .http(415), .rejectedClient: return true
         default: return false
         }
     }
@@ -42,7 +44,7 @@ enum IOSSubscriptionClient {
         "v2rayNG/1.9.34"
     ]
 
-    static func fetch(_ urlString: String) async throws -> Data {
+    static func fetch(_ urlString: String, session: URLSession = .shared) async throws -> Data {
         guard let url = URL(string: urlString),
               let scheme = url.scheme?.lowercased(),
               ["https", "http"].contains(scheme),
@@ -52,7 +54,7 @@ enum IOSSubscriptionClient {
         var lastError: Error = IOSSubscriptionError.invalidURL(urlString)
         for agent in userAgents {
             do {
-                return try await load(url, userAgent: agent)
+                return try await load(url, userAgent: agent, session: session)
             } catch let error as IOSSubscriptionError where error.rejectsUserAgent {
                 lastError = error
                 continue
@@ -63,7 +65,7 @@ enum IOSSubscriptionClient {
         throw lastError
     }
 
-    private static func load(_ url: URL, userAgent: String) async throws -> Data {
+    private static func load(_ url: URL, userAgent: String, session: URLSession) async throws -> Data {
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         request.timeoutInterval = 20
@@ -72,7 +74,7 @@ enum IOSSubscriptionClient {
         let data: Data
         let response: URLResponse
         do {
-            (data, response) = try await IOSURL.load(request)
+            (data, response) = try await IOSURL.load(request, session: session)
         } catch let error as URLError where error.code == .appTransportSecurityRequiresSecureConnection {
             throw IOSSubscriptionError.insecure
         } catch let error as URLError where error.code == .timedOut {
@@ -84,6 +86,10 @@ enum IOSSubscriptionClient {
         if http.statusCode == 403 || http.statusCode == 415 {
             throw IOSSubscriptionError.http(http.statusCode)
         }
+        if http.statusCode == 400,
+           String(data: data, encoding: .utf8)?.lowercased().contains("unsupported client flag") == true {
+            throw IOSSubscriptionError.rejectedClient
+        }
         guard (200..<300).contains(http.statusCode) else {
             throw IOSSubscriptionError.http(http.statusCode)
         }
@@ -94,19 +100,45 @@ enum IOSSubscriptionClient {
 
 enum IOSURL {
     static func load(_ request: URLRequest, session: URLSession = .shared) async throws -> (Data, URLResponse) {
-        try await withCheckedThrowingContinuation { continuation in
-            let task = session.dataTask(with: request) { data, response, error in
-                if let error {
-                    continuation.resume(throwing: error)
-                    return
+        let box = URLTaskBox()
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                let task = session.dataTask(with: request) { data, response, error in
+                    if let error {
+                        continuation.resume(throwing: error)
+                    } else if let data, let response {
+                        continuation.resume(returning: (data, response))
+                    } else {
+                        continuation.resume(throwing: URLError(.badServerResponse))
+                    }
                 }
-                guard let data, let response else {
-                    continuation.resume(throwing: URLError(.badServerResponse))
-                    return
-                }
-                continuation.resume(returning: (data, response))
+                box.start(task)
             }
-            task.resume()
+        } onCancel: {
+            box.cancel()
         }
+    }
+}
+
+private final class URLTaskBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var task: URLSessionTask?
+    private var cancelled = false
+
+    func start(_ task: URLSessionTask) {
+        lock.lock()
+        self.task = task
+        let shouldCancel = cancelled
+        lock.unlock()
+        task.resume()
+        if shouldCancel { task.cancel() }
+    }
+
+    func cancel() {
+        lock.lock()
+        cancelled = true
+        let task = task
+        lock.unlock()
+        task?.cancel()
     }
 }

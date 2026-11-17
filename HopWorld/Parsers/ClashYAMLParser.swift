@@ -131,7 +131,8 @@ enum ClashYAMLParser {
                 shortID: shortID,
                 fingerprint: proxy["client-fingerprint"] ?? proxy["fingerprint"],
                 spiderX: spiderX,
-                alpn: proxy["alpn"]
+                alpn: proxy["alpn"],
+                allowInsecure: proxy["skip-cert-verify"]?.lowercased() == "true" ? true : nil
             )
         case "vmess":
             return ProxyNode(
@@ -152,7 +153,8 @@ enum ClashYAMLParser {
                 shortID: shortID,
                 fingerprint: proxy["client-fingerprint"] ?? proxy["fingerprint"],
                 spiderX: spiderX,
-                alpn: proxy["alpn"]
+                alpn: proxy["alpn"],
+                allowInsecure: proxy["skip-cert-verify"]?.lowercased() == "true" ? true : nil
             )
         case "trojan":
             return ProxyNode(
@@ -171,7 +173,8 @@ enum ClashYAMLParser {
                 shortID: shortID,
                 fingerprint: proxy["client-fingerprint"] ?? proxy["fingerprint"],
                 spiderX: spiderX,
-                alpn: proxy["alpn"]
+                alpn: proxy["alpn"],
+                allowInsecure: proxy["skip-cert-verify"]?.lowercased() == "true" ? true : nil
             )
         case "ss", "shadowsocks":
             return ProxyNode(

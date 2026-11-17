@@ -1,6 +1,24 @@
 import Foundation
 import NetworkExtension
 
+struct ShareLinkAppendResult: Equatable {
+    var added: Int
+    var skipped: Int
+    var nodeIDs: [UUID] = []
+}
+
+enum ShareLinkEditError: LocalizedError {
+    case missingGroup
+    case noValidNodes
+
+    var errorDescription: String? {
+        switch self {
+        case .missingGroup: return "这个订阅组已经不在了。"
+        case .noValidNodes: return "未解析到有效分享链接。"
+        }
+    }
+}
+
 struct IOSLibraryFile: Codable {
     var subscriptions: [Subscription] = []
     var nodes: [ProxyNode] = []
@@ -55,6 +73,26 @@ enum IOSSubscriptionMerge {
     }
 }
 
+enum IOSBatchPrompt: Equatable {
+    case connect(usable: Int, testedIDs: [UUID])
+    case noAvailable(subscriptionIDs: [UUID])
+
+    /// 测完且当前不在连接中才提示。有可用节点就询问连接，否则提示更换订阅。
+    static func make(status: NEVPNStatus, cancelled: Bool, tested: [ProxyNode], subscriptionOrder: [UUID]) -> IOSBatchPrompt? {
+        guard !cancelled else { return nil }
+        switch status {
+        case .connected, .connecting, .reasserting, .disconnecting: return nil
+        default: break
+        }
+        let usable = tested.filter { $0.resolvedTestStatus.isUsable }
+        if usable.isEmpty {
+            let ids = subscriptionOrder.filter { id in tested.contains { $0.subscriptionID == id } }
+            return .noAvailable(subscriptionIDs: ids)
+        }
+        return .connect(usable: usable.count, testedIDs: tested.map(\.id))
+    }
+}
+
 @MainActor
 final class IOSLibrary: ObservableObject {
     @Published private(set) var subscriptions: [Subscription] = []
@@ -67,6 +105,8 @@ final class IOSLibrary: ObservableObject {
     @Published private(set) var refreshingSubscriptionID: UUID?
     @Published private(set) var batchDone = 0
     @Published private(set) var batchTotal = 0
+    @Published var batchPrompt: IOSBatchPrompt?
+    @Published private(set) var subscriptionPageToken = 0
 
     let tunnel: any IOSTunnelControlling
     private let directory: URL
@@ -78,6 +118,8 @@ final class IOSLibrary: ObservableObject {
     private var exitGeneration = 0
     private var batchTask: Task<Void, Never>?
     private var nodeSwitchTask: Task<Void, Never>?
+    private var connectTimeoutTask: Task<Void, Never>?
+    private var connectTimeoutSkipped: Set<UUID> = []
     private var connectionStarting = false
 
     init(directory: URL? = nil, watchTunnel: Bool = true, tunnel: (any IOSTunnelControlling)? = nil) {
@@ -117,13 +159,19 @@ final class IOSLibrary: ObservableObject {
         IOSNodeSort.byLatency(countries.first { $0.code == code }?.nodes ?? [])
     }
 
-    func select(_ node: ProxyNode) {
+    func select(_ node: ProxyNode, notice: String? = nil) {
         guard !IOSSubscriptionNotice.matches(node) else { return }
         let changed = selectedNodeID != node.id
         selectedNodeID = node.id
         clearNotice()
         save()
-        guard changed else { return }
+        connectTimeoutTask?.cancel()
+        connectTimeoutTask = nil
+        if notice == nil { connectTimeoutSkipped = [] }
+        guard changed else {
+            if let notice { showNotice(notice) }
+            return
+        }
         probeTask?.cancel()
         exitTask?.cancel()
         exitTask = nil
@@ -151,10 +199,12 @@ final class IOSLibrary: ObservableObject {
                     }
                     try Task.checkCancellation()
                     await self.connect()
+                    if let notice, !Task.isCancelled, self.lastError == nil { self.showNotice(notice) }
                     if !Task.isCancelled { self.nodeSwitchTask = nil }
                 } catch { }
             }
         } else {
+            if let notice { showNotice(notice) }
             Task { await refreshSelectedExit() }
         }
     }
@@ -278,13 +328,152 @@ final class IOSLibrary: ObservableObject {
         save()
     }
 
+    func renameSubscription(_ id: UUID, to name: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, let index = subscriptions.firstIndex(where: { $0.id == id }) else { return }
+        subscriptions[index].name = trimmed
+        for nodeIndex in nodes.indices where nodes[nodeIndex].subscriptionID == id {
+            nodes[nodeIndex].sourceName = trimmed
+        }
+        save()
+    }
+
+    /// Returns whether the stored address changed. Caller refreshes after a change.
+    @discardableResult
+    func replaceSubscriptionURL(_ id: UUID, with urlString: String) -> Bool {
+        let trimmed = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, let index = subscriptions.firstIndex(where: { $0.id == id }),
+              subscriptions[index].sourceKind == .remoteURL,
+              subscriptions[index].originalURL != trimmed else { return false }
+        subscriptions[index].originalURL = trimmed
+        save()
+        return true
+    }
+
+    /// Adds share-link nodes into the chosen group and keeps test results already stored there.
+    /// shortcut: 网址订阅里手加的节点不在订阅正文里，下次更新可能按合并策略丢掉，要长期保留就加到分享链接组。
+    @discardableResult
+    func appendShareLinks(_ text: String, to id: UUID) throws -> ShareLinkAppendResult {
+        guard let index = subscriptions.firstIndex(where: { $0.id == id }) else { throw ShareLinkEditError.missingGroup }
+        let preview = NodeLinkParser.parseLines(text)
+        guard !preview.validNodes.isEmpty else { throw ShareLinkEditError.noValidNodes }
+        if subscriptions[index].sourceKind == .shareLinks {
+            return try appendShareLinkBundle(text, preview: preview, index: index)
+        }
+        return appendLooseNodes(preview, index: index)
+    }
+
+    private func appendShareLinkBundle(_ text: String, preview: ParseResult, index: Int) throws -> ShareLinkAppendResult {
+        let id = subscriptions[index].id
+        let existing = NodeLinkParser.extractShareLinks(from: subscriptions[index].shareLinksText ?? "")
+        var seen = Set(existing)
+        let known = Set(nodes.filter { $0.subscriptionID == id }.map { $0.nodeFingerprint ?? NodeFingerprint.make(from: $0) })
+        let novel = NodeLinkParser.extractShareLinks(from: text).filter { link in
+            guard seen.insert(link).inserted, let node = try? NodeLinkParser.parse(link) else { return false }
+            return !known.contains(NodeFingerprint.make(from: node))
+        }
+        guard !novel.isEmpty else { return ShareLinkAppendResult(added: 0, skipped: preview.invalidCount) }
+        let newText = (existing + novel).joined(separator: "\n")
+        let combined = try parsed(text: newText, data: Data(newText.utf8))
+        subscriptions[index].shareLinksText = newText
+        var policy = subscriptions[index]
+        policy.updateMode = .merge
+        let old = nodes.filter { $0.subscriptionID == id }
+        let before = Set(old.map(\.id))
+        let merged = IOSSubscriptionMerge.merge(
+            old: old, incoming: combined.validNodes, subscription: policy,
+            selectedID: selectedNodeID,
+            preserveSelected: status == .connected || status == .connecting || status == .reasserting
+        )
+        nodes.removeAll { $0.subscriptionID == id }
+        nodes.append(contentsOf: merged)
+        subscriptions[index].nodeCount = merged.filter { !IOSSubscriptionNotice.matches($0) && !$0.pendingRemoval }.count
+        subscriptions[index].lastSuccessAt = Date()
+        subscriptions[index].statusMessage = skipMessage(combined)
+        save()
+        let nodeIDs = merged.filter { !before.contains($0.id) && !IOSSubscriptionNotice.matches($0) && !$0.pendingRemoval }.map(\.id)
+        return ShareLinkAppendResult(added: novel.count, skipped: preview.invalidCount, nodeIDs: nodeIDs)
+    }
+
+    private func appendLooseNodes(_ preview: ParseResult, index: Int) -> ShareLinkAppendResult {
+        let subscription = subscriptions[index]
+        let prepared = IOSSubscriptionMerge.prepare(preview.validNodes, subscription: subscription)
+            .filter { !IOSSubscriptionNotice.matches($0) && !$0.pendingRemoval }
+        var seen = Set(nodes.filter { $0.subscriptionID == subscription.id }.map { $0.nodeFingerprint ?? NodeFingerprint.make(from: $0) })
+        let novel = prepared.filter { seen.insert($0.nodeFingerprint ?? NodeFingerprint.make(from: $0)).inserted }
+        guard !novel.isEmpty else { return ShareLinkAppendResult(added: 0, skipped: preview.invalidCount) }
+        nodes.append(contentsOf: novel)
+        subscriptions[index].nodeCount = nodes.filter { $0.subscriptionID == subscription.id && !IOSSubscriptionNotice.matches($0) && !$0.pendingRemoval }.count
+        subscriptions[index].lastSuccessAt = Date()
+        subscriptions[index].statusMessage = skipMessage(preview)
+        save()
+        return ShareLinkAppendResult(added: novel.count, skipped: preview.invalidCount, nodeIDs: novel.map(\.id))
+    }
+
+    func deleteSubscriptionNodes(_ ids: Set<UUID>, subscriptionID: UUID) {
+        let removing = ids
+        guard !removing.isEmpty else { return }
+        let victims = nodes.filter { $0.subscriptionID == subscriptionID && removing.contains($0.id) }
+        guard !victims.isEmpty else { return }
+        if let selectedNodeID, removing.contains(selectedNodeID) {
+            tunnel.stop()
+            self.selectedNodeID = nil
+        }
+        let fingerprints = Set(victims.map { $0.nodeFingerprint ?? NodeFingerprint.make(from: $0) })
+        nodes.removeAll { $0.subscriptionID == subscriptionID && removing.contains($0.id) }
+        guard let index = subscriptions.firstIndex(where: { $0.id == subscriptionID }) else {
+            save()
+            return
+        }
+        if subscriptions[index].sourceKind == .shareLinks {
+            let kept = NodeLinkParser.extractShareLinks(from: subscriptions[index].shareLinksText ?? "").filter { link in
+                guard let node = try? NodeLinkParser.parse(link) else { return true }
+                return !fingerprints.contains(NodeFingerprint.make(from: node))
+            }
+            subscriptions[index].shareLinksText = kept.joined(separator: "\n")
+        }
+        subscriptions[index].nodeCount = nodes.filter { $0.subscriptionID == subscriptionID && !IOSSubscriptionNotice.matches($0) && !$0.pendingRemoval }.count
+        save()
+    }
+
+    func connectTested(_ ids: [UUID]) async {
+        let allowed = Set(ids)
+        let pool = nodes.filter { allowed.contains($0.id) }
+        guard let node = IOSSettings.connectChoice(selected: selectedNode, in: pool) else {
+            showNotice("没有符合当前使用规则的节点")
+            return
+        }
+        if selectedNode?.id != node.id { select(node) }
+        await connect()
+    }
+
+    func refreshTestedSubscriptions(_ ids: [UUID]) async {
+        guard !ids.isEmpty else {
+            presentSubscriptions()
+            return
+        }
+        presentSubscriptions()
+        for id in ids {
+            await refreshSubscription(id)
+        }
+    }
+
+    func presentSubscriptions() {
+        subscriptionPageToken += 1
+    }
+
     func connect() async {
         guard let node = selectedNode else {
             showNotice("先选择一个节点")
             return
         }
+        guard IOSSettings.allowsUse(node) else {
+            showNotice("这个节点不在设置的使用范围内")
+            return
+        }
         isBusy = true
         connectionStarting = true
+        connectTimeoutTask?.cancel()
         defer { isBusy = false; connectionStarting = false }
         do {
             let config = try IOSSingBoxConfig.json(for: node)
@@ -295,6 +484,7 @@ final class IOSLibrary: ObservableObject {
             try await tunnel.start(config: config, server: node.server, name: node.displayTitle)
             apply(tunnel.status)
             clearNotice()
+            scheduleConnectTimeout(nodeID: node.id, title: node.displayTitle)
         } catch {
             showNotice(error.localizedDescription)
         }
@@ -303,6 +493,9 @@ final class IOSLibrary: ObservableObject {
     func disconnect() {
         nodeSwitchTask?.cancel()
         nodeSwitchTask = nil
+        connectTimeoutTask?.cancel()
+        connectTimeoutTask = nil
+        connectTimeoutSkipped = []
         exitTask?.cancel()
         exitTask = nil
         exitQuery = .idle
@@ -324,6 +517,7 @@ final class IOSLibrary: ObservableObject {
             guard let self, !Task.isCancelled, self.exitGeneration == generation, self.selectedNode?.id == nodeID, self.exitNodeID == nodeID, self.status != .connected else { return }
             if let result {
                 self.exitQuery = .found(result)
+                self.rememberExit(result, nodeID: nodeID)
             } else {
                 self.exitQuery = .failed
                 self.showNotice(failure ?? "穿过节点后没有拿到出口国家")
@@ -349,6 +543,11 @@ final class IOSLibrary: ObservableObject {
 
     private func apply(_ status: NEVPNStatus) {
         self.status = status
+        if status == .connected {
+            connectTimeoutTask?.cancel()
+            connectTimeoutTask = nil
+            connectTimeoutSkipped = []
+        }
         guard status == .connected else {
             exitTask?.cancel()
             exitTask = nil
@@ -360,11 +559,12 @@ final class IOSLibrary: ObservableObject {
         exitTask = Task { [weak self] in
             let result = await IOSExitLookup.fetch()
             guard let self, self.status == .connected else { return }
-            if let result {
+            if let result, !result.ip.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 self.exitQuery = .found(result)
+                if let nodeID = self.selectedNode?.id { self.rememberExit(result, nodeID: nodeID) }
             } else {
                 self.exitQuery = .failed
-                self.showNotice("穿过节点后没有拿到出口国家")
+                await self.switchAfterMissingExit()
             }
         }
     }
@@ -384,6 +584,7 @@ final class IOSLibrary: ObservableObject {
             guard let self, !Task.isCancelled, self.exitGeneration == generation, self.selectedNode?.id == nodeID, self.status != .connected else { return }
             if let result {
                 self.exitQuery = .found(result)
+                self.rememberExit(result, nodeID: nodeID)
             } else {
                 self.exitQuery = .failed
                 self.showNotice(failure ?? "测延迟时没有拿到出口国家")
@@ -408,9 +609,13 @@ final class IOSLibrary: ObservableObject {
         guard let id = selectedNode?.id, let index = nodes.firstIndex(where: { $0.id == id }) else { return }
         let node = nodes[index]
         nodes[index].lastTestStatus = .testing
-        let outcome = await IOSLatencyProbe.measure(node: node, throughTunnel: status == .connected)
-        await refreshLatencyExit()
-        applyProbeResult(nodeID: id, outcome: outcome, announce: true)
+        let (outcome, exit) = await IOSLatencyProbe.measure(node: node, throughTunnel: status == .connected)
+        if let exit {
+            exitQuery = .found(exit)
+        } else if case .latency = outcome {
+            await refreshLatencyExit()
+        }
+        applyProbeResult(nodeID: id, outcome: outcome, exit: exit, announce: true)
     }
 
     func startBatch(_ ids: [UUID]) {
@@ -422,6 +627,7 @@ final class IOSLibrary: ObservableObject {
         let allowed = Set(connectableNodes.map(\.id))
         let ids = ids.filter { allowed.contains($0) }
         guard batchTask == nil, !ids.isEmpty else { return }
+        batchPrompt = nil
         batchDone = 0
         batchTotal = ids.count
         batchTask = Task { [weak self] in
@@ -433,7 +639,7 @@ final class IOSLibrary: ObservableObject {
         batchTask?.cancel()
     }
 
-    func applyProbeResult(nodeID: UUID, outcome: IOSProbeOutcome, announce: Bool) {
+    func applyProbeResult(nodeID: UUID, outcome: IOSProbeOutcome, exit: IOSExitLookup.ExitIP? = nil, announce: Bool) {
         guard let index = nodes.firstIndex(where: { $0.id == nodeID }) else { return }
         nodes[index].lastTestDate = Date()
         switch outcome {
@@ -452,32 +658,94 @@ final class IOSLibrary: ObservableObject {
             nodes[index].lastTestErrorMessage = message
             if announce, lastError == nil { showNotice(message) }
         }
+        if let exit { rememberExit(exit, nodeID: nodeID) }
+        save()
+    }
+
+    private func scheduleConnectTimeout(nodeID: UUID, title: String) {
+        guard status != .connected else { return }
+        let seconds = IOSSettings.autoSelectTimeoutSeconds
+        connectTimeoutTask?.cancel()
+        connectTimeoutTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(seconds) * 1_000_000_000)
+            guard let self, !Task.isCancelled else { return }
+            self.switchAfterConnectTimeout(nodeID: nodeID, title: title, seconds: seconds)
+        }
+    }
+
+    private func switchAfterConnectTimeout(nodeID: UUID, title: String, seconds: Int) {
+        guard status != .connected, selectedNode?.id == nodeID else { return }
+        connectTimeoutTask = nil
+        connectTimeoutSkipped.insert(nodeID)
+        let pool = connectableNodes.filter { !connectTimeoutSkipped.contains($0.id) }
+        guard let next = IOSSettings.connectChoice(selected: nil, in: pool) else {
+            showNotice("\(title) 连接超过 \(seconds) 秒，没有可切换的节点")
+            disconnect()
+            return
+        }
+        select(next, notice: "\(title) 连接超过 \(seconds) 秒，已切换到 \(next.displayTitle)")
+    }
+
+    private func switchAfterMissingExit() async {
+        guard IOSSettings.useExitIPOnly, status == .connected, let current = selectedNode else {
+            showNotice("穿过节点后没有拿到出口国家")
+            return
+        }
+        clearExit(current.id)
+        guard let next = IOSSettings.nextConnectChoice(after: current.id, in: connectableNodes) else {
+            showNotice("\(current.displayTitle) 没有出口，没有可切换的节点")
+            disconnect()
+            return
+        }
+        select(next, notice: "\(current.displayTitle) 没有出口，已切换到 \(next.displayTitle)")
+    }
+
+    private func clearExit(_ nodeID: UUID) {
+        guard let index = nodes.firstIndex(where: { $0.id == nodeID }) else { return }
+        nodes[index].exitMetadata = nil
+        save()
+    }
+
+    private func rememberExit(_ exit: IOSExitLookup.ExitIP, nodeID: UUID) {
+        guard let index = nodes.firstIndex(where: { $0.id == nodeID }) else { return }
+        let ip = exit.ip.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !ip.isEmpty else { return }
+        nodes[index].exitMetadata = NodeExitMetadata(
+            ip: ip, city: exit.city, networkOperator: exit.networkOperator, asn: exit.asn,
+            countryCode: exit.countryCode
+        )
         save()
     }
 
     private func runBatch(_ ids: [UUID], urls: [String]) async {
+        var cancelled = false
         defer {
             batchTask = nil
             batchDone = 0
             batchTotal = 0
         }
         for id in ids {
-            if Task.isCancelled { break }
+            if Task.isCancelled { cancelled = true; break }
             guard let node = nodes.first(where: { $0.id == id }) else { continue }
             if let index = nodes.firstIndex(where: { $0.id == id }) {
                 nodes[index].lastTestStatus = .testing
             }
-            let outcome = await IOSLatencyProbe.measure(node: node, throughTunnel: false, batch: true, urls: urls)
+            let (outcome, exit) = await IOSLatencyProbe.measure(node: node, throughTunnel: false, batch: true, urls: urls)
             if Task.isCancelled {
                 if let index = nodes.firstIndex(where: { $0.id == id }) { nodes[index].lastTestStatus = node.lastTestStatus }
+                cancelled = true
                 break
             }
-            applyProbeResult(nodeID: id, outcome: outcome, announce: false)
+            applyProbeResult(nodeID: id, outcome: outcome, exit: exit, announce: false)
             batchDone += 1
-            if Task.isCancelled { break }
+            if Task.isCancelled { cancelled = true; break }
         }
-        let tally = IOSNodeTally.make(nodes.filter { ids.contains($0.id) })
-        showNotice("测试完成：\(tally.line)")
+        let tested = nodes.filter { ids.contains($0.id) }
+        if let prompt = IOSBatchPrompt.make(status: status, cancelled: cancelled, tested: tested, subscriptionOrder: subscriptions.map(\.id)) {
+            batchPrompt = prompt
+        } else if !cancelled {
+            showNotice("测试完成：\(IOSNodeTally.make(tested).line)")
+        }
     }
 
     private func parsed(text: String, data: Data) throws -> ParseResult {
@@ -495,9 +763,6 @@ final class IOSLibrary: ObservableObject {
         stored.nodeCount = imported.filter { !IOSSubscriptionNotice.matches($0) }.count
         subscriptions.insert(stored, at: 0)
         nodes.append(contentsOf: imported)
-        if selectedNodeID == nil {
-            selectedNodeID = imported.first { !IOSSubscriptionNotice.matches($0) }?.id
-        }
         clearNotice()
         save()
     }
@@ -506,7 +771,7 @@ final class IOSLibrary: ObservableObject {
         result.invalidCount > 0 ? "跳过 \(result.invalidCount) 条无效链接" : nil
     }
 
-    private func showNotice(_ message: String) {
+    func showNotice(_ message: String) {
         lastError = message
         noticeTask?.cancel()
         noticeTask = Task { [weak self] in
@@ -529,6 +794,7 @@ final class IOSLibrary: ObservableObject {
         nodes = file.nodes
         selectedNodeID = file.selectedNodeID
         if selectedNodeID != nil && selectedNode == nil { selectedNodeID = nil }
+        if selectedNode?.resolvedTestStatus == .untested { selectedNodeID = nil }
     }
 
     private func save() {

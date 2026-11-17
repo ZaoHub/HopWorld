@@ -12,11 +12,11 @@ enum IOSProbeOutcome: Equatable {
 
 enum IOSLatencyProbe {
     /// 已连接时经系统隧道打开测试目标。未连接时经节点的本地 HTTP 代理打开它。
-    static func measure(node: ProxyNode, throughTunnel: Bool, batch: Bool = false, urls: [String]? = nil) async -> IOSProbeOutcome {
+    static func measure(node: ProxyNode, throughTunnel: Bool, batch: Bool = false, urls: [String]? = nil) async -> (IOSProbeOutcome, IOSExitLookup.ExitIP?) {
         let urls = urls ?? IOSSettings.selectedTestURLs
-        guard !urls.isEmpty else { return .failed("请先在设置中选择测试目标") }
+        guard !urls.isEmpty else { return (.failed("请先在设置中选择测试目标"), nil) }
         if throughTunnel {
-            return await pages(urls: urls, session: .shared, timeout: TimeInterval(batch ? IOSSettings.batchTimeoutSeconds : IOSSettings.timeoutSeconds), attempts: 1)
+            return (await pages(urls: urls, session: .shared, timeout: TimeInterval(batch ? IOSSettings.batchTimeoutSeconds : IOSSettings.timeoutSeconds), attempts: 1), nil)
         }
         return await IOSExitProbe.measureHTTPS(node, urls: urls, batch: batch)
     }
@@ -25,24 +25,62 @@ enum IOSLatencyProbe {
         guard !urls.isEmpty else { return .failed("请先在设置中选择测试目标") }
         var results: [IOSProbeOutcome] = []
         for raw in urls {
-            guard let url = URL(string: raw) else { return .failed("测试地址无效") }
-            var outcome = IOSProbeOutcome.unavailable
-            for _ in 0..<attempts {
-                if Task.isCancelled { return .failed("测试已取消") }
-                var request = URLRequest(url: url)
-                request.timeoutInterval = timeout
-                let started = Date()
-                do {
-                    let (_, response) = try await IOSURL.load(request, session: session)
-                    if let http = response as? HTTPURLResponse, (200...399).contains(http.statusCode) {
-                        outcome = .latency(max(1, Int(Date().timeIntervalSince(started) * 1000)))
-                        break
-                    }
-                } catch { }
-            }
+            let outcome = await probe(IOSSettings.probeGroup(for: raw), session: session, timeout: timeout, attempts: attempts)
+            if case .failed = outcome { return outcome }
             results.append(outcome)
         }
         return combined(results)
+    }
+
+    /// App 服务器有 HTTP 响应即算到达。官网目标仍要求 2xx/3xx。
+    static func accepts(status: Int, anyHTTPStatus: Bool) -> Bool {
+        if anyHTTPStatus { return (100...599).contains(status) }
+        return (200...399).contains(status)
+    }
+
+    private static func probe(_ group: IOSSettings.ProbeGroup, session: URLSession, timeout: TimeInterval, attempts: Int) async -> IOSProbeOutcome {
+        if group.matchAny {
+            var outcome = IOSProbeOutcome.unavailable
+            for request in group.requests {
+                let one = await fetch(request, session: session, timeout: timeout, attempts: attempts)
+                if case .failed = one { return one }
+                if case .latency = one { return one }
+                outcome = one
+            }
+            return outcome
+        }
+        var results: [IOSProbeOutcome] = []
+        for request in group.requests {
+            let one = await fetch(request, session: session, timeout: timeout, attempts: attempts)
+            if case .failed = one { return one }
+            results.append(one)
+        }
+        return combined(results)
+    }
+
+    private static func fetch(_ request: IOSSettings.ProbeRequest, session: URLSession, timeout: TimeInterval, attempts: Int) async -> IOSProbeOutcome {
+        guard let url = URL(string: request.url) else { return .failed("测试地址无效") }
+        var outcome = IOSProbeOutcome.unavailable
+        for _ in 0..<attempts {
+            if Task.isCancelled { return .failed("测试已取消") }
+            var http = URLRequest(url: url)
+            http.timeoutInterval = timeout
+            let send = http
+            let started = Date()
+            do {
+                let body = try await within(timeout) {
+                    let (data, response) = try await IOSURL.load(send, session: session)
+                    return TimedBody(data: data, status: (response as? HTTPURLResponse)?.statusCode ?? -1)
+                }
+                if accepts(status: body.status, anyHTTPStatus: request.anyHTTPStatus) {
+                    outcome = .latency(max(1, Int(Date().timeIntervalSince(started) * 1000)))
+                    break
+                }
+            } catch is CancellationError {
+                return .failed("测试已取消")
+            } catch { }
+        }
+        return outcome
     }
 
     static func combined(_ results: [IOSProbeOutcome]) -> IOSProbeOutcome {
@@ -58,6 +96,25 @@ enum IOSLatencyProbe {
         return .latency(slowest)
     }
 
+    /// URLSession does not reliably stop a proxied request at `timeoutInterval`.
+    static func within<T: Sendable>(_ timeout: TimeInterval, _ operation: @escaping @Sendable () async throws -> T) async throws -> T {
+        try await withThrowingTaskGroup(of: T.self) { group in
+            group.addTask { try await operation() }
+            group.addTask {
+                try await Task.sleep(nanoseconds: UInt64(max(0, timeout) * 1_000_000_000))
+                throw URLError(.timedOut)
+            }
+            defer { group.cancelAll() }
+            guard let value = try await group.next() else { throw URLError(.timedOut) }
+            return value
+        }
+    }
+
+}
+
+private struct TimedBody: Sendable {
+    var data: Data
+    var status: Int
 }
 
 enum IOSExitQuery: Equatable {
@@ -79,24 +136,28 @@ enum IOSExitLookup {
     }
 
     /// Exit lookup through the local mixed proxy used by the tunnel and latency probe.
-    static func fetch() async -> ExitIP? {
-        await fetchThroughHTTPProxy(port: IOSSingBoxConfig.socksPort)
+    static func fetch(timeout: TimeInterval = 12) async -> ExitIP? {
+        await fetchThroughHTTPProxy(port: IOSSingBoxConfig.socksPort, timeout: timeout)
     }
 
     /// Selecting a node uses a separate local HTTP proxy.
-    static func fetchThroughHTTPProxy(port: Int = IOSSingBoxConfig.httpPort) async -> ExitIP? {
-        let session = httpProxySession(port: port)
+    static func fetchThroughHTTPProxy(port: Int = IOSSingBoxConfig.httpPort, timeout: TimeInterval = 12) async -> ExitIP? {
+        let session = httpProxySession(port: port, timeout: timeout)
         defer { session.invalidateAndCancel() }
         return await fetch(via: "http-proxy") { url in
             var request = URLRequest(url: url)
-            request.timeoutInterval = 12
+            request.timeoutInterval = timeout
+            let send = request
             do {
-                let (data, response) = try await IOSURL.load(request, session: session)
-                guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
-                    probeLog("http-proxy status \((response as? HTTPURLResponse)?.statusCode ?? -1)")
+                let body = try await IOSLatencyProbe.within(timeout) {
+                    let (data, response) = try await IOSURL.load(send, session: session)
+                    return TimedBody(data: data, status: (response as? HTTPURLResponse)?.statusCode ?? -1)
+                }
+                guard (200...299).contains(body.status) else {
+                    probeLog("http-proxy status \(body.status)")
                     return nil
                 }
-                return data
+                return body.data
             } catch {
                 probeLog("http-proxy \(error.localizedDescription)")
                 return nil
@@ -104,7 +165,7 @@ enum IOSExitLookup {
         }
     }
 
-    private static func fetch(via route: String, loader: (URL) async -> Data?) async -> ExitIP? {
+    private static func fetch(via route: String, loader: @escaping (URL) async -> Data?) async -> ExitIP? {
         let endpoints = [
             "https://api.ipquery.io/?format=json",
             "https://api.ip.sb/geoip",
@@ -114,7 +175,7 @@ enum IOSExitLookup {
         for raw in endpoints {
             guard let url = URL(string: raw) else { continue }
             if let data = await loader(url), var exit = parse(data) {
-                if exit.kind == nil { exit.kind = await attribute(forIP: exit.ip, loader: loader) }
+                if exit.kind == nil { exit.kind = await attribute(forIP: exit.ip, loaders: [loader, loader, directAttribute]) }
                 probeLog("ok \(route) \(raw) \(exit.countryCode ?? "-") \(exit.ip) \(exit.kind ?? "-")")
                 return exit
             }
@@ -123,16 +184,24 @@ enum IOSExitLookup {
         return nil
     }
 
-    private static func httpProxySession(port: Int = IOSSingBoxConfig.httpPort, timeout: TimeInterval = 12) -> URLSession {
+    static func httpProxySession(port: Int = IOSSingBoxConfig.httpPort, timeout: TimeInterval = 12) -> URLSession {
         let config = URLSessionConfiguration.ephemeral
-        config.connectionProxyDictionary = [
-            "HTTPEnable": 1,
-            "HTTPProxy": "127.0.0.1",
-            "HTTPPort": port,
-            "HTTPSEnable": 1,
-            "HTTPSProxy": "127.0.0.1",
-            "HTTPSPort": port
-        ]
+        // iOS 忽略 connectionProxyDictionary，探测会直连测试地址，节点就全部不可用。
+        if #available(iOS 17.0, *), let nwPort = NWEndpoint.Port(rawValue: UInt16(port)) {
+            var proxy = ProxyConfiguration(httpCONNECTProxy: .hostPort(host: "127.0.0.1", port: nwPort))
+            proxy.allowFailover = false
+            config.proxyConfigurations = [proxy]
+        } else {
+            // shortcut: iOS 16 及更早没有 proxyConfigurations，旧字典仍会被系统忽略。
+            config.connectionProxyDictionary = [
+                "HTTPEnable": 1,
+                "HTTPProxy": "127.0.0.1",
+                "HTTPPort": port,
+                "HTTPSEnable": 1,
+                "HTTPSProxy": "127.0.0.1",
+                "HTTPSPort": port
+            ]
+        }
         config.timeoutIntervalForRequest = timeout
         config.timeoutIntervalForResource = timeout
         return URLSession(configuration: config)
@@ -179,10 +248,11 @@ enum IOSExitLookup {
         return flags.allSatisfy { risk[$0] as? Bool == false } ? "家庭住宅·推测" : nil
     }
 
-    private static func attribute(forIP ip: String, loader: (URL) async -> Data?) async -> String? {
+    /// The IP is already known, so a direct lookup still describes that exit, not the device.
+    static func attribute(forIP ip: String, loaders: [(URL) async -> Data?]) async -> String? {
         guard ip.allSatisfy({ $0.isNumber || $0 == "." }),
               let url = URL(string: "https://api.ipquery.io/\(ip)?format=json") else { return nil }
-        for _ in 0..<2 {
+        for loader in loaders {
             if let data = await loader(url), let extra = parse(data), extra.ip == ip, let kind = extra.kind {
                 return kind
             }
@@ -190,12 +260,17 @@ enum IOSExitLookup {
         return nil
     }
 
+    private static func directAttribute(_ url: URL) async -> Data? {
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 8
+        return (try? await IOSURL.load(request))?.0
+    }
+
     /// Test all selected targets through the local proxy.
-    static func proxyMilliseconds(urls: [String], batch: Bool) async -> IOSProbeOutcome {
-        let timeout = TimeInterval(batch ? IOSSettings.batchTimeoutSeconds : IOSSettings.timeoutSeconds)
+    static func proxyMilliseconds(urls: [String], timeout: TimeInterval, attempts: Int) async -> IOSProbeOutcome {
         let session = httpProxySession(timeout: timeout)
         defer { session.invalidateAndCancel() }
-        return await IOSLatencyProbe.pages(urls: urls, session: session, timeout: timeout, attempts: batch ? 1 : 2)
+        return await IOSLatencyProbe.pages(urls: urls, session: session, timeout: timeout, attempts: attempts)
     }
 
 }
@@ -214,7 +289,7 @@ enum IOSExitProbe {
     }
 
     /// HTTPS round trip through the node's HTTP proxy. Not a direct TCP connect.
-    static func measureHTTPS(_ node: ProxyNode, urls: [String], batch: Bool = false) async -> IOSProbeOutcome {
+    static func measureHTTPS(_ node: ProxyNode, urls: [String], batch: Bool = false) async -> (IOSProbeOutcome, IOSExitLookup.ExitIP?) {
         #if canImport(Libbox)
         let probe = IOSLibboxProbe()
         ProbeSlot.shared.begin(probe)
@@ -222,7 +297,7 @@ enum IOSExitProbe {
         ProbeSlot.shared.end(probe)
         return result
         #else
-        return .failed("没有链入 sing-box，无法穿过节点查询")
+        return (.failed("没有链入 sing-box，无法穿过节点查询"), nil)
         #endif
     }
 
@@ -269,13 +344,16 @@ private final class IOSLibboxProbe: NSObject, LibboxPlatformInterfaceProtocol, L
     private var server: LibboxCommandServer?
     private var pathMonitor: NWPathMonitor?
 
-    func httpsMilliseconds(_ node: ProxyNode, urls: [String], batch: Bool) async -> IOSProbeOutcome {
+    func httpsMilliseconds(_ node: ProxyNode, urls: [String], batch: Bool) async -> (IOSProbeOutcome, IOSExitLookup.ExitIP?) {
         do {
             try start(IOSSingBoxConfig.probeJSON(for: node))
             await waitUntilListening(UInt16(IOSSingBoxConfig.httpPort))
-            return await IOSExitLookup.proxyMilliseconds(urls: urls, batch: batch)
+            let timeout = TimeInterval(batch ? IOSSettings.batchTimeoutSeconds : IOSSettings.timeoutSeconds)
+            let outcome = await IOSExitLookup.proxyMilliseconds(urls: urls, timeout: timeout, attempts: batch ? 1 : 2)
+            guard case .latency = outcome else { return (outcome, nil) }
+            return (outcome, await IOSExitLookup.fetchThroughHTTPProxy(timeout: timeout))
         } catch {
-            return .failed(error.localizedDescription)
+            return (.failed(error.localizedDescription), nil)
         }
     }
 
@@ -295,7 +373,7 @@ private final class IOSLibboxProbe: NSObject, LibboxPlatformInterfaceProtocol, L
         do {
             try start(IOSSingBoxConfig.latencyJSON(for: node))
             await waitUntilListening(UInt16(IOSSingBoxConfig.socksPort))
-            let result = await IOSExitLookup.fetch()
+            let result = await IOSExitLookup.fetch(timeout: TimeInterval(IOSSettings.timeoutSeconds))
             if result == nil { return (nil, "测延迟时没有拿到出口国家") }
             return (result, nil)
         } catch {
@@ -345,8 +423,8 @@ private final class IOSLibboxProbe: NSObject, LibboxPlatformInterfaceProtocol, L
         setup.commandServerSecret = UUID().uuidString
         setup.logMaxLines = 50
         setup.crashReportSource = "HopWorldIOSProbe"
-        setup.appVersion = "5"
-        setup.appMarketingVersion = "1.0.0"
+        setup.appVersion = "6"
+        setup.appMarketingVersion = "1.0.1"
         var setupError: NSError?
         guard LibboxSetup(setup, &setupError) else { throw setupError ?? probeFailure("sing-box 初始化失败") }
         var checkError: NSError?

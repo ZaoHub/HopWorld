@@ -27,8 +27,8 @@ final class IOSLibboxTunnel: NSObject, LibboxPlatformInterfaceProtocol, LibboxCo
         setup.commandServerSecret = UUID().uuidString
         setup.logMaxLines = 200
         setup.crashReportSource = "HopWorldIOS"
-        setup.appVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "5"
-        setup.appMarketingVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0.0"
+        setup.appVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "6"
+        setup.appMarketingVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0.1"
         var setupError: NSError?
         guard LibboxSetup(setup, &setupError) else {
             throw setupError ?? failure("sing-box 初始化失败")

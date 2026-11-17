@@ -41,7 +41,23 @@ enum IOSSingBoxConfig {
         return text
     }
 
+    /// 1.1.1.1 对部分节点域名返回 SERVFAIL。测试前改用系统 DNS 解析，TLS 仍用原来的 SNI。
+    static var resolveServer: (String) -> String? = IOSSystemDNS.resolve
+
+    static func usingResolvedServer(_ node: ProxyNode) -> ProxyNode {
+        let host = node.server.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !host.isEmpty, !IOSSystemDNS.isAddress(host),
+              let address = resolveServer(host), IOSSystemDNS.isAddress(address) else { return node }
+        var copy = node
+        if (copy.sni ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            copy.sni = host
+        }
+        copy.server = address
+        return copy
+    }
+
     static func document(for node: ProxyNode) throws -> [String: Any] {
+        let node = usingResolvedServer(node)
         guard !FinalMaskCodec.isPresent(on: node) else {
             throw ParserError.unsupportedOption("sing-box 1.14 不支持这条节点的 FinalMask")
         }
@@ -336,5 +352,43 @@ enum IOSSingBoxConfig {
             tls["reality"] = realityBlock
         }
         return tls
+    }
+}
+
+enum IOSSystemDNS {
+    static func isAddress(_ host: String) -> Bool {
+        var v4 = in_addr()
+        var v6 = in6_addr()
+        return host.withCString { inet_pton(AF_INET, $0, &v4) == 1 || inet_pton(AF_INET6, $0, &v6) == 1 }
+    }
+
+    static func resolve(_ host: String) -> String? {
+        var hints = addrinfo()
+        hints.ai_family = AF_UNSPEC
+        hints.ai_socktype = SOCK_STREAM
+        var info: UnsafeMutablePointer<addrinfo>?
+        guard getaddrinfo(host, nil, &hints, &info) == 0, let info else { return nil }
+        defer { freeaddrinfo(info) }
+        var ipv4: String?
+        var ipv6: String?
+        var cursor: UnsafeMutablePointer<addrinfo>? = info
+        while let item = cursor {
+            if item.pointee.ai_family == AF_INET, let addr = item.pointee.ai_addr {
+                var buffer = [CChar](repeating: 0, count: Int(INET_ADDRSTRLEN))
+                var sin = addr.withMemoryRebound(to: sockaddr_in.self, capacity: 1) { $0.pointee.sin_addr }
+                if inet_ntop(AF_INET, &sin, &buffer, socklen_t(INET_ADDRSTRLEN)) != nil {
+                    ipv4 = String(cString: buffer)
+                    break
+                }
+            } else if ipv6 == nil, item.pointee.ai_family == AF_INET6, let addr = item.pointee.ai_addr {
+                var buffer = [CChar](repeating: 0, count: Int(INET6_ADDRSTRLEN))
+                var sin = addr.withMemoryRebound(to: sockaddr_in6.self, capacity: 1) { $0.pointee.sin6_addr }
+                if inet_ntop(AF_INET6, &sin, &buffer, socklen_t(INET6_ADDRSTRLEN)) != nil {
+                    ipv6 = String(cString: buffer)
+                }
+            }
+            cursor = item.pointee.ai_next
+        }
+        return ipv4 ?? ipv6
     }
 }

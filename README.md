@@ -12,7 +12,7 @@ HopWorld 自有源码采用 [MIT License](LICENSE)。外部代理内核及规则
 
 **2.0** 增加 [软路由](#软路由)：另开一份核心，给同一局域网的手机和平板用。其它设备不必再装自己的代理 App，本机正在用的连接也不会被换掉。安装包：[Apple Silicon](https://github.com/ZaoHub/HopWorld/releases/download/v2.0.0/HopWorld-2026-11-12-arm64.dmg)、[Intel](https://github.com/ZaoHub/HopWorld/releases/download/v2.0.0/HopWorld-2026-11-12-x86_64.dmg)，说明见 [v2.0.0](https://github.com/ZaoHub/HopWorld/releases/tag/v2.0.0)。
 
-**iOS 1.0.0** 提供 [TrollStore 安装包](https://github.com/ZaoHub/HopWorld/releases/download/ios-v1.0.0/HopWorld-iOS-1.0.0-TrollStore.ipa)，校验文件在[同一发布页](https://github.com/ZaoHub/HopWorld/releases/tag/ios-v1.0.0)。主 App 与 VPN 扩展均为 1.0.0，最低目标为 iOS 13。说明见 [iOS 1.0.0](HopWorldIOS/RELEASE_NOTES_1.0.0.md)。这个安装包已通过真机架构构建、签名和完整性检查，尚未在手机上安装验证。
+**iOS 1.0.1** 提供 [TrollStore 安装包](https://github.com/ZaoHub/HopWorld/releases/download/ios-v1.0.1/HopWorld-iOS-1.0.1-TrollStore.ipa)，校验文件在[同一发布页](https://github.com/ZaoHub/HopWorld/releases/tag/ios-v1.0.1)。主 App 与 VPN 扩展均为 1.0.1，最低目标为 iOS 13。说明见 [iOS 1.0.1](HopWorldIOS/RELEASE_NOTES_1.0.1.md)。这个安装包已通过真机架构构建、签名和完整性检查，尚未在手机上安装验证。
 
 ## 产品主页
 
@@ -44,7 +44,7 @@ HopWorld 自有源码采用 [MIT License](LICENSE)。外部代理内核及规则
 - Xcode 15+
 - [XcodeGen](https://github.com/yonaskolb/XcodeGen)
 
-> 以下「启用系统 VPN」说明针对 macOS。iOS 安装方式见 [iOS 1.0.0 说明](HopWorldIOS/RELEASE_NOTES_1.0.0.md)。
+> 以下「启用系统 VPN」说明针对 macOS。iOS 安装方式见 [iOS 1.0.1 说明](HopWorldIOS/RELEASE_NOTES_1.0.1.md)。
 
 ## 从源码构建
 
