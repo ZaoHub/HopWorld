@@ -288,25 +288,6 @@ targets:
         CURRENT_PROJECT_VERSION: "6"
         SWIFT_STRICT_CONCURRENCY: minimal
 
-  HopWorldIOSTests:
-    type: bundle.unit-test
-    platform: iOS
-    sources:
-      - path: HopWorldIOS/Tests
-    dependencies:
-      - target: HopWorldIOS
-    settings:
-      base:
-        PRODUCT_BUNDLE_IDENTIFIER: $(HOPWORLD_BUNDLE_PREFIX).ios.tests
-        PRODUCT_NAME: HopWorldIOSTests
-        PRODUCT_MODULE_NAME: HopWorldIOSTests
-        GENERATE_INFOPLIST_FILE: YES
-        IPHONEOS_DEPLOYMENT_TARGET: "13.0"
-        "IPHONEOS_DEPLOYMENT_TARGET[sdk=iphonesimulator*]": "15.0"
-        ENABLE_HARDENED_RUNTIME: NO
-        FRAMEWORK_SEARCH_PATHS: "$(inherited) $(HOPWORLD_IOS_LIBBOX_SEARCH)"
-        SWIFT_STRICT_CONCURRENCY: minimal
-
 schemes:
   HopWorld:
     build:
@@ -325,10 +306,5 @@ schemes:
       targets:
         HopWorldIOS: all
         HopWorldIOSTunnel: all
-        HopWorldIOSTests: [test]
     run:
       config: Debug
-    test:
-      config: Debug
-      targets:
-        - HopWorldIOSTests

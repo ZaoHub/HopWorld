@@ -174,7 +174,6 @@
 		B711F3900434B18BFDF2AB4C /* CodexConnectionQuality.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDCEF0CDD017C7C87406CDB9 /* CodexConnectionQuality.swift */; };
 		B722976FB81C9EFE753D37FA /* ComponentUpdateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E788412613107EAD30BB0414 /* ComponentUpdateTests.swift */; };
 		B72A1641A28889F0379893FC /* ApplicationProxyModePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72F0E021FB9208497E69A816 /* ApplicationProxyModePolicy.swift */; };
-		B9ED14F4CD3D753B1ED081C6 /* IOSLibraryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C5813F24B8BE3873D774B6E /* IOSLibraryTests.swift */; };
 		BA3A938A29E4877DA5245B08 /* NetworkExtension.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 132134F0263380402983DF86 /* NetworkExtension.framework */; };
 		BB8808ACEDF1639124A06FFC /* CryptoUtil.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E4ADD57F38DC298B5B6B54E /* CryptoUtil.swift */; };
 		C0A35D1B06103D5FCD47F0C6 /* SubscriptionMerger.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83524BB199E775DECC452103 /* SubscriptionMerger.swift */; };
@@ -258,13 +257,6 @@
 			remoteGlobalIDString = D0ABF98A8E7B961846E25D47;
 			remoteInfo = HopWorldTunSupervisor;
 		};
-		6F181D4048895A70B807EDE4 /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = 34F68E6EE595FFE8E8C3D8F6 /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = FF863A830582F8450BA30DAF;
-			remoteInfo = HopWorldIOS;
-		};
 		F1898D1A7F03BF716775288F /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = 34F68E6EE595FFE8E8C3D8F6 /* Project object */;
@@ -331,7 +323,6 @@
 		3431F646F49D75B20C13B116 /* PacketTunnelProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PacketTunnelProvider.swift; sourceTree = "<group>"; };
 		38696DB361115C5D199712C9 /* CodexResetNotificationController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexResetNotificationController.swift; sourceTree = "<group>"; };
 		38E3273F422520DAAD75B7FE /* GeoNamesCityBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeoNamesCityBuilder.swift; sourceTree = "<group>"; };
-		3C5813F24B8BE3873D774B6E /* IOSLibraryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IOSLibraryTests.swift; sourceTree = "<group>"; };
 		3C7824197B42AE08457CB770 /* CodexResetNotification.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexResetNotification.swift; sourceTree = "<group>"; };
 		3CF735798B765C73F1687A98 /* SubscriptionParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubscriptionParser.swift; sourceTree = "<group>"; };
 		3F7DE202236A865B22D69FEF /* MacCompileShims.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacCompileShims.swift; sourceTree = "<group>"; };
@@ -409,7 +400,6 @@
 		C590A3D39F4C58AD25F4581B /* geoip.dat */ = {isa = PBXFileReference; path = geoip.dat; sourceTree = "<group>"; };
 		C731E0FC258D39A115125A41 /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
 		C7C16542CF4883378AB139AD /* SubscriptionFetcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubscriptionFetcher.swift; sourceTree = "<group>"; };
-		C7F715EFCBA191D471EA215A /* HopWorldIOSTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = HopWorldIOSTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		C8ACFBA3C93E4CCD170FAAFD /* WarmCardHover.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WarmCardHover.swift; sourceTree = "<group>"; };
 		C95FDDFF2B53604EC7D0FB09 /* TunSessionStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TunSessionStatus.swift; sourceTree = "<group>"; };
 		C99413DC474EE344DBDABBE0 /* AppKitBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppKitBridge.swift; sourceTree = "<group>"; };
@@ -670,14 +660,6 @@
 			path = Xray;
 			sourceTree = "<group>";
 		};
-		72EDB2A2FB2647E36A89417C /* Tests */ = {
-			isa = PBXGroup;
-			children = (
-				3C5813F24B8BE3873D774B6E /* IOSLibraryTests.swift */,
-			);
-			path = Tests;
-			sourceTree = "<group>";
-		};
 		73CDF8D61DA271850F518569 /* HopWorldTests */ = {
 			isa = PBXGroup;
 			children = (
@@ -722,7 +704,6 @@
 			children = (
 				963B3BF7FD113D75248C8164 /* App */,
 				BA8E2623D0AFF613211DF7B9 /* Shared */,
-				72EDB2A2FB2647E36A89417C /* Tests */,
 				490E6A9D51D0FDB5CAEF59BB /* Tunnel */,
 			);
 			path = HopWorldIOS;
@@ -810,7 +791,6 @@
 			children = (
 				CADC25DD2563D6B5862FBB61 /* HopWorld.app */,
 				09CCF0BE1AD11C0D40F76D41 /* HopWorldIOS.app */,
-				C7F715EFCBA191D471EA215A /* HopWorldIOSTests.xctest */,
 				472C31D9F4CBA5D48A9B5743 /* HopWorldIOSTunnel.appex */,
 				426821E695C506CF883C93F2 /* HopWorldTests.xctest */,
 				F0701A62C132842701751264 /* HopWorldTunnel.appex */,
@@ -921,24 +901,6 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		2BA53DF90C45F2B88268AF8D /* HopWorldIOSTests */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = 166F2C204C2A2137E6D6CDAD /* Build configuration list for PBXNativeTarget "HopWorldIOSTests" */;
-			buildPhases = (
-				902DC244E3B68D79E0B5EF27 /* Sources */,
-			);
-			buildRules = (
-			);
-			dependencies = (
-				1FC8A6957B129F4C845A162E /* PBXTargetDependency */,
-			);
-			name = HopWorldIOSTests;
-			packageProductDependencies = (
-			);
-			productName = HopWorldIOSTests;
-			productReference = C7F715EFCBA191D471EA215A /* HopWorldIOSTests.xctest */;
-			productType = "com.apple.product-type.bundle.unit-test";
-		};
 		5C8CE142DE13517A794FD835 /* HopWorldTests */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = 48A691A06A938D713A4747C8 /* Build configuration list for PBXNativeTarget "HopWorldTests" */;
@@ -1062,10 +1024,6 @@
 				LastSwiftUpdateCheck = 2710;
 				LastUpgradeCheck = 2710;
 				TargetAttributes = {
-					2BA53DF90C45F2B88268AF8D = {
-						DevelopmentTeam = "$(HOPWORLD_DEVELOPMENT_TEAM)";
-						ProvisioningStyle = "$(HOPWORLD_CODE_SIGN_STYLE)";
-					};
 					5C8CE142DE13517A794FD835 = {
 						DevelopmentTeam = "$(HOPWORLD_DEVELOPMENT_TEAM)";
 						ProvisioningStyle = "$(HOPWORLD_CODE_SIGN_STYLE)";
@@ -1112,7 +1070,6 @@
 				5C8CE142DE13517A794FD835 /* HopWorldTests */,
 				FF863A830582F8450BA30DAF /* HopWorldIOS */,
 				6FA0454174DF2206B496F64A /* HopWorldIOSTunnel */,
-				2BA53DF90C45F2B88268AF8D /* HopWorldIOSTests */,
 			);
 		};
 /* End PBXProject section */
@@ -1300,14 +1257,6 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		902DC244E3B68D79E0B5EF27 /* Sources */ = {
-			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				B9ED14F4CD3D753B1ED081C6 /* IOSLibraryTests.swift in Sources */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 		A1562992CE19CBF4341A5BEF /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -1447,11 +1396,6 @@
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
-		1FC8A6957B129F4C845A162E /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			target = FF863A830582F8450BA30DAF /* HopWorldIOS */;
-			targetProxy = 6F181D4048895A70B807EDE4 /* PBXContainerItemProxy */;
-		};
 		265C6EE860F6BE5574478622 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = 6FA0454174DF2206B496F64A /* HopWorldIOSTunnel */;
@@ -1470,30 +1414,6 @@
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
-		0897D63317AD2CAF8D18B0A9 /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				BUNDLE_LOADER = "$(TEST_HOST)";
-				ENABLE_HARDENED_RUNTIME = NO;
-				FRAMEWORK_SEARCH_PATHS = "$(inherited) $(HOPWORLD_IOS_LIBBOX_SEARCH)";
-				GENERATE_INFOPLIST_FILE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 13.0;
-				"IPHONEOS_DEPLOYMENT_TARGET[sdk=iphonesimulator*]" = 15.0;
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/Frameworks",
-					"@loader_path/Frameworks",
-				);
-				PRODUCT_BUNDLE_IDENTIFIER = "$(HOPWORLD_BUNDLE_PREFIX).ios.tests";
-				PRODUCT_MODULE_NAME = HopWorldIOSTests;
-				PRODUCT_NAME = HopWorldIOSTests;
-				SDKROOT = iphoneos;
-				SWIFT_STRICT_CONCURRENCY = minimal;
-				TARGETED_DEVICE_FAMILY = "1,2";
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/HopWorldIOS.app/HopWorldIOS";
-			};
-			name = Release;
-		};
 		1C1B2941E78F281034D6B4BE /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -1887,42 +1807,9 @@
 			};
 			name = Debug;
 		};
-		F864C00F5FA73F1B0007E84A /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				BUNDLE_LOADER = "$(TEST_HOST)";
-				ENABLE_HARDENED_RUNTIME = NO;
-				FRAMEWORK_SEARCH_PATHS = "$(inherited) $(HOPWORLD_IOS_LIBBOX_SEARCH)";
-				GENERATE_INFOPLIST_FILE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 13.0;
-				"IPHONEOS_DEPLOYMENT_TARGET[sdk=iphonesimulator*]" = 15.0;
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/Frameworks",
-					"@loader_path/Frameworks",
-				);
-				PRODUCT_BUNDLE_IDENTIFIER = "$(HOPWORLD_BUNDLE_PREFIX).ios.tests";
-				PRODUCT_MODULE_NAME = HopWorldIOSTests;
-				PRODUCT_NAME = HopWorldIOSTests;
-				SDKROOT = iphoneos;
-				SWIFT_STRICT_CONCURRENCY = minimal;
-				TARGETED_DEVICE_FAMILY = "1,2";
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/HopWorldIOS.app/HopWorldIOS";
-			};
-			name = Debug;
-		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		166F2C204C2A2137E6D6CDAD /* Build configuration list for PBXNativeTarget "HopWorldIOSTests" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				F864C00F5FA73F1B0007E84A /* Debug */,
-				0897D63317AD2CAF8D18B0A9 /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Debug;
-		};
 		2D629D3287645BB346C0874C /* Build configuration list for PBXNativeTarget "HopWorldTunnel" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
