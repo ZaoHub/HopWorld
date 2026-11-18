@@ -545,7 +545,10 @@ struct AppHealthSnapshot: Sendable {
 
 @MainActor
 final class NetworkHealthStore: ObservableObject {
-    @Published private(set) var records: [AppHealthRecord] = []
+    @Published private(set) var records: [AppHealthRecord] = [] {
+        didSet { rebuildRecordIndex() }
+    }
+    private var recordsByNodeAndContext: [String: [String: [AppHealthRecord]]] = [:]
     @Published private(set) var switches: [HealthSwitchRecord] = []
     @Published private(set) var checks: [ApplicationCheckRecord] = []
     @Published private(set) var persistenceError: String?
@@ -569,6 +572,7 @@ final class NetworkHealthStore: ObservableObject {
         do {
             let archive = try JSONDecoder().decode(Archive.self, from: Data(contentsOf: self.fileURL))
             records = Self.limitedRecords(archive.records)
+            rebuildRecordIndex()
             switches = Array(archive.switches.sorted { $0.date < $1.date }.suffix(Self.applicationCheckLimit))
             checks = Self.limitedChecks(archive.checks ?? [])
             if records.count != archive.records.count || switches.count != archive.switches.count
@@ -641,8 +645,16 @@ final class NetworkHealthStore: ObservableObject {
         }.reversed())
     }
 
+    private func rebuildRecordIndex() {
+        var grouped: [String: [String: [AppHealthRecord]]] = [:]
+        for record in records {
+            grouped[record.nodeKey, default: [:]][record.context, default: []].append(record)
+        }
+        recordsByNodeAndContext = grouped
+    }
+
     func snapshot(nodeKey: String, context: String, now: Date = Date(), diagnosticSince: Date? = nil) -> AppHealthSnapshot {
-        let stored = records.filter { $0.nodeKey == nodeKey && $0.context == context && $0.date <= now }
+        let stored = (recordsByNodeAndContext[nodeKey]?[context] ?? []).filter { $0.date <= now }
         let all = stored.filter { now.timeIntervalSince($0.date) <= Self.retention }
         let recent = all.filter { now.timeIntervalSince($0.date) <= 120 }
         let window = all.filter { now.timeIntervalSince($0.date) <= 15 * 60 }

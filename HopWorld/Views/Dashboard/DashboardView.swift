@@ -638,6 +638,7 @@ struct DashboardView: View {
 
 /// Fixed-height rows rendered only around the visible window; the hosting view cannot be lazy on its own.
 private struct QuickSwitchList<Content: View>: NSViewRepresentable {
+    @EnvironmentObject private var appState: AppState
     let rowCount: Int
     let rowHeight: CGFloat
     let verticalPadding: CGFloat
@@ -694,7 +695,10 @@ private struct QuickSwitchList<Content: View>: NSViewRepresentable {
         coordinator.rowHeight = rowHeight
         coordinator.verticalPadding = verticalPadding
         return Root(window: coordinator.window, rowCount: rowCount, rowHeight: rowHeight,
-                    verticalPadding: verticalPadding, content: content, environment: context.environment)
+                    verticalPadding: verticalPadding, content: content, appState: appState,
+                    colorScheme: context.environment.colorScheme, locale: context.environment.locale,
+                    layoutDirection: context.environment.layoutDirection,
+                    dynamicTypeSize: context.environment.dynamicTypeSize)
     }
 
     final class VisibleWindow: ObservableObject {
@@ -759,7 +763,11 @@ private struct QuickSwitchList<Content: View>: NSViewRepresentable {
         let rowHeight: CGFloat
         let verticalPadding: CGFloat
         let content: (Range<Int>) -> Content
-        let environment: EnvironmentValues
+        let appState: AppState
+        let colorScheme: ColorScheme
+        let locale: Locale
+        let layoutDirection: LayoutDirection
+        let dynamicTypeSize: DynamicTypeSize
 
         var body: some View {
             let range = window.range.clamped(to: 0..<rowCount)
@@ -768,7 +776,11 @@ private struct QuickSwitchList<Content: View>: NSViewRepresentable {
                 content(range)
                 Color.clear.frame(height: verticalPadding + CGFloat(rowCount - range.upperBound) * rowHeight)
             }
-            .environment(\.self, environment)
+            .environmentObject(appState)
+            .environment(\.colorScheme, colorScheme)
+            .environment(\.locale, locale)
+            .environment(\.layoutDirection, layoutDirection)
+            .environment(\.dynamicTypeSize, dynamicTypeSize)
         }
     }
 

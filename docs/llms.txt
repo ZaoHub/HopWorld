@@ -10,7 +10,7 @@
 - 平台：macOS 13.0+；iOS 13.0+
 - 技术栈：SwiftUI；macOS 代理内核 Xray、sing-box；iOS 内置 sing-box
 - 许可：自有源码 MIT；第三方内核遵循上游许可证
-- macOS 版本：v2.0.0（2026-11-12 DMG）
+- macOS 版本：v2.0.1（2026-11-18 DMG）
 - iOS 版本：1.0.1（2026-11-17 TrollStore IPA；尚未在手机上安装验证）
 - 开发者组织：ZaoHub
 
@@ -32,9 +32,9 @@ VLESS、VMess、Trojan、Shadowsocks、Hysteria2、MASQUE、TUIC、AnyTLS、Wire
 
 ## 下载
 
-- Apple Silicon DMG：https://github.com/ZaoHub/HopWorld/releases/download/v2.0.0/HopWorld-2026-11-12-arm64.dmg
-- Intel DMG：https://github.com/ZaoHub/HopWorld/releases/download/v2.0.0/HopWorld-2026-11-12-x86_64.dmg
-- macOS v2.0.0：https://github.com/ZaoHub/HopWorld/releases/tag/v2.0.0
+- Apple Silicon DMG：https://github.com/ZaoHub/HopWorld/releases/download/v2.0.1/HopWorld-2026-11-18-arm64.dmg
+- Intel DMG：https://github.com/ZaoHub/HopWorld/releases/download/v2.0.1/HopWorld-2026-11-18-x86_64.dmg
+- macOS v2.0.1：https://github.com/ZaoHub/HopWorld/releases/tag/v2.0.1
 - iOS TrollStore IPA：https://github.com/ZaoHub/HopWorld/releases/download/ios-v1.0.1/HopWorld-iOS-1.0.1-TrollStore.ipa
 - iOS 1.0.1 说明与 SHA-256：https://github.com/ZaoHub/HopWorld/releases/tag/ios-v1.0.1
 - macOS 安装包为 ad-hoc 签名，未做 Apple 公证。iOS 安装包为 ad-hoc 签名，供 TrollStore 安装

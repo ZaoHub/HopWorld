@@ -802,6 +802,39 @@ extension NetworkHealthTests {
 
 extension NetworkHealthTests {
     @MainActor
+    func testSnapshotIndexTracksContextsEvictionAndReload() async throws {
+        let file = temporaryURL()
+        defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
+        let now = Date()
+        let nodeID = UUID()
+        let store = NetworkHealthStore(fileURL: file)
+        let first = now.addingTimeInterval(-30)
+        store.record(event: .init(date: first, kind: .responseProgress), nodeKey: "A", context: "wifi", now: now, nodeID: nodeID)
+        store.record(event: .init(date: now.addingTimeInterval(1), kind: .responseProgress), nodeKey: "B", context: "wifi", now: now)
+        XCTAssertEqual(store.snapshot(nodeKey: "A", context: "wifi", now: now).diagnostic.lastResponseAt, first)
+        XCTAssertNil(store.snapshot(nodeKey: "A", context: "cellular", now: now).diagnostic.lastResponseAt)
+        XCTAssertNil(store.snapshot(nodeKey: "B", context: "wifi", now: now).diagnostic.lastResponseAt)
+        XCTAssertEqual(store.snapshot(nodeKey: "B", context: "wifi", now: now.addingTimeInterval(2)).diagnostic.lastResponseAt,
+                       now.addingTimeInterval(1))
+
+        // Retention is per node, so records in a different context can evict the old record.
+        for index in 0..<10 {
+            let date = now.addingTimeInterval(Double(index) - 20)
+            store.record(event: .init(date: date, kind: .responseProgress, observationID: "\(index)"),
+                         nodeKey: "A", context: "cellular", now: now, nodeID: nodeID)
+        }
+        XCTAssertNil(store.snapshot(nodeKey: "A", context: "wifi", now: now).diagnostic.lastResponseAt)
+        let expected = now.addingTimeInterval(-11)
+        XCTAssertEqual(store.snapshot(nodeKey: "A", context: "cellular", now: now).diagnostic.lastResponseAt, expected)
+        await store.flush()
+        let restored = NetworkHealthStore(fileURL: file)
+        XCTAssertNil(restored.snapshot(nodeKey: "A", context: "wifi", now: now).diagnostic.lastResponseAt)
+        XCTAssertEqual(restored.snapshot(nodeKey: "A", context: "cellular", now: now).diagnostic.lastResponseAt, expected)
+        XCTAssertEqual(restored.snapshot(nodeKey: "B", context: "wifi", now: now.addingTimeInterval(2)).diagnostic.lastResponseAt,
+                       now.addingTimeInterval(1))
+    }
+
+    @MainActor
     func testRetainedResponseRemainsVisibleAsHistoryWithoutCreditingCurrentHealth() {
         let file = temporaryURL()
         defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }

@@ -202,3 +202,17 @@ final class ComponentUpdatePreferenceTests: XCTestCase {
         XCTAssertEqual(restored.installVersion, "202610242205")
     }
 }
+
+final class AppReleaseCheckerTests: XCTestCase {
+    func testNewerVersionIsShownAndDownloadGoesToGitHubReleases() {
+        XCTAssertEqual(AppReleaseChecker.normalizedVersion("v2.1.0"), "2.1.0")
+        XCTAssertTrue(AppReleaseChecker.isNewer("v2.1.0", than: "2.0.0"))
+        XCTAssertFalse(AppReleaseChecker.isNewer("2.0.0", than: "2.0.0"))
+        XCTAssertFalse(AppReleaseChecker.isNewer("1.9.9", than: "2.0.0"))
+        XCTAssertFalse(AppReleaseChecker.isNewer("latest", than: "2.0.0"))
+        XCTAssertEqual(
+            AppReleaseChecker.releasesURL.absoluteString,
+            "https://github.com/ZaoHub/HopWorld/releases/latest"
+        )
+    }
+}

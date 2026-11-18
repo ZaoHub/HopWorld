@@ -218,6 +218,20 @@ final class ConnectionReliabilityTests: XCTestCase {
         XCTAssertFalse(SoftwareRouteGroups.includes(manual, selection: [chosen.uuidString]))
     }
 
+    func testSoftwareRouteEmptyListFollowsSubscriptionState() {
+        func notice(hasGroups: Bool = true, hasUpdated: Bool = false, hasNodes: Bool = false, hasTested: Bool = false) -> String {
+            SoftwareRouteEmptyList.resolve(
+                hasGroups: hasGroups, noneChecked: false, updating: false, testing: false, searchMiss: false,
+                hasUpdated: hasUpdated, hasNodes: hasNodes, hasTested: hasTested
+            ).text
+        }
+        XCTAssertEqual(notice(hasGroups: false), "请添加订阅组")
+        XCTAssertEqual(notice(), "请更新订阅组")
+        XCTAssertEqual(notice(hasUpdated: true, hasNodes: true), "点「测试」后，只显示测出时延的节点。")
+        XCTAssertEqual(notice(hasUpdated: true), "没有可用节点，请更新订阅组")
+        XCTAssertEqual(notice(hasUpdated: true, hasNodes: true, hasTested: true), "没有可用节点，请更换订阅组")
+    }
+
     func testSoftwareRouteRanksRoundTripWithoutTheNode() throws {
         let id = UUID()
         let rank = SoftwareRouteProbe.Rank(
@@ -243,6 +257,17 @@ final class ConnectionReliabilityTests: XCTestCase {
         XCTAssertNil(SoftwareRouteRestore.nodeID(saved: off.id.uuidString, nodes: nodes))
         XCTAssertNil(SoftwareRouteRestore.nodeID(saved: leaving.id.uuidString, nodes: nodes))
         XCTAssertNil(SoftwareRouteRestore.nodeID(saved: UUID().uuidString, nodes: nodes))
+    }
+
+    func testSoftwareRouteMenuReconnectsTheLastNodeThenTheRankedOne() {
+        let kept = ProxyNode(name: "kept", protocolType: .vless, server: "1.1.1.1", port: 443)
+        let ranked = ProxyNode(name: "ranked", protocolType: .vless, server: "1.1.1.1", port: 443)
+        let off = ProxyNode(name: "off", protocolType: .vless, server: "1.1.1.1", port: 443, enabled: false)
+        let nodes = [kept, ranked, off]
+        XCTAssertEqual(SoftwareRouteRestore.menuNode(current: kept.id, fallback: ranked.id, nodes: nodes), kept.id)
+        XCTAssertEqual(SoftwareRouteRestore.menuNode(current: off.id, fallback: ranked.id, nodes: nodes), ranked.id)
+        XCTAssertEqual(SoftwareRouteRestore.menuNode(current: nil, fallback: ranked.id, nodes: nodes), ranked.id)
+        XCTAssertNil(SoftwareRouteRestore.menuNode(current: nil, fallback: off.id, nodes: nodes))
     }
 
     func testSoftwareRouteLatencyFailoverPreferencesDefault() {

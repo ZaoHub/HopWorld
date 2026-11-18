@@ -6,39 +6,43 @@ struct TestProgressFloatingBar: View {
     @EnvironmentObject private var connection: ConnectionManager
 
     @EnvironmentObject private var testManager: NodeTestManager
+    @AppStorage("sidebar.showConnectionCard") private var showConnectionCard = true
 
     private var isBatchTesting: Bool {
         testManager.phase == .running || testManager.phase == .paused
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            if isBatchTesting {
-                batchTestingContent
+        let showsTestProgress = isBatchTesting || appState.appProbeBatch.isRunning || testManager.isProbingApps
+        if showConnectionCard || showsTestProgress {
+            VStack(alignment: .leading, spacing: 12) {
+                if isBatchTesting {
+                    batchTestingContent
+                }
+                if appState.appProbeBatch.isRunning {
+                    appProbeBatchContent
+                }
+                if testManager.isProbingApps {
+                    appProbeContent
+                }
+                if !showsTestProgress {
+                    liveLatencyContent
+                }
             }
-            if appState.appProbeBatch.isRunning {
-                appProbeBatchContent
+            .padding(12)
+            .background {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(.regularMaterial)
+                    .shadow(color: .black.opacity(0.12), radius: 8, y: 2)
             }
-            if testManager.isProbingApps {
-                appProbeContent
+            .overlay {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(Color.primary.opacity(0.08))
             }
-            if !isBatchTesting, !appState.appProbeBatch.isRunning, !testManager.isProbingApps {
-                liveLatencyContent
-            }
+            .padding(.horizontal, 10)
+            .padding(.bottom, 10)
+            .padding(.top, 4)
         }
-        .padding(12)
-        .background {
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(.regularMaterial)
-                .shadow(color: .black.opacity(0.12), radius: 8, y: 2)
-        }
-        .overlay {
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(Color.primary.opacity(0.08))
-        }
-        .padding(.horizontal, 10)
-        .padding(.bottom, 10)
-        .padding(.top, 4)
     }
 
     // MARK: - Batch test

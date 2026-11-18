@@ -2156,39 +2156,40 @@ private struct SoftwareRoutePanel: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(palette.bgBottom)
             Divider().overlay(palette.cardBorder.opacity(0.6))
-            ScrollView {
-                VStack(alignment: .leading, spacing: 12) {
-                    if router.phase == .connected {
-                        SoftwareRouteCollapsibleSection(
-                            title: "局域网代理地址",
-                            summary: addressSummary,
-                            expanded: $addressesExpanded,
-                            palette: palette
-                        ) {
-                            addressBlock
-                        } collapsedTrailing: {
-                            Button("复制") { copyAddresses() }
-                                .controlSize(.small)
-                                .disabled(shareLines.isEmpty && router.lanAddresses.isEmpty)
-                        } expandedTrailing: {
-                            Button("复制地址") { copyAddresses() }
-                                .controlSize(.small)
-                                .disabled(shareLines.isEmpty && router.lanAddresses.isEmpty)
-                        } expandedTitleAccessory: {
-                            PanelHelpButton(title: "在其它设备上设置", text: deviceSetupHelp)
-                                .fixedSize()
+            GeometryReader { geo in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 12) {
+                        if router.phase == .connected {
+                            SoftwareRouteCollapsibleSection(
+                                title: "局域网代理地址",
+                                summary: addressSummary,
+                                expanded: $addressesExpanded,
+                                palette: palette
+                            ) {
+                                addressBlock
+                            } collapsedTrailing: {
+                                Button("复制") { copyAddresses() }
+                                    .controlSize(.small)
+                                    .disabled(shareLines.isEmpty && router.lanAddresses.isEmpty)
+                            } expandedTrailing: {
+                                Button("复制地址") { copyAddresses() }
+                                    .controlSize(.small)
+                                    .disabled(shareLines.isEmpty && router.lanAddresses.isEmpty)
+                            } expandedTitleAccessory: {
+                                PanelHelpButton(title: "在其它设备上设置", text: deviceSetupHelp)
+                                    .fixedSize()
+                            }
                         }
-                    }
-                    settingsSection
-                    if !settingsExpanded, router.probeRunning || router.updateRunning {
+                        settingsSection
+                        routeActions
                         probeProgress
+                        TextField("搜索可用节点", text: $query)
+                            .textFieldStyle(.roundedBorder)
+                        nodeList
                     }
-                    TextField("搜索可用节点", text: $query)
-                        .textFieldStyle(.roundedBorder)
-                    nodeList
+                    .padding(16)
+                    .frame(maxWidth: .infinity, minHeight: geo.size.height, alignment: .top)
                 }
-                .padding(16)
-                .frame(maxWidth: .infinity, alignment: .leading)
             }
             Divider().overlay(palette.cardBorder.opacity(0.6))
             actionRow
@@ -2231,8 +2232,6 @@ private struct SoftwareRoutePanel: View {
             VStack(alignment: .leading, spacing: 12) {
                 connectivityChoices
                 subscriptionChoices
-                routeActions
-                probeProgress
             }
         } expandedTrailing: {
             HStack(alignment: .center, spacing: 8) {
@@ -2268,8 +2267,6 @@ private struct SoftwareRoutePanel: View {
         if router.latencyFailoverEnabled {
             parts.append("延时换线 \(router.latencyFailoverMaxSeconds)s")
         }
-        if router.testScheduleEnabled { parts.append("测 \(router.testIntervalMinutes)分") }
-        if router.updateScheduleEnabled { parts.append("更 \(router.updateIntervalHours)时") }
         let text = parts.joined(separator: " · ")
         return text.isEmpty ? "点击展开" : text
     }
@@ -2391,14 +2388,13 @@ private struct SoftwareRoutePanel: View {
                     set: { router.setTestSchedule(enabled: $0) }
                 ))
                 .toggleStyle(.checkbox)
-                .disabled(!editingSettings)
                 Stepper(value: Binding(
                     get: { router.testIntervalMinutes },
                     set: { router.setTestInterval(minutes: $0) }
                 ), in: 1...1440) {
                     Text("每 \(router.testIntervalMinutes) 分钟")
                 }
-                .disabled(!editingSettings || !router.testScheduleEnabled)
+                .disabled(!router.testScheduleEnabled)
                 Spacer(minLength: 8)
                 Button(router.probeRunning ? "停止" : "测试") {
                     if router.probeRunning {
@@ -2415,22 +2411,17 @@ private struct SoftwareRoutePanel: View {
                     set: { router.setUpdateSchedule(enabled: $0) }
                 ))
                 .toggleStyle(.checkbox)
-                .disabled(!editingSettings)
                 Stepper(value: Binding(
                     get: { router.updateIntervalHours },
                     set: { router.setUpdateInterval(hours: $0) }
                 ), in: 1...168) {
                     Text("每 \(router.updateIntervalHours) 小时")
                 }
-                .disabled(!editingSettings || !router.updateScheduleEnabled)
+                .disabled(!router.updateScheduleEnabled)
                 Spacer(minLength: 8)
                 Button("更新") { appState.updateSoftwareRouteSubscriptions() }
                     .disabled(!canUpdateGroups || router.probeRunning || router.updateRunning)
             }
-            Text("定时测试按分钟测连通，定时更新按小时拉取订阅。打开后从现在起算，不改主应用的定时。")
-                .font(.system(size: 11))
-                .foregroundStyle(palette.subtext)
-                .fixedSize(horizontal: false, vertical: true)
         }
         .controlSize(.small)
     }
@@ -2481,11 +2472,6 @@ private struct SoftwareRoutePanel: View {
                 total: router.probeTotal,
                 label: "软路由连通测试进度"
             )
-        } else {
-            Text("点「测试」后，只显示测出时延的节点。")
-                .font(.system(size: 11))
-                .foregroundStyle(palette.subtext)
-                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -2569,23 +2555,20 @@ private struct SoftwareRoutePanel: View {
             }
             .font(.system(size: 11, weight: .semibold))
             .foregroundStyle(palette.subtext)
-            ScrollView {
-                VStack(alignment: .leading, spacing: 4) {
-                    if candidates.isEmpty {
-                        Text(candidateEmptyText)
-                            .font(.system(size: 12))
-                            .foregroundStyle(palette.subtext)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.vertical, 8)
-                    } else {
-                        ForEach(candidates) { node in
-                            nodeRow(node)
-                        }
-                    }
+            if candidates.isEmpty {
+                Text(candidateEmptyText)
+                    .font(.system(size: 12))
+                    .foregroundStyle(palette.subtext)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+                    .padding(.vertical, 8)
+            } else {
+                ForEach(candidates) { node in
+                    nodeRow(node)
                 }
             }
-            .frame(height: 220)
         }
+        .frame(maxWidth: .infinity, maxHeight: candidates.isEmpty ? .infinity : nil, alignment: .top)
     }
 
     private func nodeRow(_ node: ProxyNode) -> some View {
@@ -2721,17 +2704,22 @@ private struct SoftwareRoutePanel: View {
     }
 
     private var candidateEmptyText: String {
-        if appState.nodes.isEmpty { return "还没有节点" }
-        if router.selectedGroupIDs?.isEmpty == true { return "请勾选订阅组" }
-        if router.updateRunning { return "正在更新订阅" }
-        if router.probeRunning { return "正在测试，测出时延的节点会陆续出现" }
-        if router.probeCompleted == 0 && router.ranks.isEmpty {
-            return "点「测试」后只显示有时延的节点"
-        }
-        if query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return "没有测出时延的节点"
-        }
-        return "没有匹配的可用节点"
+        let selection = router.selectedGroupIDs
+        let included = appState.nodes.filter { SoftwareRouteGroups.includes($0, selection: selection) }
+        let subs = appState.subscriptions.filter { selection?.contains($0.id.uuidString) ?? true }
+        let needle = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        let hasLatency = included.contains { router.ranks[$0.id]?.latencyMs != nil }
+        let hasTested = !router.probeRunning && router.probeTotal > 0 && router.probeCompleted >= router.probeTotal
+        return SoftwareRouteEmptyList.resolve(
+            hasGroups: !groupOptions.isEmpty,
+            noneChecked: selection?.isEmpty == true,
+            updating: router.updateRunning,
+            testing: router.probeRunning,
+            searchMiss: !needle.isEmpty && hasLatency,
+            hasUpdated: subs.contains { $0.lastSuccessAt != nil },
+            hasNodes: !included.isEmpty,
+            hasTested: hasTested
+        ).text
     }
 
     private var deviceSetupHelp: String {
@@ -3526,6 +3514,8 @@ struct SettingsView: View {
     @State private var pendingImportPassphrase = ""
     @State private var showReplaceImportConfirm = false
     @Environment(\.colorScheme) private var colorScheme
+    @AppStorage("sidebar.showConnectionCard") private var showConnectionCard = true
+    @AppStorage("sidebar.showUsageCard") private var showUsageCard = true
 
     private var palette: SetPalette { SetPalette(scheme: colorScheme) }
 
@@ -3534,6 +3524,13 @@ struct SettingsView: View {
             LazyVStack(spacing: 12) {
                 settingsHeader
                 themeSettings
+                SetCard(title: "侧栏卡片", icon: "sidebar.left", palette: palette) {
+                    Toggle("显示连接状态卡片", isOn: $showConnectionCard)
+                    Toggle("显示用量卡片", isOn: $showUsageCard)
+                    Text("开关立即生效并自动保存。测速和应用连通测试期间仍会显示进度。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
                 SetCard(title: "中文地名", icon: "globe.asia.australia", palette: palette) {
                     ChineseCityLibrarySettings(
                         showChinese: Binding(

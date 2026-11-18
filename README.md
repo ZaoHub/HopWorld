@@ -10,7 +10,7 @@ HopWorld 自有源码采用 [MIT License](LICENSE)。外部代理内核及规则
 
 根据 `macOS_Xray_可视化代理客户端_开发文档_V1.0.md` 实现首版核心能力：订阅导入、日期型 URL、节点分类、测速、按国家一键连接、系统代理模式。
 
-**2.0** 增加 [软路由](#软路由)：另开一份核心，给同一局域网的手机和平板用。其它设备不必再装自己的代理 App，本机正在用的连接也不会被换掉。安装包：[Apple Silicon](https://github.com/ZaoHub/HopWorld/releases/download/v2.0.0/HopWorld-2026-11-12-arm64.dmg)、[Intel](https://github.com/ZaoHub/HopWorld/releases/download/v2.0.0/HopWorld-2026-11-12-x86_64.dmg)，说明见 [v2.0.0](https://github.com/ZaoHub/HopWorld/releases/tag/v2.0.0)。
+**2.0** 起增加 [软路由](#软路由)：另开一份核心，给同一局域网的手机和平板用。其它设备不必再装自己的代理 App，本机正在用的连接也不会被换掉。当前安装包：[Apple Silicon](https://github.com/ZaoHub/HopWorld/releases/download/v2.0.1/HopWorld-2026-11-18-arm64.dmg)、[Intel](https://github.com/ZaoHub/HopWorld/releases/download/v2.0.1/HopWorld-2026-11-18-x86_64.dmg)，说明见 [v2.0.1](https://github.com/ZaoHub/HopWorld/releases/tag/v2.0.1)。
 
 **iOS 1.0.1** 提供 [TrollStore 安装包](https://github.com/ZaoHub/HopWorld/releases/download/ios-v1.0.1/HopWorld-iOS-1.0.1-TrollStore.ipa)，校验文件在[同一发布页](https://github.com/ZaoHub/HopWorld/releases/tag/ios-v1.0.1)。主 App 与 VPN 扩展均为 1.0.1，最低目标为 iOS 13。说明见 [iOS 1.0.1](HopWorldIOS/RELEASE_NOTES_1.0.1.md)。这个安装包已通过真机架构构建、签名和完整性检查，尚未在手机上安装验证。
 
@@ -138,8 +138,8 @@ Mac 和手机、平板要在同一个局域网，通常是同一个 Wi-Fi。
 
 1. 打开 **路由**，点时间下方的 **软路由**。
 2. 展开 **策略与订阅**，点 **编辑**。勾选要测的连通目标，再勾选订阅组。已经禁用的组也能勾选，只给软路由用。
-3. 想测完自动连上排第一的节点，勾上 **自动优选**。转发中要按延时换线，打开 **延时换线**，再设超过多少秒、在前几个节点里切换。定时测试按分钟，定时更新订阅按小时。点 **完成**。这些定时不改主应用自己的定时。
-4. 点 **测试**。只有测出时延的节点会出现在列表里。选一个，点 **连接此节点**。开了自动优选时，测试结束后会自己连上排第一的节点。
+3. 想测完自动连上排第一的节点，勾上 **自动优选**。转发中要按延时换线，打开 **延时换线**，再设超过多少秒、在前几个节点里切换。点 **完成**。
+4. **策略与订阅** 下方可以直接定时测试、定时更新，也可以点 **测试** / **更新**。定时测试按分钟，定时更新订阅按小时，不改主应用自己的定时。只有测出时延的节点会出现在列表里。选一个，点 **连接此节点**。开了自动优选时，测试结束后会自己连上排第一的节点。
 5. 状态变成「正在转发」后，展开 **局域网代理地址**。有多条地址时，选和手机同一网段的那条。HTTP 端口是 `17890`，SOCKS5 是 `17891`。可以点 **复制**。
 6. 在其它设备上把系统代理设为手动：服务器填这台 Mac 的局域网 IP，端口填 `17890`，认证关掉。不需要用户名和密码，也不需要再装代理 App。
    - iPhone：设置 → 无线局域网 → 当前网络右侧 ⓘ → 配置代理 → 手动

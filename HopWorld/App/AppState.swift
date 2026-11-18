@@ -243,6 +243,9 @@ final class AppState: ObservableObject {
     private var softwareRouteProbeTask: Task<Void, Never>?
     private var softwareRouteProbeGeneration = 0
     private var softwareRouteMaintenanceRunning = false
+    private var softwareRouteManualUpdateWaiting = false
+    private var softwareRouteManualTestWaiting = false
+    private var softwareRouteManualWaitTask: Task<Void, Never>?
     private var softwareRouteFailoverCycleRunning = false
     let subscriptionManager = SubscriptionManager()
     let testManager = NodeTestManager()
@@ -333,7 +336,8 @@ final class AppState: ObservableObject {
         if recoveryNodeOrder.isEmpty || nodeID.map({ !recoveryNodeOrder.contains($0) }) == true {
             recoveryNodeOrder = automaticallyRankedNodes(connectionScopedNodes, preservingNodeID: nodeID).map(\.id)
         }
-        for node in ranked where !recoveryNodeOrder.contains(node.id) { recoveryNodeOrder.append(node.id) }
+        var known = Set(recoveryNodeOrder)
+        for node in ranked where known.insert(node.id).inserted { recoveryNodeOrder.append(node.id) }
         let eligible = Dictionary(uniqueKeysWithValues: ranked.map { ($0.id, $0) })
         return ApplicationHealthFailoverPolicy.orderedCandidates(in: recoveryNodeOrder, after: nodeID,
             excluding: recoveryAttemptedIDs).compactMap { eligible[$0] }
@@ -1874,6 +1878,11 @@ final class AppState: ObservableObject {
         .sink { [weak self] _ in self?.objectWillChange.send() }
         .store(in: &cancellables)
 
+        softwareRouter.$phase
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.objectWillChange.send() }
+            .store(in: &cancellables)
+
         Publishers.CombineLatest4(testManager.$phase, testManager.$isTesting,
                                   testManager.$appProbePhase, testManager.$showFinishedAlert)
             .removeDuplicates { old, new in
@@ -2264,9 +2273,12 @@ final class AppState: ObservableObject {
             merged.suppressedUnavailableFingerprints = current.suppressedUnavailableFingerprints
             merged.smartMergeMissingLimit = current.smartMergeMissingLimit
             merged.nextUpdateAt = subscriptionManager.computeNextUpdateAt(for: merged)
-            if !quiet {
-                subscriptions[index] = merged
+            if quiet {
+                merged.nextUpdateAt = current.nextUpdateAt
+                merged.nextRetryAt = current.nextRetryAt
+                merged.updateFailureCount = current.updateFailureCount
             }
+            subscriptions[index] = merged
             nodes = committed
             if !quiet {
                 updateLogs.insert(log, at: 0)
@@ -3495,12 +3507,23 @@ final class AppState: ObservableObject {
 
     /// Pulls the checked subscriptions, then optionally runs the software-route probe.
     /// Does not change subscription schedules or start the main latency test.
+    /// A click during a main-app update or test waits and runs after that work finishes.
     func updateSoftwareRouteSubscriptions() {
-        Task { await runSoftwareRouteMaintenance(testAfter: false) }
+        Task { await runSoftwareRouteUpdateIfMainIsFree() }
+    }
+
+    private func runSoftwareRouteUpdateIfMainIsFree() async {
+        guard !isTerminating else { return }
+        if mainAppBlocksSoftwareRouteSchedule {
+            softwareRouteManualUpdateWaiting = true
+            noteSoftwareRouteWaitingForMainApp()
+            resumeSoftwareRouteManualWhenReady()
+            return
+        }
+        _ = await runSoftwareRouteMaintenance(testAfter: false)
     }
 
     private func runSoftwareRouteScheduleIfDue(now: Date) async {
-        guard !softwareRouteMaintenanceRunning, !softwareRouter.probeRunning, !softwareRouter.updateRunning else { return }
         let updateDue = SoftwareRouteSchedule.isDue(
             now: now,
             enabled: softwareRouter.updateScheduleEnabled,
@@ -3514,17 +3537,35 @@ final class AppState: ObservableObject {
             lastRun: softwareRouter.lastTestRun
         )
         guard updateDue || testDue else { return }
-        if updateDue {
-            softwareRouter.markUpdateRan(now)
-            await runSoftwareRouteMaintenance(testAfter: false)
+        if mainAppBlocksSoftwareRouteSchedule { return }
+        if softwareRouteMaintenanceRunning || softwareRouter.probeRunning || softwareRouter.updateRunning {
+            logger.info("软路由定时已到，上一次更新或测试还在进行", category: .network)
+            return
         }
-        guard testDue, !isTerminating, !softwareRouter.probeRunning else { return }
-        softwareRouter.markTestRan(now)
+        if updateDue {
+            logger.info("软路由定时更新触发：间隔 \(softwareRouter.updateIntervalHours) 小时", category: .subscription)
+            if await runSoftwareRouteMaintenance(testAfter: false) {
+                softwareRouter.markUpdateRan(Date())
+            }
+        }
+        guard testDue, !isTerminating, !softwareRouter.probeRunning, !mainAppBlocksSoftwareRouteSchedule else { return }
+        logger.info("软路由定时测试触发：间隔 \(softwareRouter.testIntervalMinutes) 分钟", category: .test)
+        softwareRouter.markTestRan(Date())
         refreshSoftwareRouteCandidates()
     }
 
-    private func runSoftwareRouteMaintenance(testAfter: Bool) async {
-        guard !isTerminating, !softwareRouteMaintenanceRunning, !softwareRouter.probeRunning else { return }
+    /// Main-app subscription updates and node/app tests finish before soft-route update or test work starts.
+    private var mainAppBlocksSoftwareRouteSchedule: Bool {
+        subscriptionRefreshInProgress
+            || isRefreshingAllSubscriptions
+            || scheduledTestRunning
+            || testManager.isTesting
+            || testManager.isProbingApps
+            || appProbeBatch.isRunning
+    }
+
+    private func runSoftwareRouteMaintenance(testAfter: Bool) async -> Bool {
+        guard !isTerminating, !softwareRouteMaintenanceRunning, !softwareRouter.probeRunning else { return false }
         softwareRouteMaintenanceRunning = true
         defer { softwareRouteMaintenanceRunning = false }
         let ids = softwareRouteSubscriptionIDs()
@@ -3537,13 +3578,43 @@ final class AppState: ObservableObject {
             }
             softwareRouter.finishUpdate()
         }
-        guard testAfter, !isTerminating else { return }
+        guard testAfter, !isTerminating else { return true }
         await runSoftwareRouteProbeNow()
+        return true
     }
 
     /// Status line shows the subscription group before the node name.
     func softwareRouteForwardTitle(_ node: ProxyNode) -> String {
         "\(node.groupName(subscriptions: subscriptions)) · \(settings.nodeDisplayTitle(node))"
+    }
+
+    var softwareRouteMenuTitle: String {
+        switch softwareRouter.phase {
+        case .connected, .connecting: return "断开软路由"
+        case .idle, .failed: return "连接软路由"
+        }
+    }
+
+    /// Menu toggle. Connects the last soft-route node, or the best ranked one. The main connection stays put.
+    func toggleSoftwareRoute() async {
+        if softwareRouter.phase == .connected || softwareRouter.phase == .connecting {
+            await softwareRouter.stop()
+            return
+        }
+        guard let node = softwareRouteMenuNode() else {
+            statusBanner = "请先在路由页测试出可用的软路由节点"
+            return
+        }
+        let avoid: Set<Int> = [settings.httpPort, settings.socksPort, XrayConfigBuilder.apiPort]
+        await softwareRouter.start(node: node, title: softwareRouteForwardTitle(node), avoidingPorts: avoid)
+    }
+
+    private func softwareRouteMenuNode() -> ProxyNode? {
+        let fallback = rankedSoftwareRouteNodes(limit: 1).first?.id
+        guard let id = SoftwareRouteRestore.menuNode(current: softwareRouter.nodeID, fallback: fallback, nodes: nodes) else {
+            return nil
+        }
+        return nodes.first { $0.id == id }
     }
 
     /// Starts the soft route's own last node. A disconnected main app does not block it.
@@ -3578,11 +3649,59 @@ final class AppState: ObservableObject {
 
     /// Tests every node in the software router's checked groups. A disabled subscription still counts.
     /// Does not write settings, subscription flags, or node probe fields.
+    /// A click during a main-app update or test waits and runs after that work finishes.
     func refreshSoftwareRouteCandidates() {
         guard !isTerminating else { return }
+        if mainAppBlocksSoftwareRouteSchedule {
+            softwareRouteManualTestWaiting = true
+            noteSoftwareRouteWaitingForMainApp()
+            resumeSoftwareRouteManualWhenReady()
+            return
+        }
+        beginSoftwareRouteProbe()
+    }
+
+    private func beginSoftwareRouteProbe() {
         softwareRouteProbeTask?.cancel()
         softwareRouteProbeTask = Task { [weak self] in
             await self?.runSoftwareRouteProbeNow()
+        }
+    }
+
+    private func noteSoftwareRouteWaitingForMainApp() {
+        let message = "主应用正在更新或测试，软路由将在其后开始"
+        if statusBanner != message { statusBanner = message }
+    }
+
+    private func resumeSoftwareRouteManualWhenReady() {
+        guard softwareRouteManualWaitTask == nil else { return }
+        softwareRouteManualWaitTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer { self.softwareRouteManualWaitTask = nil }
+            while !self.isTerminating {
+                while !self.isTerminating, self.mainAppBlocksSoftwareRouteSchedule {
+                    try? await Task.sleep(nanoseconds: 1_000_000_000)
+                }
+                guard !self.isTerminating else { return }
+                let runUpdate = self.softwareRouteManualUpdateWaiting
+                let runTest = self.softwareRouteManualTestWaiting
+                self.softwareRouteManualUpdateWaiting = false
+                self.softwareRouteManualTestWaiting = false
+                if !runUpdate, !runTest { return }
+                if runUpdate {
+                    let started = await self.runSoftwareRouteMaintenance(testAfter: false)
+                    if !started, !self.isTerminating { self.softwareRouteManualUpdateWaiting = true }
+                }
+                if self.softwareRouteManualTestWaiting || runTest {
+                    if self.mainAppBlocksSoftwareRouteSchedule || self.isTerminating {
+                        self.softwareRouteManualTestWaiting = true
+                    } else {
+                        self.softwareRouteManualTestWaiting = false
+                        self.beginSoftwareRouteProbe()
+                    }
+                }
+                if !self.softwareRouteManualUpdateWaiting, !self.softwareRouteManualTestWaiting { return }
+            }
         }
     }
 
@@ -3620,9 +3739,16 @@ final class AppState: ObservableObject {
     }
 
     private func runSoftwareRouteProbe(_ targets: [ProxyNode], token: Int) async {
+        var finished = false
+        defer {
+            if !finished, token == softwareRouteProbeGeneration {
+                softwareRouter.cancelProbe()
+            }
+        }
         guard !targets.isEmpty else {
             guard token == softwareRouteProbeGeneration else { return }
             softwareRouter.finishProbe(ranks: [:])
+            finished = true
             return
         }
         var ranks: [UUID: SoftwareRouteProbe.Rank] = [:]
@@ -3649,6 +3775,7 @@ final class AppState: ObservableObject {
         }
         guard token == softwareRouteProbeGeneration else { return }
         softwareRouter.finishProbe(ranks: ranks)
+        finished = true
         let opened = ranks.values.filter { SoftwareRouteProbe.passes($0.passedIDs, targets: softwareRouter.selectedTargets) }.count
         logger.info("软路由连通测试完成：\(opened)/\(targets.count) 个节点可打开\(softwareRouter.selectionSummary)。主设置未改动", category: .test)
         await applySoftwareRouteAutoSelectIfNeeded()
@@ -3799,7 +3926,7 @@ final class AppState: ObservableObject {
         softwareRouteFailoverCycleRunning = true
         defer { softwareRouteFailoverCycleRunning = false }
         softwareRouter.resetFailoverRotation()
-        await runSoftwareRouteMaintenance(testAfter: true)
+        _ = await runSoftwareRouteMaintenance(testAfter: true)
         guard !isTerminating else { return }
         if softwareRouter.autoSelect {
             await applySoftwareRouteAutoSelectIfNeeded()
@@ -4448,11 +4575,13 @@ final class AppState: ObservableObject {
     private func startScheduler() {
         startBackgroundActivityIfNeeded()
         schedulerTimer?.invalidate()
-        schedulerTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
+        let timer = Timer(timeInterval: 30, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 await self?.schedulerTick()
             }
         }
+        RunLoop.main.add(timer, forMode: .common)
+        schedulerTimer = timer
         Task { await schedulerTick() }
     }
 

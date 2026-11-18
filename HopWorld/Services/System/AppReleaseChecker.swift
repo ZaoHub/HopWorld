@@ -1,30 +1,52 @@
 import Foundation
 
-/// 从 GitHub Releases 检查跃界应用是否有更新（仅检测，不安装）。
+/// 从 GitHub Releases 检查跃界应用是否有更新（仅检测应用，不安装、不查组件）。
 @MainActor
 final class AppReleaseChecker: ObservableObject {
     static let repository = "ZaoHub/HopWorld"
-    static let homepageURL = URL(string: "https://zaohub.github.io/HopWorld/")!
+    nonisolated static let releasesURL = URL(string: "https://github.com/ZaoHub/HopWorld/releases/latest")!
 
     @Published private(set) var newerVersion: String?
+    @Published private(set) var notice: String?
+    @Published private(set) var isChecking = false
 
     private var didCheck = false
 
     func checkIfNeeded(currentVersion: String) async {
         guard !didCheck else { return }
-        guard await LabUtilityProcess.allowInternet(userInitiated: false) else { return }
         didCheck = true
+        await performCheck(currentVersion: currentVersion, userInitiated: false)
+    }
+
+    func check(currentVersion: String) async {
+        await performCheck(currentVersion: currentVersion, userInitiated: true)
+    }
+
+    private func performCheck(currentVersion: String, userInitiated: Bool) async {
+        guard !isChecking else { return }
+        isChecking = true
+        defer { isChecking = false }
+        if userInitiated { notice = nil }
+        guard await LabUtilityProcess.allowInternet(userInitiated: userInitiated) else {
+            if userInitiated { notice = "当前无网络" }
+            return
+        }
         do {
             let remote = try await Self.fetchLatestVersion()
             if Self.isNewer(remote, than: currentVersion) {
                 newerVersion = remote
+                notice = nil
+            } else {
+                newerVersion = nil
+                if userInitiated { notice = "已是最新" }
             }
         } catch {
-            // 关于页静默失败：网络或 API 不可用时不打扰。
+            // 打开关于页时静默失败；只有点「检测更新」才提示。
+            if userInitiated { notice = "检测失败" }
         }
     }
 
-    static func normalizedVersion(_ tag: String) -> String {
+    nonisolated static func normalizedVersion(_ tag: String) -> String {
         let trimmed = tag.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.first == "v" || trimmed.first == "V" {
             return String(trimmed.dropFirst())
@@ -32,7 +54,7 @@ final class AppReleaseChecker: ObservableObject {
         return trimmed
     }
 
-    static func isNewer(_ candidate: String, than current: String) -> Bool {
+    nonisolated static func isNewer(_ candidate: String, than current: String) -> Bool {
         guard let remote = XrayInstaller.versionParts(normalizedVersion(candidate)),
               let local = XrayInstaller.versionParts(normalizedVersion(current)) else {
             return false

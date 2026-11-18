@@ -38,6 +38,11 @@ struct HopWorldApp: App {
         .defaultSize(width: 1100, height: 720)
         .commands {
             CommandGroup(replacing: .newItem) {}
+            CommandGroup(after: .appInfo) {
+                Button(appState.softwareRouteMenuTitle) {
+                    Task { await appState.toggleSoftwareRoute() }
+                }
+            }
         }
 
         Settings {

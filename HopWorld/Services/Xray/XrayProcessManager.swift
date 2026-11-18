@@ -594,12 +594,66 @@ enum SoftwareRouteGroups {
     }
 }
 
+/// Empty soft-route list. Order is add, update, test, then change groups when a finished test has nothing usable.
+enum SoftwareRouteEmptyList: Equatable {
+    case addGroups
+    case checkGroups
+    case updating
+    case testing
+    case updateGroups
+    case testForLatency
+    case updateAgain
+    case changeGroups
+    case noSearchMatch
+
+    var text: String {
+        switch self {
+        case .addGroups: return "请添加订阅组"
+        case .checkGroups: return "请勾选订阅组"
+        case .updating: return "正在更新订阅"
+        case .testing: return "正在测试，测出时延的节点会陆续出现"
+        case .updateGroups: return "请更新订阅组"
+        case .testForLatency: return "点「测试」后，只显示测出时延的节点。"
+        case .updateAgain: return "没有可用节点，请更新订阅组"
+        case .changeGroups: return "没有可用节点，请更换订阅组"
+        case .noSearchMatch: return "没有匹配的可用节点"
+        }
+    }
+
+    static func resolve(
+        hasGroups: Bool,
+        noneChecked: Bool,
+        updating: Bool,
+        testing: Bool,
+        searchMiss: Bool,
+        hasUpdated: Bool,
+        hasNodes: Bool,
+        hasTested: Bool
+    ) -> SoftwareRouteEmptyList {
+        if updating { return .updating }
+        if testing { return .testing }
+        if searchMiss { return .noSearchMatch }
+        if !hasGroups { return .addGroups }
+        if noneChecked { return .checkGroups }
+        if !hasUpdated && !hasNodes { return .updateGroups }
+        if hasNodes && !hasTested { return .testForLatency }
+        if hasTested { return .changeGroups }
+        return .updateAgain
+    }
+}
+
 /// The soft route restarts its own last node. The main connection is not consulted.
 enum SoftwareRouteRestore {
     static func nodeID(saved: String?, nodes: [ProxyNode]) -> UUID? {
         guard let saved, let id = UUID(uuidString: saved) else { return nil }
         guard let node = nodes.first(where: { $0.id == id }), node.enabled, !node.pendingRemoval else { return nil }
         return id
+    }
+
+    /// Menu connect uses the node that was just on, then the best ranked node.
+    static func menuNode(current: UUID?, fallback: UUID?, nodes: [ProxyNode]) -> UUID? {
+        if let current, nodeID(saved: current.uuidString, nodes: nodes) != nil { return current }
+        return nodeID(saved: fallback?.uuidString, nodes: nodes)
     }
 }
 
@@ -810,6 +864,17 @@ final class SoftwareRouter: ObservableObject {
         testScheduleEnabled = intervals.testOn
         testIntervalMinutes = intervals.testMinutes
         lastTestRun = intervals.testLast
+        // An enabled timer with no start time would never become due.
+        var healedClock = false
+        if updateScheduleEnabled, lastUpdateRun == nil {
+            lastUpdateRun = Date()
+            healedClock = true
+        }
+        if testScheduleEnabled, lastTestRun == nil {
+            lastTestRun = Date()
+            healedClock = true
+        }
+        if healedClock { storeIntervals() }
         let storedRanks = SoftwareRoutePreferences.loadRanks()
         ranks = storedRanks
         passedNodeIDs = Self.passedIDs(in: storedRanks, targets: selectedTargets)

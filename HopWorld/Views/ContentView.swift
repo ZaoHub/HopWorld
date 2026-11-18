@@ -3,6 +3,7 @@ import AppKit
 
 struct ContentView: View {
     @EnvironmentObject private var appState: AppState
+    @AppStorage("sidebar.showUsageCard") private var showUsageCard = true
     @State private var isConnectionPanelPresented = false
     @State private var selectedConnectionLogIDs: Set<UUID> = []
     @State private var showsHistoricalConnectionLogs = false
@@ -42,8 +43,10 @@ struct ContentView: View {
                         ScrollView(.vertical) {
                             VStack(spacing: 0) {
                                 TestProgressFloatingBar()
-                                CodexUsageCard(statisticsHeight: max(360, geometry.size.height - 24),
-                                               monitor: appState.codexUsageMonitor)
+                                if showUsageCard {
+                                    CodexUsageCard(statisticsHeight: max(360, geometry.size.height - 24),
+                                                   monitor: appState.codexUsageMonitor)
+                                }
                             }
                             .fixedSize(horizontal: false, vertical: true)
                             .frame(maxWidth: .infinity)

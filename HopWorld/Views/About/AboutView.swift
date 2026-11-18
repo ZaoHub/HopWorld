@@ -59,13 +59,24 @@ struct AboutView: View {
                 Text("应用版本 \(appVersion)")
                     .foregroundStyle(.secondary)
                 if let newer = appReleaseChecker.newerVersion {
-                    Link(destination: AppReleaseChecker.homepageURL) {
-                        Text("（GitHub）\(newer)")
+                    Link(destination: AppReleaseChecker.releasesURL) {
+                        Text(newer)
                             .fontWeight(.medium)
                     }
-                    .help("打开产品主页查看 GitHub 新版本 \(newer)")
-                    .accessibilityLabel("GitHub 新版本 \(newer)，打开产品主页")
+                    .help("前往 GitHub 下载 \(newer)")
+                    .accessibilityLabel("新版本 \(newer)，前往 GitHub 下载")
+                } else if let notice = appReleaseChecker.notice {
+                    Text(notice)
+                        .foregroundStyle(.secondary)
                 }
+                Button(appReleaseChecker.isChecking ? "检测中" : "检测更新") {
+                    Task { await appReleaseChecker.check(currentVersion: appVersion) }
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .disabled(appReleaseChecker.isChecking)
+                .help("只检测跃界应用是否有新版本，不检查组件")
+                .accessibilityLabel("检测应用更新")
             }
             .font(.callout)
             .lineLimit(1)
